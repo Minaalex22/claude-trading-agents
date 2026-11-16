@@ -217,6 +217,30 @@ drawdown limit that halts new risk.
 **Paper mode only.** Prices are simulated, or real with `MARKET=live`, but fills are always paper. No real
 orders are ever sent.
 
+## Real money: the approval desk and the bridge
+
+Off by default, and every step needs you. Nothing in the cloud app holds broker passwords or talks to the broker.
+
+1. **The desk proposes.** With `MARKET=live` and all three of `LIVE_MAX_ORDER_USD`, `LIVE_MAX_DAY_USD` and
+   `LIVE_SYMBOLS` set, shard 0 turns each paper order in those symbols into a small proposal: whole shares up to
+   the per-order limit, buys within the day's limit, sells only of shares the real account holds (no shorting),
+   one open order per symbol (`trading/live_orders.py`).
+2. **You approve.** Each proposal waits on the dashboard for 5 minutes. Approving needs a fresh code from your
+   authenticator app, so two-step login (`DASHBOARD_TOTP_SECRET`) must be on, and `BRIDGE_TOKEN` (32+ random
+   characters) must be set. An approved order not collected within 5 minutes expires.
+3. **The bridge places it** (`trading/bridge.py`). It runs on your own computer next to moomoo's OpenD app and
+   only reaches out: it asks the app for approved orders with `BRIDGE_TOKEN`, re-checks its **own** copy of the
+   limits (so a hacked app still can't make it place a bigger order), places a limit order 0.3% through the
+   price, and reports the result and the account's positions back. Without `BRIDGE_REAL_MONEY=I-ACCEPT-THE-RISK`
+   it trades moomoo's paper account. A `KILL` file next to it stops it.
+
+Why moomoo: it serves Australian residents, its OpenAPI places US-stock orders from Python through OpenD, and
+JARVIS already reads its paper account. **Polymarket is blocked in Australia** (ACMA, August 2025) and Kalshi
+doesn't accept Australian residents, so there is no prediction-market connector for real money.
+
+**Before real money:** the backtest above shows the agents roughly flat on real prices after costs. Run the bridge
+on moomoo's paper account first, keep the limits small, and expect to lose what you put in.
+
 ## 3D cluster view and agent slider
 
 Open **http://127.0.0.1:8080/3d**:

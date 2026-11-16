@@ -30,17 +30,20 @@ Configured with environment variables so the same image runs as any shard:
   COACH_MODEL   Claude model for the coach (default claude-opus-5-5)
   SIGNAL_THRESHOLD  how strong the desk's combined call must be to hold a position (default 0.5)
   MIN_TRADE     smallest rebalance in dollars the desk will send (default 5000)
+  LIVE_MAX_ORDER_USD, LIVE_MAX_DAY_USD, LIVE_SYMBOLS  real-money mirror (shard 0, MARKET=live): each desk
+                order in LIVE_SYMBOLS becomes a capped proposal the owner approves (trading/live_orders.py)
   FEE_BPS       paper broker cost per fill in basis points (default 1; the backtest adds slippage)
   MODE          only "paper" is implemented
 """
 
+import json
 import os
 import signal
 import sys
 import time
 from pathlib import Path
 
-from . import academy, memory
+from . import academy, live_orders, memory
 from .coach import make_coach
 from . import config as ats_config
 from . import control
@@ -118,6 +121,15 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
                 hour_ticks=hour_ticks, room=room, reviews=env.get("REVIEWS", "on") != "off", coach=make_coach(env))
     desk.signal_threshold = float(env.get("SIGNAL_THRESHOLD", desk.signal_threshold))
     desk.min_trade = float(env.get("MIN_TRADE", desk.min_trade))
+    limits_live = live_orders.Limits(env)
+    if live_market and events_dir and shard_id == 0 and limits_live.on and market is None:
+        # Real-money mirror: shard 0's orders become small proposals the owner approves on the dashboard.
+        def mirror(symbol, qty, price, why):
+            order = live_orders.propose(Path(events_dir), symbol, "buy" if qty > 0 else "sell", price,
+                                        json.dumps(why, default=str)[:300], limits_live)
+            if order:
+                log.emit("live_proposal", **{k: order[k] for k in ("id", "symbol", "side", "qty", "price")})
+        desk.on_order = mirror
     memory_dir = env.get("MEMORY_DIR") or events_dir
     memory_path = (Path(memory_dir) / f"memory-{shard_id}.json"
                    if memory_dir and env.get("MEMORY", "on").lower() not in ("off", "0", "false", "no") else None)

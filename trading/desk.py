@@ -34,6 +34,7 @@ class Desk:
         self.alpha = alpha
         self.signal_threshold = SIGNAL_THRESHOLD
         self.min_trade = MIN_TRADE  # dollars: smaller rebalances aren't worth their cost
+        self.on_order = None  # called with (symbol, qty, price, why) after each paper fill (real-money mirror)
         self.ticks = 0
         self.news_view: dict[str, float] = {}  # per symbol, last tick's analysts' news read
         self.last_prices: dict[str, float] = {}
@@ -140,9 +141,11 @@ class Desk:
                 self.broker.fill(symbol, qty, prices[symbol])
                 self.journal.fill(symbol, before, qty, prices[symbol], self.ticks)
                 orders += 1
+                why = hooks.why(votes[symbol], views.get(symbol), exposure)
                 self.log.emit("order", symbol=symbol, qty=round(qty, 4), price=round(prices[symbol], 4),
-                              score=round(score, 3), why=hooks.why(votes[symbol], views.get(symbol), exposure),
-                              checks=notes)
+                              score=round(score, 3), why=why, checks=notes)
+                if self.on_order:
+                    self.on_order(symbol, qty, prices[symbol], why)
 
         advice = self.coach.take_advice() if self.coach else None
         if advice:
