@@ -12,7 +12,8 @@ from .managers import Managers
 from .org import manager_reports, summarize
 from .risk import RiskManager
 
-SIGNAL_THRESHOLD = 0.15
+SIGNAL_THRESHOLD = 0.5  # tuned on real 2024-25 hourly prices; weaker calls cost more than they earned
+MIN_TRADE = 5000.0
 LEADERBOARD_EVERY = 20
 ORG_EVERY = 5  # how often the managers report their departments
 MACRO_WEIGHT = 0.3  # how far the analysts' read of the news tilts the desk's call
@@ -31,6 +32,8 @@ class Desk:
         self.beta = beta
         # Brain Alpha learns how far to trust each trader style ("trend" / "reversion").
         self.alpha = alpha
+        self.signal_threshold = SIGNAL_THRESHOLD
+        self.min_trade = MIN_TRADE  # dollars: smaller rebalances aren't worth their cost
         self.ticks = 0
         self.news_view: dict[str, float] = {}  # per symbol, last tick's analysts' news read
         self.last_prices: dict[str, float] = {}
@@ -106,23 +109,23 @@ class Desk:
             if symbol not in votes:
                 continue
             score = self._score(votes[symbol]) * exposure
-            if abs(score) < SIGNAL_THRESHOLD:
+            if abs(score) < self.signal_threshold:
                 score = 0.0
             if self.risk.killed:
                 score = 0.0  # kill switch: close everything
             target_value = score * self.risk.limits.max_position_value
             desired = target_value / prices[symbol] - self.broker.position(symbol)
-            if abs(desired * prices[symbol]) < 100 and not (self.risk.killed and self.broker.position(symbol)):
+            if abs(desired * prices[symbol]) < self.min_trade and not (self.risk.killed and self.broker.position(symbol)):
                 continue  # ignore tiny rebalances
             check = hooks.OrderCheck(symbol, desired, self.broker.position(symbol), prices[symbol],
                                      view=views.get(symbol), paused=symbol in self.managers.paused,
                                      streak=self.journal.streak(symbol))
             desired, notes = hooks.run_hooks(check)
             if notes:
-                self.checks["blocked" if abs(desired * prices[symbol]) < 100 else "shrunk"] += 1
+                self.checks["blocked" if abs(desired * prices[symbol]) < self.min_trade else "shrunk"] += 1
                 self.log.emit("check", symbol=symbol, wanted=round(check.qty, 4), allowed=round(desired, 4),
                               notes=notes)
-            if abs(desired * prices[symbol]) < 100 and not (self.risk.killed and desired):
+            if abs(desired * prices[symbol]) < self.min_trade and not (self.risk.killed and desired):
                 continue
             qty, reason = self.risk.approve(symbol, desired, prices)
             if reason:

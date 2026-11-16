@@ -28,6 +28,9 @@ Configured with environment variables so the same image runs as any shard:
                 MEMORY_DIR is set). Saved to MEMORY_DIR (default EVENTS_DIR)/memory-<shard>.json.
   COACH         "off" keeps the hourly Claude coach off even with ANTHROPIC_API_KEY set
   COACH_MODEL   Claude model for the coach (default claude-opus-5-5)
+  SIGNAL_THRESHOLD  how strong the desk's combined call must be to hold a position (default 0.5)
+  MIN_TRADE     smallest rebalance in dollars the desk will send (default 5000)
+  FEE_BPS       paper broker cost per fill in basis points (default 1; the backtest adds slippage)
   MODE          only "paper" is implemented
 """
 
@@ -83,7 +86,8 @@ def _save(desk: Desk, path: Path, log: EventLog) -> None:
         log.emit("memory", saved=False, error=str(e)[:200])
 
 
-def run(env=os.environ, stream=None) -> Desk:
+def run(env=os.environ, stream=None, market=None) -> Desk:
+    """Run a shard. `market` replaces the price feed (the backtest passes its historical bars)."""
     from .ring import require_paper
 
     require_paper(env.get("MODE", "paper"))
@@ -101,7 +105,7 @@ def run(env=os.environ, stream=None) -> Desk:
 
     agents = shard_agents(agent_count, symbols, shard_id, shard_count, seed)
     log = EventLog(shard_id, Path(events_dir) / f"events-{shard_id}.jsonl" if events_dir else None, stream)
-    broker = PaperBroker()
+    broker = PaperBroker(fee_bps=float(env.get("FEE_BPS", 1.0)))
     interval = env.get("LEARNING_INTERVAL_SECONDS")
     alpha = BrainAlpha(["trend", "reversion"], float(interval) if interval else cfg.beta.learning_interval_seconds,
                        cfg.beta.learning_enabled)
@@ -112,6 +116,8 @@ def run(env=os.environ, stream=None) -> Desk:
     risk = RiskManager(limits, broker, kill_path=Path(events_dir) / "KILL" if events_dir else None)
     desk = Desk(agents, broker, risk, log, beta=BrainBeta(cfg), alpha=alpha,
                 hour_ticks=hour_ticks, room=room, reviews=env.get("REVIEWS", "on") != "off", coach=make_coach(env))
+    desk.signal_threshold = float(env.get("SIGNAL_THRESHOLD", desk.signal_threshold))
+    desk.min_trade = float(env.get("MIN_TRADE", desk.min_trade))
     memory_dir = env.get("MEMORY_DIR") or events_dir
     memory_path = (Path(memory_dir) / f"memory-{shard_id}.json"
                    if memory_dir and env.get("MEMORY", "on").lower() not in ("off", "0", "false", "no") else None)
@@ -119,7 +125,9 @@ def run(env=os.environ, stream=None) -> Desk:
     desk.memory = {"remembered": remembered, "saved_tick": None, "on": memory_path is not None}
     # Every shard sees the same market (same seed), but trades its own agents.
     live = live_market
-    if live:
+    if market is not None:
+        news = None  # a replay of past prices: past headlines aren't available
+    elif live:
         from .live_market import LiveMarket  # real prices, paper money: orders still go to the paper broker
         market = LiveMarket(symbols, poll_seconds=float(env.get("LIVE_POLL_SECONDS", 15)))
         # The simulated wire hints at the simulator's hidden drift, which real prices don't have: read real news.
@@ -137,7 +145,7 @@ def run(env=os.environ, stream=None) -> Desk:
         departments[a.department] = departments.get(a.department, 0) + 1
     log.emit("start", agents=len(agents), total_agents=agent_count, shard_count=shard_count,
              roles=roles, departments=departments, symbols=symbols, mode="paper",
-             market="live" if live else "simulated", config_version=cfg.version,
+             market="history" if env.get("MARKET") == "history" else "live" if live else "simulated", config_version=cfg.version,
              learning_interval_seconds=alpha.interval, school=academy.summarize(agents),
              remembered=remembered, coach=desk.coach is not None)
 

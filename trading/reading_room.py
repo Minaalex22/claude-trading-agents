@@ -58,7 +58,7 @@ MARKET_WORDS = {
     "downgrade": -0.5, "cut guidance": -0.7, "lower forecast": -0.6, "lawsuit": -0.4, "sue": -0.4,
     "probe": -0.4, "investigation": -0.4, "recall": -0.4, "hack": -0.7, "layoff": -0.3, "bankruptcy": -0.9,
     "ban": -0.5, "outflow": -0.4, "bearish": -0.4, "selloff": -0.5, "sell-off": -0.5, "crash": -0.8,
-    "fraud": -0.8,
+    "fraud": -0.8, "slide": -0.4, "scandal": -0.5, "doom": -0.5,
 }
 
 

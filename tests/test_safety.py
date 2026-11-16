@@ -148,3 +148,24 @@ class LiveNewsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BacktestTests(unittest.TestCase):
+    def test_aligns_markets_and_reports_both_halves(self):
+        import math
+        from trading import backtest
+        hour = 3600.0
+        stocks = [(i * hour + 1800, 100 + 5 * math.sin(i / 15)) for i in range(400)]
+        crypto = [(i * hour, 200 + 9 * math.sin(i / 11)) for i in range(401)]
+        m = backtest.HistoricalMarket({"AAPL": stocks, "BTC": crypto})
+        self.assertEqual(len(m), 400)  # every stock bar finds the crypto close from half an hour before
+        r = backtest.run({"AAPL": stocks, "BTC": crypto}, {"AGENT_COUNT": "200"})
+        self.assertEqual(r["bars"], 400)
+        for part in ("whole", "learning_half", "test_half", "buy_and_hold_test_half"):
+            self.assertIn("sharpe", r[part])
+
+    def test_metrics(self):
+        from trading.backtest import metrics
+        m = metrics([0, 86_400, 2 * 86_400], [100.0, 90.0, 99.0])
+        self.assertEqual(m["max_drawdown_pct"], 10.0)
+        self.assertEqual(m["return_pct"], -1.0)

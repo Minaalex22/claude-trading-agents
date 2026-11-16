@@ -172,6 +172,24 @@ each headline (Claude with a key, otherwise a finance lexicon that knows words l
   not added to.
 - Backup sources: Kraken for crypto when Coinbase fails, a second Yahoo host for stocks.
 
+**Backtest on real prices** (`trading/backtest.py`): `python -m trading.backtest` fetches two years of hourly
+Yahoo prices for every symbol and replays them through the same agents, desk and risk limits, with 3 bp of cost
+per fill (1 bp fee + 2 bp slippage). The report gives return, Sharpe, Sortino, max drawdown and Calmar for the
+first year (where the agents learn) and the second year (the honest test), next to buy-and-hold.
+
+What it found (Nov 2024 to Nov 2026, 10 symbols, 400 agents, drawdown halt loosened so the strategy runs the
+whole time):
+
+| Desk setting | Year 1 | Year 2 (unseen) | Costs (year 2) |
+|---|---|---|---|
+| Old: trade any call above 0.15, rebalances from $100 | −1.9% | −5.2% | $4,928 |
+| New default: only calls above 0.5, rebalances from $5,000 | +2.9% | +0.9% | $630 |
+| Buy and hold the same symbols | +30.3% | −3.4% | |
+
+The old desk traded so often that costs ate more than it earned. The new setting was chosen on year 1 only and
+held up on year 2, but +0.9% a year is close to flat: **this is not yet evidence that the agents beat the
+market**. With the 5% drawdown halt on (the default), the old setting stopped trading for good after ten months.
+
 **Stops above the order limits** (`trading/risk.py`):
 - **Daily loss stop:** a 2% loss from the start of the UTC day stops new risk until the next day
   (`DAILY_LOSS_LIMIT`).
