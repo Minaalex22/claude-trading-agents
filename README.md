@@ -159,8 +159,25 @@ short run: memory pays off across restarts, the coach needs an API key.
 **Paper trading on live prices.** `MARKET=live` swaps the simulated market for real prices (Coinbase for BTC
 and ETH, Yahoo Finance for stocks), polled every 15 s (`LIVE_POLL_SECONDS`). Orders still go to the paper broker;
 real money stays locked. The cloud app runs live by default (`render.yaml`); set `MARKET=sim` to go back.
-The simulated news wire is off on live prices (it hints at the simulator's hidden drift), so live views come
-from the charts until a real news feed is added.
+The simulated news wire is off on live prices (it hints at the simulator's hidden drift). Instead
+`trading/news_feed.py` reads **real headlines** from free RSS feeds every 5 minutes: Yahoo Finance and a Google
+News search per symbol, plus CNBC, MarketWatch, CoinDesk and Cointelegraph matched by ticker or company name.
+The same story from many sites counts once, and anything older than 6 hours is dropped. The reading room reads
+each headline (Claude with a key, otherwise a finance lexicon that knows words like "beats", "plunges",
+"downgrade"). `LIVE_NEWS=off` turns it off.
+
+**Bad live data can't drive trades** (`trading/live_market.py`):
+- A price more than 8% from the last good one is held until the next poll confirms it.
+- A symbol whose price is more than 10 minutes old (feed down, or the stock market closed) can be exited but
+  not added to.
+- Backup sources: Kraken for crypto when Coinbase fails, a second Yahoo host for stocks.
+
+**Stops above the order limits** (`trading/risk.py`):
+- **Daily loss stop:** a 2% loss from the start of the UTC day stops new risk until the next day
+  (`DAILY_LOSS_LIMIT`).
+- **Kill switch:** create a file named `KILL` in the events folder and every shard closes all positions and opens
+  nothing. Delete it to trade again.
+- Every `tick` event says which stop is on (`stopped`) and which symbols are stale (`stale`).
 
 **Training never stops (practice hours).** Every practice hour (3,600 s of ticks, `PRACTICE_HOUR_TICKS`):
 - **Every strategy trader (Trend and Reversion) makes at least 20 practice trades.** The desk keeps each trader
@@ -179,7 +196,8 @@ The managers read their departments every 5 ticks and report a call ("favour tre
 The hard limits in `trading/risk.py` have the final say: order size, position size, gross exposure, and a
 drawdown limit that halts new risk.
 
-**Paper mode only.** The market is simulated and fills are fake. No real orders are ever sent.
+**Paper mode only.** Prices are simulated, or real with `MARKET=live`, but fills are always paper. No real
+orders are ever sent.
 
 ## 3D cluster view and agent slider
 

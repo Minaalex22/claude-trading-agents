@@ -21,6 +21,9 @@ Configured with environment variables so the same image runs as any shard:
   REVIEWS       "off" stops the traders' 15-minute self-reviews and the daily copy-the-best step (default on)
   MARKET        "sim" (default) or "live": live trades real prices (Coinbase, Yahoo) with paper money
   LIVE_POLL_SECONDS  how often live prices are fetched (default 15)
+  LIVE_NEWS     "off" turns off the real RSS headlines on live prices (default on with MARKET=live)
+  DAILY_LOSS_LIMIT  fraction of the day's starting equity that stops new risk until the next UTC day
+                (default 0.02). A file named KILL in EVENTS_DIR closes every position and opens nothing.
   MEMORY        "off" stops saving and restoring what the agents learned (default on when EVENTS_DIR or
                 MEMORY_DIR is set). Saved to MEMORY_DIR (default EVENTS_DIR)/memory-<shard>.json.
   COACH         "off" keeps the hourly Claude coach off even with ANTHROPIC_API_KEY set
@@ -102,10 +105,12 @@ def run(env=os.environ, stream=None) -> Desk:
     interval = env.get("LEARNING_INTERVAL_SECONDS")
     alpha = BrainAlpha(["trend", "reversion"], float(interval) if interval else cfg.beta.learning_interval_seconds,
                        cfg.beta.learning_enabled)
-    limits = RiskLimits(max_drawdown=cfg.risk.max_drawdown)
+    limits = RiskLimits(max_drawdown=cfg.risk.max_drawdown,
+                        max_daily_loss=float(env.get("DAILY_LOSS_LIMIT", RiskLimits.max_daily_loss)))
     hour_ticks = int(env.get("PRACTICE_HOUR_TICKS") or (round(3600 / tick_seconds) if tick_seconds else 7200))
     room = ReadingRoom(symbols, claude=make_reader(env)) if env.get("READING_ROOM", "on") != "off" else None
-    desk = Desk(agents, broker, RiskManager(limits, broker), log, beta=BrainBeta(cfg), alpha=alpha,
+    risk = RiskManager(limits, broker, kill_path=Path(events_dir) / "KILL" if events_dir else None)
+    desk = Desk(agents, broker, risk, log, beta=BrainBeta(cfg), alpha=alpha,
                 hour_ticks=hour_ticks, room=room, reviews=env.get("REVIEWS", "on") != "off", coach=make_coach(env))
     memory_dir = env.get("MEMORY_DIR") or events_dir
     memory_path = (Path(memory_dir) / f"memory-{shard_id}.json"
@@ -117,7 +122,11 @@ def run(env=os.environ, stream=None) -> Desk:
     if live:
         from .live_market import LiveMarket  # real prices, paper money: orders still go to the paper broker
         market = LiveMarket(symbols, poll_seconds=float(env.get("LIVE_POLL_SECONDS", 15)))
-        news = None  # the simulated wire hints at the simulator's hidden drift, which real prices don't have
+        # The simulated wire hints at the simulator's hidden drift, which real prices don't have: read real news.
+        news = None
+        if env.get("LIVE_NEWS", "on").lower() not in ("off", "0", "false", "no"):
+            from .news_feed import LiveNewsFeed
+            news = LiveNewsFeed(symbols)
     else:
         market = SimulatedMarket(symbols, seed=seed)
         news = NewsWire(symbols, seed=seed)
@@ -150,8 +159,10 @@ def run(env=os.environ, stream=None) -> Desk:
                     log.emit("resize", agents=after, was=before, total_agents=agent_count,
                              per_department=per_department)
             prices = market.tick()
-            if live and desk.ticks % 20 == 0:
-                log.emit("market", **market.status())
+            if live:
+                risk.frozen = market.stale()
+                if desk.ticks % 20 == 0:
+                    log.emit("market", **market.status(), **(news.status() if news else {}))
             desk.step(prices, news.tick(market.drift, desk.ticks + 1) if news else [])
             if memory_path and desk.ticks % memory.SAVE_EVERY == 0:
                 _save(desk, memory_path, log)

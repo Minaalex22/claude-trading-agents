@@ -108,10 +108,12 @@ class Desk:
             score = self._score(votes[symbol]) * exposure
             if abs(score) < SIGNAL_THRESHOLD:
                 score = 0.0
+            if self.risk.killed:
+                score = 0.0  # kill switch: close everything
             target_value = score * self.risk.limits.max_position_value
             desired = target_value / prices[symbol] - self.broker.position(symbol)
-            if abs(desired * prices[symbol]) < 100:  # ignore tiny rebalances
-                continue
+            if abs(desired * prices[symbol]) < 100 and not (self.risk.killed and self.broker.position(symbol)):
+                continue  # ignore tiny rebalances
             check = hooks.OrderCheck(symbol, desired, self.broker.position(symbol), prices[symbol],
                                      view=views.get(symbol), paused=symbol in self.managers.paused,
                                      streak=self.journal.streak(symbol))
@@ -120,7 +122,7 @@ class Desk:
                 self.checks["blocked" if abs(desired * prices[symbol]) < 100 else "shrunk"] += 1
                 self.log.emit("check", symbol=symbol, wanted=round(check.qty, 4), allowed=round(desired, 4),
                               notes=notes)
-            if abs(desired * prices[symbol]) < 100:
+            if abs(desired * prices[symbol]) < 100 and not (self.risk.killed and desired):
                 continue
             qty, reason = self.risk.approve(symbol, desired, prices)
             if reason:
@@ -163,6 +165,7 @@ class Desk:
         self.log.emit(
             "tick", tick=self.ticks, agents=len(self.agents), orders=orders, exposure_vote=round(exposure, 3),
             equity=round(equity, 2), pnl=round(equity - self.broker.starting_cash, 2), halted=self.risk.halted,
+            stopped=self.risk.stop_reason, stale=sorted(self.risk.frozen),
             prices={s: round(p, 4) for s, p in prices.items()}, **extra,
         )
         if self.review_ticks and self.ticks % self.review_ticks == 0:

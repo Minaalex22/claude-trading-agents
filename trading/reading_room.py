@@ -47,6 +47,19 @@ RELEASES = {
     "inflation": -0.7, "rate decision": -0.9, "jobs": 0.6, "gdp": 0.7, "unemployment": -0.6, "pmi": 0.5,
     "consumer confidence": 0.4, "retail sales": 0.4,
 }
+# Everyday market-news words, for real headlines (MARKET=live). Read only when the wire's own phrases
+# above don't match. Whole words with their -s/-es/-d/-ed/-ing endings; matches add up (capped at -1..1).
+MARKET_WORDS = {
+    "beat": 0.6, "top estimates": 0.6, "record high": 0.5, "all-time high": 0.5, "surge": 0.6, "soar": 0.6,
+    "jump": 0.5, "rally": 0.5, "rallie": 0.5, "climb": 0.3, "gain": 0.3, "upgrade": 0.5, "raise guidance": 0.7,
+    "raise forecast": 0.6, "buyback": 0.4, "approval": 0.5, "approve": 0.5, "partnership": 0.3, "inflow": 0.4,
+    "bullish": 0.4,
+    "miss": -0.6, "plunge": -0.7, "tumble": -0.6, "slump": -0.6, "sink": -0.5, "fall": -0.3, "drop": -0.3,
+    "downgrade": -0.5, "cut guidance": -0.7, "lower forecast": -0.6, "lawsuit": -0.4, "sue": -0.4,
+    "probe": -0.4, "investigation": -0.4, "recall": -0.4, "hack": -0.7, "layoff": -0.3, "bankruptcy": -0.9,
+    "ban": -0.5, "outflow": -0.4, "bearish": -0.4, "selloff": -0.5, "sell-off": -0.5, "crash": -0.8,
+    "fraud": -0.8,
+}
 
 
 @dataclass
@@ -74,7 +87,8 @@ def read_headline(text: str) -> float | None:
                 return push
             if "below" in t or "miss" in t or "cut" in t:
                 return -push
-    return None
+    hits = [push for word, push in MARKET_WORDS.items() if re.search(rf"(?<![a-z-]){re.escape(word)}(?:s|es|d|ed|ing)?(?![a-z])", t)]
+    return max(-1.0, min(1.0, sum(hits))) if hits else None
 
 
 def read_chart(prices: list[float]) -> float:
