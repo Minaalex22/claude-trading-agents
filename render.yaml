@@ -21,6 +21,10 @@ services:
         generateValue: true
       - key: SESSION_SECRET
         generateValue: true
+      # Two-step login: the secret for your authenticator app's 6-digit codes. Make one with
+      # `python -m trading.webauth new-totp` and paste it in the Environment tab. Required before real money.
+      - key: DASHBOARD_TOTP_SECRET
+        sync: false
       - key: EVENTS_DIR
         value: /events
       # Paper trading on live prices (Coinbase, Yahoo). Orders still go to the paper broker; real money stays

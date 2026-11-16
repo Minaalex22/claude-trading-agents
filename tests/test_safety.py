@@ -169,3 +169,29 @@ class BacktestTests(unittest.TestCase):
         m = metrics([0, 86_400, 2 * 86_400], [100.0, 90.0, 99.0])
         self.assertEqual(m["max_drawdown_pct"], 10.0)
         self.assertEqual(m["return_pct"], -1.0)
+
+
+class TwoStepLoginTests(unittest.TestCase):
+    SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"  # RFC 6238 test key "12345678901234567890"
+
+    def test_rfc6238_vectors(self):
+        from trading.webauth import totp
+        self.assertEqual(totp(self.SECRET, 59), "287082")
+        self.assertEqual(totp(self.SECRET, 1111111109), "081804")
+
+    def test_login_needs_password_and_fresh_code(self):
+        from trading.webauth import WebAuth, totp
+        clock = Clock(1111111109)
+        auth = WebAuth("a-long-password!", "s", clock=clock, totp_secret=self.SECRET)
+        self.assertTrue(auth.two_step)
+        self.assertFalse(auth.check("a-long-password!", ""))
+        self.assertFalse(auth.check("wrong-password!!", "081804"))
+        self.assertTrue(auth.check("a-long-password!", "081 804"))
+        self.assertFalse(auth.check("a-long-password!", "081804"))  # a code works once
+        clock.t += 30
+        self.assertTrue(auth.check("a-long-password!", totp(self.SECRET, clock.t)))
+
+    def test_bad_secret_refused(self):
+        from trading.webauth import WebAuth
+        with self.assertRaises(SystemExit):
+            WebAuth("a-long-password!", "s", totp_secret="not base32!")

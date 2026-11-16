@@ -232,3 +232,33 @@ class SupervisorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TwoStepServerTests(unittest.TestCase):
+    SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        hub = EventHub(Path(self.tmp.name))
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(
+            hub, WebAuth(PASSWORD, "secret", totp_secret=self.SECRET)))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    request = ServerTests.request
+
+    def test_login_needs_the_code(self):
+        import time
+        from trading.webauth import totp
+        _, page = self.request("GET", "/login")
+        self.assertIn(b'name="code"', page)
+        resp, _ = self.request("POST", "/login", urllib.parse.urlencode({"password": PASSWORD}))
+        self.assertEqual(resp.getheader("Location"), "/login?error=1")
+        code = totp(self.SECRET, time.time())
+        resp, _ = self.request("POST", "/login", urllib.parse.urlencode({"password": PASSWORD, "code": code}))
+        self.assertEqual(resp.getheader("Location"), "/")
+

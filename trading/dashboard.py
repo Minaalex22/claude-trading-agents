@@ -324,9 +324,13 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 if not auth.enabled or self._authed():
                     return self._redirect("/")
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-                message = {"1": "Wrong password.", "locked": "Too many attempts. Try again in 15 minutes."}
+                message = {"1": "Wrong password or code." if auth.two_step else "Wrong password.",
+                           "locked": "Too many attempts. Try again in 15 minutes."}
                 error = message.get(query.get("error", [""])[0], "")
                 page = login_page.replace("<!--ERROR-->", f'<div class="err">{error}</div>' if error else "")
+                if auth.two_step:
+                    page = page.replace("<!--CODE-->", '<input type="text" name="code" placeholder="6-digit code" '
+                                        'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
                 if path in ("/", "/3d", "/jarvis"):
@@ -383,7 +387,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             if not auth.allowed(client):
                 return self._redirect("/login?error=locked")
             form = urllib.parse.parse_qs(raw.decode("utf-8", "replace"))
-            if auth.check_password(form.get("password", [""])[0]):
+            if auth.check(form.get("password", [""])[0], form.get("code", [""])[0]):
                 auth.record_success(client)
                 return self._redirect("/", {"Set-Cookie": self._cookie(auth.issue(), auth.max_age)})
             auth.record_failure(client)
