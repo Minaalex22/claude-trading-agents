@@ -171,7 +171,8 @@ class Desk:
         self.log.emit(
             "tick", tick=self.ticks, agents=len(self.agents), orders=orders, exposure_vote=round(exposure, 3),
             equity=round(equity, 2), pnl=round(equity - self.broker.starting_cash, 2), halted=self.risk.halted,
-            stopped=self.risk.stop_reason, stale=sorted(self.risk.frozen),
+            stopped=self.risk.stop_reason, stale=sorted(self.risk.frozen), killed=self.risk.killed,
+            risk=self._risk_gauges(prices, equity),
             prices={s: round(p, 4) for s, p in prices.items()}, **extra,
         )
         if self.review_ticks and self.ticks % self.review_ticks == 0:
@@ -344,6 +345,14 @@ class Desk:
             if isinstance(a, Trader):
                 pnl["reversion" if a.style == REVERSION else "trend"] += a.pnl
         return pnl
+
+    def _risk_gauges(self, prices: dict[str, float], equity: float) -> dict:
+        """How close each hard limit is, for the dashboard's gauges."""
+        r, lim = self.risk, self.risk.limits
+        return {"day_pnl": round(equity - r.day_start_equity, 2), "day_start": round(r.day_start_equity, 2),
+                "daily_limit": lim.max_daily_loss, "drawdown": round(1 - equity / r.peak_equity, 4) if r.peak_equity else 0,
+                "max_drawdown": lim.max_drawdown, "gross": round(self.broker.gross_exposure(prices), 2),
+                "gross_limit": lim.max_gross_exposure, "positions": sum(1 for q in self.broker.positions.values() if q)}
 
     @staticmethod
     def _proposal(symbol: str, qty: float, price: float) -> dict:

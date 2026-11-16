@@ -43,6 +43,8 @@ WEB = Path(__file__).resolve().parent / "web"
 STATIC = {
     "/app.css": ("app.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/command.css": ("command.css", "text/css; charset=utf-8"),
+    "/command.js": ("command.js", "text/javascript; charset=utf-8"),
     "/3d.css": ("3d.css", "text/css; charset=utf-8"),
     "/3d.js": ("3d.js", "text/javascript; charset=utf-8"),
     "/jarvis.css": ("jarvis.css", "text/css; charset=utf-8"),
@@ -251,6 +253,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     assets = {path: (_read(name), ctype) for path, (name, ctype) in STATIC.items()}
     index = _read("index.html")
     cluster_page = _read("3d.html")
+    log_page = _read("log.html")
     jarvis_page = _read("jarvis.html")
     login_page = _read("login.html").decode()
 
@@ -344,12 +347,14 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis"):
+                if path in ("/", "/3d", "/jarvis", "/log"):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
             elif path == "/":
                 self._send(200, index, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/log":
+                self._send(200, log_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/3d":
                 self._send(200, cluster_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/jarvis":
