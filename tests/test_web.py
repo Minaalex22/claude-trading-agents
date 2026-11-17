@@ -128,6 +128,31 @@ class ServerTests(unittest.TestCase):
         resp, body = self.request("GET", "/health")
         self.assertEqual(json.loads(body), {"ok": True})  # no details leak while signed out
 
+    def test_browser_sign_in_is_not_mistaken_for_csrf(self):
+        # Real browsers send Origin on form posts. These are the shapes they use on our own login form;
+        # every one must sign in. (A no-referrer policy made browsers send "null", which locked everyone out.)
+        port = self.server.server_port
+        form = urllib.parse.urlencode({"password": PASSWORD})
+        browser_like = [
+            {"Origin": f"http://127.0.0.1:{port}", "Sec-Fetch-Site": "same-origin"},
+            {"Origin": "null", "Sec-Fetch-Site": "same-origin"},
+            {"Origin": f"http://127.0.0.1:{port}"},
+        ]
+        for i, headers in enumerate(browser_like):
+            resp, _ = self.request("POST", "/login", form, headers={**headers, "X-Forwarded-For": f"5.5.5.{i}"})
+            self.assertEqual(resp.getheader("Location"), "/", headers)
+            self.assertIn(COOKIE, resp.getheader("Set-Cookie"), headers)
+        resp, _ = self.request("GET", "/login")
+        self.assertEqual(resp.getheader("Referrer-Policy"), "same-origin")
+
+    def test_cross_site_posts_are_still_refused(self):
+        form = urllib.parse.urlencode({"password": PASSWORD})
+        for headers in ({"Origin": "https://evil.example", "Sec-Fetch-Site": "cross-site"},
+                        {"Origin": "null", "Sec-Fetch-Site": "cross-site"},
+                        {"Origin": "null"}):
+            resp, _ = self.request("POST", "/login", form, headers=headers)
+            self.assertEqual(resp.status, 403, headers)
+
     def test_login_flow(self):
         resp, body = self.request("GET", "/login")
         self.assertEqual(resp.status, 200)
