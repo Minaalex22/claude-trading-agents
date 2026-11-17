@@ -241,6 +241,32 @@ doesn't accept Australian residents, so there is no prediction-market connector 
 **Before real money:** the backtest above shows the agents roughly flat on real prices after costs. Run the bridge
 on moomoo's paper account first, keep the limits small, and expect to lose what you put in.
 
+## Every agent's own practice account, and proven agents
+
+Every trader also trades its **own $10,000 paper account** (`trading/accounts.py`) with every call it makes:
+full-strength calls go all in, weaker calls smaller, and every change pays 3 bp of costs. So each agent has a
+real record of its own: money made after costs, closed trades, win rate, profit factor and its worst drop.
+The records are saved with the agents' memory, so a record built on live prices survives restarts.
+
+An agent is **proven** once it has at least 20 closed trades, made money after costs, won at least 1.2x what it
+lost, and never dropped more than 15%. The command center's **Top agents** table shows the best accounts with a
+PROVEN or LEARNING badge.
+
+- **Real money follows proven agents only.** A desk order becomes a real-money proposal only when at least 3
+  proven agents trade that symbol and, on average, back the same direction (0.3 or stronger).
+- **The paper desk still listens to everyone** by default. `PROVEN_ONLY=on` makes it trade only on proven agents.
+
+Backtest on the same two years of real hourly prices (year 2 = prices the agents hadn't seen):
+
+| Paper desk | Year 2 return | Worst drop | Sharpe |
+|---|---|---|---|
+| Everyone votes (default) | +2.7% | 3.5% | 0.55 |
+| Only proven agents | +1.4% | 2.3% | 0.72 |
+| Buy and hold | +7.0% | 20.3% | 0.39 |
+
+Proven-only makes less but swings less, which is why it guards real money rather than the paper desk. In the
+simulator agents get proven within minutes (its prices are easy); on live 15-second prices it takes far longer.
+
 ## 3D cluster view and agent slider
 
 Open **http://127.0.0.1:8080/3d**:

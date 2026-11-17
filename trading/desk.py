@@ -2,7 +2,7 @@
 
 from collections import defaultdict, deque
 
-from . import academy, coach as coaching, hooks, review
+from . import academy, accounts, coach as coaching, hooks, review
 
 from .agents import REVERSION, Agent, Trader
 from .brains import BrainAlpha, BrainBeta
@@ -14,6 +14,7 @@ from .risk import RiskManager
 
 SIGNAL_THRESHOLD = 0.5  # tuned on real 2024-25 hourly prices; weaker calls cost more than they earned
 MIN_TRADE = 5000.0
+PROVEN_MIN = 3  # proven agents needed on a symbol before their view counts
 LEADERBOARD_EVERY = 20
 ORG_EVERY = 5  # how often the managers report their departments
 MACRO_WEIGHT = 0.3  # how far the analysts' read of the news tilts the desk's call
@@ -34,6 +35,10 @@ class Desk:
         self.alpha = alpha
         self.signal_threshold = SIGNAL_THRESHOLD
         self.min_trade = MIN_TRADE  # dollars: smaller rebalances aren't worth their cost
+        # Proven agents (trading/accounts.py): their own view per symbol, and whether only they steer the desk.
+        self.proven_only = False
+        self.proven_min = PROVEN_MIN
+        self.proven_view: dict[str, tuple[float, int]] = {}
         self.on_order = None  # called with (symbol, qty, price, why) after each paper fill (real-money mirror)
         self.ticks = 0
         self.news_view: dict[str, float] = {}  # per symbol, last tick's analysts' news read
@@ -75,6 +80,7 @@ class Desk:
         views = self.room.update(prices, headlines) if self.room else {}
         votes = defaultdict(lambda: {"trend": [], "reversion": [], "analyst": [], "risk": [], "macro": []})
         agent_votes: dict[str, float] = {}
+        proven = defaultdict(list)
         self._set_practice_pace()
         by_symbol = defaultdict(list)
         for headline in headlines or ():
@@ -97,10 +103,13 @@ class Desk:
             agent_votes[agent.agent_id] = vote.value
             if isinstance(agent, Trader):
                 votes[agent.symbol]["reversion" if agent.style == REVERSION else "trend"].append(vote.value)
+                if accounts.proven(agent.account):
+                    proven[agent.symbol].append(vote.value)
             else:
                 votes[agent.symbol][vote.role].append(vote.value)
 
         self.news_view = {s: sum(v["macro"]) / len(v["macro"]) for s, v in votes.items() if v["macro"]}
+        self.proven_view = {s: (sum(v) / len(v), len(v)) for s, v in proven.items()}
         risk_votes = [v for sym in votes.values() for v in sym["risk"]]
         exposure = sum(risk_votes) / len(risk_votes) if risk_votes else 1.0
         self.risk.update(prices)
@@ -110,6 +119,10 @@ class Desk:
             if symbol not in votes:
                 continue
             score = self._score(votes[symbol]) * exposure
+            if self.proven_only:
+                # Only agents with a proven record steer: no trade on a symbol without enough of them.
+                view, n = self.proven_view.get(symbol, (0.0, 0))
+                score = view * exposure if n >= self.proven_min else 0.0
             if abs(score) < self.signal_threshold:
                 score = 0.0
             if self.risk.killed:
@@ -171,7 +184,7 @@ class Desk:
         self.log.emit(
             "tick", tick=self.ticks, agents=len(self.agents), orders=orders, exposure_vote=round(exposure, 3),
             equity=round(equity, 2), pnl=round(equity - self.broker.starting_cash, 2), halted=self.risk.halted,
-            stopped=self.risk.stop_reason, stale=sorted(self.risk.frozen), killed=self.risk.killed,
+            proven=self.proven_count(), stopped=self.risk.stop_reason, stale=sorted(self.risk.frozen), killed=self.risk.killed,
             risk=self._risk_gauges(prices, equity),
             prices={s: round(p, 4) for s, p in prices.items()}, **extra,
         )
@@ -365,6 +378,11 @@ class Desk:
         }
 
     def leaderboard(self, n: int) -> list[dict]:
-        traders = sorted((a for a in self.agents if isinstance(a, Trader)), key=lambda a: a.pnl, reverse=True)
-        return [{"agent": a.agent_id, "symbol": a.symbol, "pnl": round(a.pnl, 4), "brain": a.brain.snapshot()}
-                for a in traders[:n]]
+        """The best practice accounts: proven agents first, then by money made after costs."""
+        traders = sorted((a for a in self.agents if isinstance(a, Trader)),
+                         key=lambda a: (accounts.proven(a.account), a.account.equity()), reverse=True)
+        return [{"agent": a.agent_id, "symbol": a.symbol, "pnl": round(a.pnl, 4), "brain": a.brain.snapshot(),
+                 "account": a.account.snapshot()} for a in traders[:n]]
+
+    def proven_count(self) -> int:
+        return sum(1 for a in self.agents if isinstance(a, Trader) and accounts.proven(a.account))

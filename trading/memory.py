@@ -9,7 +9,7 @@ it stops, and reads it back when it starts. Agents are matched by id, so a resiz
 of the agents that stay. A missing, old or damaged file is ignored: the desk then starts fresh, as before.
 
 What is kept per agent: brain (trust, experience, hits, recent results), its own rules and any rule change
-still on trial, its lessons, its trade record and virtual P&L. Per desk: Brain Alpha's style weights and
+still on trial, its lessons, its trade record, virtual P&L and its practice account (trading/accounts.py). Per desk: Brain Alpha's style weights and
 the practice clock (hours, reviews, days). The paper account itself starts fresh on every run. Paper only.
 """
 
@@ -26,7 +26,8 @@ def agent_state(a) -> dict:
     b = a.brain
     return {"brain": {"weight": b.weight, "experience": b.experience, "wins": b.wins, "memory": list(b.memory)},
             "rules": dict(a.rules), "trial": a.trial, "pnl": a.pnl,
-            "workspace": {k: a.workspace[k] for k in WORKSPACE_KEYS if k in a.workspace}}
+            "workspace": {k: a.workspace[k] for k in WORKSPACE_KEYS if k in a.workspace},
+            "account": a.account.state() if getattr(a, "account", None) is not None else None}
 
 
 def save(desk, path: Path) -> None:
@@ -65,6 +66,8 @@ def restore(desk, path: Path) -> int:
             a.trial = s.get("trial")
             a.pnl = float(s.get("pnl", 0.0))
             a.workspace.update({k: v for k, v in s.get("workspace", {}).items() if k in WORKSPACE_KEYS})
+            if getattr(a, "account", None) is not None and isinstance(s.get("account"), dict):
+                a.account.load(s["account"])  # its practice-account record, so a track record survives restarts
         except (KeyError, TypeError, ValueError):
             continue
         restored += 1

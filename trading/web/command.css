@@ -167,3 +167,11 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:1px solid var(-
 .act-totals{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;margin-top:10px;font:12px var(--mono)}
 .act-totals i{display:inline-block;width:7px;height:7px;transform:rotate(45deg);margin-right:8px}
 .act-totals b{color:var(--holo2);font-weight:500}
+
+.wide{grid-column:1/-1}
+.tbl-wrap{overflow-x:auto}
+.leader{width:100%;border-collapse:collapse;font:12px var(--mono)}
+.leader th{color:var(--mut);font-weight:400;text-align:left;padding:4px 8px;border-bottom:1px solid var(--faint);letter-spacing:.08em;text-transform:uppercase;font-size:10px}
+.leader td{padding:6px 8px;border-bottom:1px dashed var(--faint);white-space:nowrap;color:var(--holo2)}
+.leader td.up{color:var(--up)}.leader td.dn{color:var(--dn)}.leader td.sym{color:var(--holo)}
+.leader tr.proven td:first-child{color:var(--up);text-shadow:0 0 8px rgba(93,255,196,.6)}

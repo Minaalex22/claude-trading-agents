@@ -32,6 +32,8 @@ Configured with environment variables so the same image runs as any shard:
   MIN_TRADE     smallest rebalance in dollars the desk will send (default 5000)
   LIVE_MAX_ORDER_USD, LIVE_MAX_DAY_USD, LIVE_SYMBOLS  real-money mirror (shard 0, MARKET=live): each desk
                 order in LIVE_SYMBOLS becomes a capped proposal the owner approves (trading/live_orders.py)
+  PROVEN_ONLY   "on": the paper desk trades only on what proven agents (trading/accounts.py) say (default off;
+                real-money proposals always need proven agents' backing)
   FEE_BPS       paper broker cost per fill in basis points (default 1; the backtest adds slippage)
   MODE          only "paper" is implemented
 """
@@ -60,7 +62,8 @@ from .risk import RiskLimits, RiskManager
 
 DEFAULT_SYMBOLS = "AAPL,MSFT,NVDA,AMZN,GOOG,TSLA,META,AMD,BTC,ETH"
 DEFAULT_AGENT_COUNT = MIN_DEPARTMENT_SIZE * len(DEPARTMENTS)  # 350 per department
-CONTROL_EVERY = 10  # ticks between checks of the agent slider
+CONTROL_EVERY = 10
+PROVEN_AGREE = 0.3  # how strongly proven agents must back a trade before it becomes a real-money proposal  # ticks between checks of the agent slider
 
 
 def shard_agents(agent_count: int, symbols: list[str], shard_id: int, shard_count: int, seed: int):
@@ -120,11 +123,16 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     desk = Desk(agents, broker, risk, log, beta=BrainBeta(cfg), alpha=alpha,
                 hour_ticks=hour_ticks, room=room, reviews=env.get("REVIEWS", "on") != "off", coach=make_coach(env))
     desk.signal_threshold = float(env.get("SIGNAL_THRESHOLD", desk.signal_threshold))
+    desk.proven_only = env.get("PROVEN_ONLY", "off").lower() in ("on", "1", "true", "yes")
     desk.min_trade = float(env.get("MIN_TRADE", desk.min_trade))
     limits_live = live_orders.Limits(env)
     if live_market and events_dir and shard_id == 0 and limits_live.on and market is None:
         # Real-money mirror: shard 0's orders become small proposals the owner approves on the dashboard.
         def mirror(symbol, qty, price, why):
+            # Real money follows proven agents only: enough of them on this symbol, agreeing with the trade.
+            view, n = desk.proven_view.get(symbol, (0.0, 0))
+            if n < desk.proven_min or view * qty <= 0 or abs(view) < PROVEN_AGREE:
+                return
             order = live_orders.propose(Path(events_dir), symbol, "buy" if qty > 0 else "sell", price,
                                         json.dumps(why, default=str)[:300], limits_live)
             if order:
