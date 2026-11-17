@@ -261,7 +261,9 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self.send_header("Content-Length", str(length))
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
-            self.send_header("Referrer-Policy", "no-referrer")
+            # "same-origin", not "no-referrer": with no-referrer, browsers send `Origin: null` on our own
+            # form posts, and the CSRF check below then refused every sign-in. Nothing leaks cross-site either way.
+            self.send_header("Referrer-Policy", "same-origin")
             self.send_header("Content-Security-Policy", CSP)
             self.send_header("Permissions-Policy", PERMISSIONS)
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
@@ -295,8 +297,12 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
         def _same_origin(self) -> bool:
             """Refuse POSTs a browser sent from another site (CSRF). Non-browser clients send no Origin."""
             origin = self.headers.get("Origin")
-            if not origin or origin == "null" and not auth.enabled:
+            if not origin:
                 return True
+            if origin == "null":
+                # Some browsers (privacy modes, older policies) send `Origin: null` on same-site form posts.
+                # Fetch metadata says where the request really came from; a cross-site post is never "same-origin".
+                return self.headers.get("Sec-Fetch-Site") == "same-origin" or not auth.enabled
             return urllib.parse.urlsplit(origin).netloc == self.headers.get("Host", "")
 
         def _jarvis_unlocked(self) -> bool:
