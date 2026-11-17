@@ -175,3 +175,30 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:1px solid var(-
 .leader td{padding:6px 8px;border-bottom:1px dashed var(--faint);white-space:nowrap;color:var(--holo2)}
 .leader td.up{color:var(--up)}.leader td.dn{color:var(--dn)}.leader td.sym{color:var(--holo)}
 .leader tr.proven td:first-child{color:var(--up);text-shadow:0 0 8px rgba(93,255,196,.6)}
+
+/* ---- living holograms: panels float, light sweeps across them, a glare follows the mouse ---- */
+.card,.kpi{transition:transform .25s ease-out;transform-style:preserve-3d;will-change:transform;overflow:hidden}
+.card::after,.kpi::after{content:"";position:absolute;inset:0;pointer-events:none;
+ background:radial-gradient(260px circle at var(--mx,50%) var(--my,-40%),rgba(79,243,255,.12),transparent 60%),
+  linear-gradient(115deg,transparent 40%,rgba(159,251,255,.10) 48%,rgba(159,251,255,.02) 52%,transparent 60%);
+ background-size:100% 100%,250% 100%;background-repeat:no-repeat;animation:shimmer 7s ease-in-out infinite}
+.card:nth-of-type(2n)::after{animation-delay:-2.3s}.card:nth-of-type(3n)::after{animation-delay:-4.6s}
+.kpi:nth-child(2n)::after{animation-delay:-1.7s}.kpi:nth-child(3n)::after{animation-delay:-3.9s}
+@keyframes shimmer{0%,100%{background-position:0 0,150% 0}50%{background-position:0 0,-50% 0}}
+.kpi{animation:boot .9s cubic-bezier(.2,.8,.2,1) both,hover 6s ease-in-out infinite}
+.kpi:nth-child(2n){animation-delay:.06s,-1.5s}.kpi:nth-child(3n){animation-delay:.12s,-3s}
+@keyframes hover{0%,100%{translate:0 0}50%{translate:0 -3px}}
+.glitch{animation:glitch .45s steps(2) 1}
+@keyframes glitch{0%{text-shadow:2px 0 #ff5c8a,-2px 0 #4ff3ff;transform:skewX(-6deg)}35%{text-shadow:-3px 0 #ff5c8a,3px 0 #4ff3ff;transform:skewX(4deg)}
+ 70%{text-shadow:1px 0 #ff5c8a,-1px 0 #4ff3ff;transform:none}100%{text-shadow:0 0 10px rgba(79,243,255,.6);transform:none}}
+/* charts: a scan beam sweeps down each plot, lines glow */
+.chart .plot{position:relative;filter:drop-shadow(0 0 6px rgba(79,243,255,.35))}
+.chart .plot::after{content:"";position:absolute;left:0;right:0;height:40px;top:-40px;pointer-events:none;z-index:3;
+ background:linear-gradient(180deg,transparent,rgba(79,243,255,.18),transparent);animation:scanplot 4.5s linear infinite}
+@keyframes scanplot{to{top:100%}}
+.gauge svg{animation:gaugePulse 3s ease-in-out infinite}
+@keyframes gaugePulse{50%{filter:drop-shadow(0 0 10px rgba(79,243,255,.8))}}
+.heat div{animation:heatPulse 2.4s ease-in-out infinite}
+.heat div:nth-child(2n){animation-delay:-.8s}.heat div:nth-child(3n){animation-delay:-1.6s}
+@keyframes heatPulse{50%{filter:brightness(1.35)}}
+@media (prefers-reduced-motion:reduce){.card,.kpi{transform:none!important}}
