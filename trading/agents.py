@@ -16,7 +16,7 @@ import statistics
 from collections import deque
 from dataclasses import dataclass
 
-from . import academy, masters, review
+from . import academy, accounts, masters, review
 from .brain import AgentBrain
 from .org import department_sizes
 
@@ -61,8 +61,11 @@ class Agent:
                           "trades_this_hour": 0, "trades_total": 0, "trade_wins": 0, "trade_losses": 0,
                           "reviews": 0, "lessons": []}
         self.must_practice = False  # set by the desk when the agent is behind its practice-trade quota
+        self.account = accounts.PracticeAccount() if self.role == "trader" else None  # its own paper book
 
     def observe(self, price: float) -> Vote | None:
+        if self.account is not None:
+            self.account.mark(price)
         if self.prices:
             self.pnl += self.position * (price - self.prices[-1])
             # The brain scores the strategy's last raw signal, even while sitting
@@ -161,6 +164,8 @@ class Agent:
             signal = self.workspace.get("last_signal") or 0.0
             self.workspace["entry_note"] = {"edge": abs(signal), "agree": self._agreement(position),
                                             "forced": self.must_practice}
+        if self.account is not None and self.prices:
+            self.account.rebalance(position, self.prices[-1])
         self.position = position
 
     def _close_trade(self) -> None:

@@ -370,6 +370,22 @@ function renderState(st) {
     el('div', '', `${starts.reduce((a, s) => a + (s.agents || 0), 0).toLocaleString()} agents`));
   $('liveDot').classList.add('on');
   const heat = st.heatmap || {}; renderHeat(heat);
+  renderLeader(Object.entries(st.shards).filter(([k]) => /^\d+$/.test(k)).flatMap(([, v]) => (v.leaderboard && v.leaderboard.top) || []),
+    ticks.reduce((a, t) => a + (t.proven || 0), 0));
+}
+function renderLeader(rows, provenTotal) {
+  const top = rows.filter((r) => r.account).sort((a, b) => (b.account.proven - a.account.proven) || (b.account.equity - a.account.equity)).slice(0, 8);
+  $('provenSub').textContent = `${provenTotal.toLocaleString()} proven · each trades its own $10,000 practice account · only proven agents can back real money`;
+  if (!top.length) return;
+  const head = el('tr'); for (const h of ['agent', 'symbol', 'account', 'trades', 'won', 'profit factor', 'worst drop', '']) head.append(el('th', '', h));
+  const body = top.map((r) => {
+    const a = r.account, tr = el('tr', a.proven ? 'proven' : '');
+    tr.append(el('td', '', r.agent.replace(/^trader-0*/, '#')), el('td', 'sym', r.symbol), el('td', a.pnl >= 0 ? 'up' : 'dn', signed(a.pnl)),
+      el('td', '', String(a.trades)), el('td', '', pct(a.win_rate, 0)), el('td', '', a.profit_factor === null ? '–' : a.profit_factor.toFixed(2)),
+      el('td', '', pct(a.max_drawdown, 1)));
+    const badge = el('td'); badge.append(el('span', 'pill ' + (a.proven ? 'filled' : ''), a.proven ? 'proven' : 'learning')); tr.append(badge); return tr;
+  });
+  $('leader').replaceChildren(head, ...body);
 }
 function renderHeat(heat) {
   $('heat').replaceChildren(...Object.entries(heat).map(([bot, v]) => {
