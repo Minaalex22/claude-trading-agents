@@ -95,6 +95,10 @@ function renderSchool(org){
   `<div class="row"><span>${esc(n.text)}</span><span class="right mut">${esc(n.kind)} · t${n.tick}</span></div>`).join(''):'no headlines yet'}
 function fmt(v){return v===null||v===undefined?'–':v.toFixed(2)}
 function renderProgram(org){const p=org.practice||{};const rows=[];
+ for(const [dept,md] of Object.entries(p.minds||{})){const ex=md.example||{};
+  rows.push([`${esc(dept[0].toUpperCase()+dept.slice(1))} minds`,`step 1 THINK: guess right ${pct(md.guessed_right)} · trust most: ${Object.entries(md.trusts||{}).map(([k,w])=>`${esc(k)} ${w}`).join(', ')}`+
+   `<br>step 2 DECIDE: patience ${pct(md.patience)} · appetite ${pct(md.appetite)}`+
+   (ex.agent?`<br>${esc(ex.agent)} (${esc(ex.symbol)}) thinks: ${esc(ex.thinks||'…')} → decides: ${esc(ex.decides||'…')}`:'')])}
  const m=p.memory;rows.push(['Memory',!m||!m.on?'off':`${m.remembered} agents remembered at start`+(m.saved_tick!=null?` · saved at tick ${m.saved_tick}`:'')]);
  const r=p.last_review;if(r)rows.push(['Self-checks',`review ${r.review}: ${r.changes_kept||0} changes kept, ${r.changes_undone||0} undone`]);
  const c=p.checks;if(c)rows.push(['Order checks',`this hour: ${c.blocked} blocked, ${c.shrunk} cut in size · desk trades ${p.desk_trades||0}`]);

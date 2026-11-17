@@ -111,6 +111,10 @@ def handbook() -> str:
         "lexicon) and chart (two time frames, plus Claude's chart read every 15 minutes) become one view. Traders "
         "only open trades the view backs. Every 15 minutes each trader reviews its own closed trades, writes "
         "lessons and tightens its own rules; once a day the weakest copy the best traders' rules.",
+        "TWO-STEP MINDS: every trader has its own mind. Step 1 THINK: it weighs what it sees (its strategy, the "
+        "news+chart view, the chart, the news, the last move, the trend, the stretch), each with its own weights, "
+        "into a belief of how likely the price rises, and learns those weights from its own guesses every tick. "
+        "Step 2 DECIDE: buy, sell or wait and how big, by its own patience and appetite, learned from its own trades.",
         "BUILT LIKE CLAUDE'S AGENT PROGRAM: agents remember what they learned across restarts (memory files on a "
         "permanent disk); every rule change from a review is on trial and undone if the next review is worse; "
         "managers act hourly (Atlas benches traders who keep losing, Sage benches wrong analysts, Sentinel halves "
@@ -224,6 +228,18 @@ class BuiltinBrain:
                 by_dept.setdefault(m.department, []).append(m.name.split(":")[0].split(" (")[0])
             parts = [f"{d.title()}: {', '.join(dict.fromkeys(names))}" for d, names in by_dept.items()]
             return f"{len(masters.MASTERS)} master courses teach the agents. " + ". ".join(parts) + "."
+        if has("think", "decide", "decision", "mind", "independent"):
+            minds = (snap.get("practice") or {}).get("minds") or {}
+            if not minds:
+                return ("Every trader has its own two-step mind: first it thinks (forms its own belief from what it "
+                        "sees), then it decides (buy, sell or wait, and how big). They haven't reported yet.")
+            parts = []
+            for dept, m in minds.items():
+                ex = m.get("example") or {}
+                parts.append(f"{dept.title()}: they guess right {_pct(m.get('guessed_right'))} and trust "
+                             f"{', '.join(m.get('trusts', {}))} most. {ex.get('agent', 'One agent')} thinks "
+                             f"{ex.get('thinks', '...')} and decides: {ex.get('decides', '...')}.")
+            return "Every trader thinks first, then decides, each in its own way. " + " ".join(parts)
         if has("coach", "memory", "remember", "agent program", "undo", "undone", "benched", "bench"):
             p = snap.get("practice") or {}
             mem, co, acts = p.get("memory") or {}, p.get("coach"), (p.get("managers") or {}).get("actions") or []

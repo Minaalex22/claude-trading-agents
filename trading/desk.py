@@ -3,6 +3,7 @@
 from collections import defaultdict, deque
 
 from . import academy, accounts, coach as coaching, hooks, review
+from . import mind as mindmod
 
 from .agents import REVERSION, Agent, Trader
 from .brains import BrainAlpha, BrainBeta
@@ -333,7 +334,8 @@ class Desk:
                 "review_ticks": self.review_ticks, "last_review": self.last_review, "last_share": self.last_share,
                 "managers": self.managers.last, "coach": self.last_coach,
                 "coach_status": self.coach.status() if self.coach else {"claude": False},
-                "checks": dict(self.checks), "desk_trades": self.journal.closed, "memory": self.memory}
+                "checks": dict(self.checks), "desk_trades": self.journal.closed, "memory": self.memory,
+                "minds": self.minds()}
 
     def _score(self, v: dict) -> float:
         trend = sum(v["trend"]) / len(v["trend"]) if v["trend"] else 0.0
@@ -382,7 +384,29 @@ class Desk:
         traders = sorted((a for a in self.agents if isinstance(a, Trader)),
                          key=lambda a: (accounts.proven(a.account), a.account.equity()), reverse=True)
         return [{"agent": a.agent_id, "symbol": a.symbol, "pnl": round(a.pnl, 4), "brain": a.brain.snapshot(),
-                 "account": a.account.snapshot()} for a in traders[:n]]
+                 "account": a.account.snapshot(), "mind": a.mind.snapshot() if a.mind else None}
+                for a in traders[:n]]
+
+    def minds(self) -> dict:
+        """How the minds think and decide: department averages and the best trader's last thought and call."""
+        out = {}
+        for dept in ("trend", "reversion"):
+            members = [a for a in self.agents if a.department == dept and getattr(a, "mind", None)]
+            if not members:
+                continue
+            acc = [a.mind.accuracy for a in members if a.mind.accuracy is not None]
+            trust: dict[str, float] = {}
+            for a in members:
+                for f, w in a.mind.weights.items():
+                    trust[f] = trust.get(f, 0.0) + w / len(members)
+            best = max(members, key=lambda a: (accounts.proven(a.account), a.account.equity()))
+            out[dept] = {"agents": len(members), "guessed_right": round(sum(acc) / len(acc), 3) if acc else None,
+                         "patience": round(sum(a.mind.patience for a in members) / len(members), 3),
+                         "appetite": round(sum(a.mind.appetite for a in members) / len(members), 3),
+                         "trusts": {mindmod.NAMES[f]: round(w, 2)
+                                    for f, w in sorted(trust.items(), key=lambda kv: -abs(kv[1]))[:3]},
+                         "example": {"agent": best.agent_id, "symbol": best.symbol, **best.mind.snapshot()}}
+        return out
 
     def proven_count(self) -> int:
         return sum(1 for a in self.agents if isinstance(a, Trader) and accounts.proven(a.account))

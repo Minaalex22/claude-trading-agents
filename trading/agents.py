@@ -16,7 +16,7 @@ import statistics
 from collections import deque
 from dataclasses import dataclass
 
-from . import academy, accounts, masters, review
+from . import academy, accounts, masters, mind, review
 from .brain import AgentBrain
 from .org import department_sizes
 
@@ -62,6 +62,8 @@ class Agent:
                           "reviews": 0, "lessons": []}
         self.must_practice = False  # set by the desk when the agent is behind its practice-trade quota
         self.account = accounts.PracticeAccount() if self.role == "trader" else None  # its own paper book
+        # Its own two-step mind (trading/mind.py): step 1 thinks, step 2 decides.
+        self.mind = mind.Mind(agent_id) if self.role == "trader" and mind.ENABLED else None
 
     def observe(self, price: float) -> Vote | None:
         if self.account is not None:
@@ -76,6 +78,12 @@ class Agent:
         if len(self.prices) <= self.window:
             return None
         signal = self.decide()
+        if self.mind is not None:
+            # Step 1, think: its own belief from what it sees (its strategy is one of the things it weighs).
+            lean = self.mind.think(self, signal)
+            self.workspace["sureness"] = abs(lean)
+            # Step 2, decide: buy, sell or wait, and how big, by its own patience and appetite.
+            signal = self.mind.decide(lean)
         value = self.brain.shape(signal, self.neutral, self.low, self.high)
         self.workspace["last_signal"] = signal
         self.workspace["last_vote"] = value
@@ -163,7 +171,8 @@ class Agent:
             self.workspace["entry"] = self.prices[-1]  # a new position: remember where it started (Seykota's R)
             signal = self.workspace.get("last_signal") or 0.0
             self.workspace["entry_note"] = {"edge": abs(signal), "agree": self._agreement(position),
-                                            "forced": self.must_practice}
+                                            "forced": self.must_practice,
+                                            "sure": self.workspace.get("sureness", abs(signal))}
         if self.account is not None and self.prices:
             self.account.rebalance(position, self.prices[-1])
         self.position = position
@@ -177,7 +186,10 @@ class Agent:
         move = side * (self.prices[-1] / entry - 1)
         won = move > 0
         self.workspace["trade_wins" if won else "trade_losses"] += move != 0
-        self.journal.append({"won": won, "move": move, **self.workspace.get("entry_note", {})})
+        note = self.workspace.get("entry_note", {})
+        self.journal.append({"won": won, "move": move, **note})
+        if self.mind is not None and move and not note.get("forced"):
+            self.mind.trade_closed(won, note.get("sure", 0.0))  # step 2 learns from its own trades
         if len(self.journal) > review.JOURNAL_MAX:
             del self.journal[0]
 

@@ -126,6 +126,20 @@ these short runs. Win rate trades off against profit: requiring stronger agreeme
 earns less, so the default (`review.TREND_VIEW_NEED = 0.3`) keeps profit. These runs use the built-in readers;
 Claude's reads need a key and were not part of the measurement.
 
+**Every trader has its own two-step mind** (`trading/mind.py`): first it **thinks**, then it **decides**.
+
+| Step | What the agent does | What it learns from |
+|---|---|---|
+| 1. Think | Weighs what it sees (its own strategy's signal, the news-and-chart view, the chart, the news, the last move, the trend, the stretch) into its own belief: "62% chance it goes up (the chart up, the news down)". Each agent watches its own mix of inputs with its own weights. | Every tick: did the price go the way it believed? Inputs that helped get more weight. |
+| 2. Decide | Turns the belief into an action for its own practice account: buy, sell or wait, and how big, by its own **patience** (how sure it must be to act) and **appetite** (how much to risk). | Its own closed trades: a loss taken while barely sure makes it more patient; wins make it bolder. |
+
+No two minds are alike (attention, weights, learning speed, patience and appetite come from the agent's id and
+its own results). Minds are saved with the rest of each agent's memory. The decision still passes the agent's
+learned rules, the masters, the reading-room confirmation, the desk checks and the hard risk limits.
+`MINDS=off` turns them off. Measured on the simulated market (400 agents, 7,200 ticks, seeds 1 to 3): trader
+win rate 54.2% → 58.6%, desk profit 13% lower, because patient agents skip more trades. The 3D page's
+"Agent program" card shows what an example agent thinks and decides; JARVIS answers "how do they think?".
+
 **Built like Claude's agent program.** We compared the team with Anthropic's Claude Agent SDK (the agent loop
 gather → act → check your work, long-term memory, a lead agent that directs helpers, hooks before every action,
 a reason for every action) and added what was missing:
