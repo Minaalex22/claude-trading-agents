@@ -347,7 +347,7 @@ class MatrixDesk:
             decision = self.beta.jev.validate({
                 "bot": "matrix", "venue": "spot", "instrument": a, "side": "buy" if qty > 0 else "sell",
                 "qty": abs(qty), "price": q.price, "strategy": "whole_matrix",
-                "expected_slippage_pct": abs(qty) * q.price / q.depth_usdc, "depth_usdc": q.depth_usdc,
+                "expected_slippage_pct": abs(qty) * q.price / q.depth_usdc * 100, "depth_usdc": q.depth_usdc,
             })
             if not decision.approved:
                 self.log.emit("jev", symbol=a, decision="rejected", codes=[decision.code], legs=1)
