@@ -21,12 +21,26 @@ services:
         generateValue: true
       - key: SESSION_SECRET
         generateValue: true
+      # Two-step login: the secret for your authenticator app's 6-digit codes. Make one with
+      # `python -m trading.webauth new-totp` and paste it in the Environment tab. Required before real money.
+      - key: DASHBOARD_TOTP_SECRET
+        sync: false
       - key: EVENTS_DIR
         value: /events
       # Paper trading on live prices (Coinbase, Yahoo). Orders still go to the paper broker; real money stays
       # locked. Set to "sim" to go back to the simulated practice market.
       - key: MARKET
         value: live
+      # Real money (off until all are set): see "Real money" in the README. BRIDGE_TOKEN is shared with the
+      # bridge on your computer; the limits are also set there.
+      - key: BRIDGE_TOKEN
+        sync: false
+      - key: LIVE_MAX_ORDER_USD
+        sync: false
+      - key: LIVE_MAX_DAY_USD
+        sync: false
+      - key: LIVE_SYMBOLS
+        sync: false
       # JARVIS: set these in the Render dashboard (Environment tab). They are never in the repo.
       - key: JARVIS_PASSPHRASE   # optional fixed passphrase; otherwise you choose it on first visit to /jarvis
         sync: false

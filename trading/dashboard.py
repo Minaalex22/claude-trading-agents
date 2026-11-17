@@ -21,6 +21,7 @@ When auth is on (see trading/webauth.py), /, /3d, /events and the /api/
 endpoints need a signed session cookie; /health then reports only {"ok": ...}.
 """
 
+import hmac
 import json
 import os
 import urllib.parse
@@ -30,7 +31,7 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import control, platforms
+from . import control, live_orders, platforms
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
 from .org import DEPARTMENTS, finish_school, manager_reports
 from .webauth import COOKIE, WebAuth
@@ -42,6 +43,9 @@ WEB = Path(__file__).resolve().parent / "web"
 STATIC = {
     "/app.css": ("app.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/command.css": ("command.css", "text/css; charset=utf-8"),
+    "/command.js": ("command.js", "text/javascript; charset=utf-8"),
+    "/holo-pages.css": ("holo-pages.css", "text/css; charset=utf-8"),
     "/3d.css": ("3d.css", "text/css; charset=utf-8"),
     "/3d.js": ("3d.js", "text/javascript; charset=utf-8"),
     "/jarvis.css": ("jarvis.css", "text/css; charset=utf-8"),
@@ -238,12 +242,19 @@ def _read(name: str) -> bytes:
     return (WEB / name).read_bytes()
 
 
-def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | None = None):
+MIN_BRIDGE_TOKEN = 32
+
+
+def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | None = None, env=os.environ):
     auth = auth or WebAuth(None, None, enabled=False)
+    # Real-money bridge (trading/live_orders.py, trading/bridge.py): off unless a long BRIDGE_TOKEN is set.
+    bridge_token = env.get("BRIDGE_TOKEN", "")
+    bridge_on = len(bridge_token) >= MIN_BRIDGE_TOKEN
     jarvis = jarvis or Jarvis(None, required=auth.enabled)
     assets = {path: (_read(name), ctype) for path, (name, ctype) in STATIC.items()}
     index = _read("index.html")
     cluster_page = _read("3d.html")
+    log_page = _read("log.html")
     jarvis_page = _read("jarvis.html")
     login_page = _read("login.html").decode()
 
@@ -326,27 +337,40 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 ok = state["agents_reporting"] > 0
                 body = {"ok": ok} if auth.enabled else {"ok": ok, **state}
                 self._send(200 if ok else 503, json.dumps(body).encode(), "application/json")
+            elif path == "/api/bridge/next":
+                if not self._bridge_authed():
+                    return self._json(401, {"error": "bridge token required"})
+                self._json(200, {"order": live_orders.next_for_bridge(hub.events_dir)})
             elif path == "/login":
                 if not auth.enabled or self._authed():
                     return self._redirect("/")
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-                message = {"1": "Wrong password.", "locked": "Too many attempts. Try again in 15 minutes."}
+                message = {"1": "Wrong password or code." if auth.two_step else "Wrong password.",
+                           "locked": "Too many attempts. Try again in 15 minutes."}
                 error = message.get(query.get("error", [""])[0], "")
                 page = login_page.replace("<!--ERROR-->", f'<div class="err">{error}</div>' if error else "")
+                if auth.two_step:
+                    page = page.replace("<!--CODE-->", '<input type="text" name="code" placeholder="6-digit code" '
+                                        'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis"):
+                if path in ("/", "/3d", "/jarvis", "/log"):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
             elif path == "/":
                 self._send(200, index, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/log":
+                self._send(200, log_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/3d":
                 self._send(200, cluster_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/jarvis":
                 self._send(200, jarvis_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/jarvis":
                 self._json(200, jarvis.status(self._jarvis_unlocked()))
+            elif path == "/api/live":
+                self._json(200, {**live_orders.snapshot(hub.events_dir, live_orders.Limits(env)),
+                                 "bridge": bridge_on, "two_step": auth.two_step})
             elif path == "/api/platforms":
                 self._json(200, {"platforms": platforms.status(), "live_trading": "locked"})
             elif path == "/api/state":
@@ -377,6 +401,10 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             raw = self.rfile.read(length) if length else b""
             if not self._same_origin():
                 return self._send(403, b'{"error":"cross-site request refused"}', "application/json")
+            if path == "/api/bridge/result":
+                return self._bridge_result(raw)
+            if path == "/api/live/decide":
+                return self._live_decide(raw)
             if path == "/logout":
                 return self._redirect("/login", {"Set-Cookie": self._cookie("", 0)})
             if path == "/api/agents":
@@ -389,11 +417,52 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             if not auth.allowed(client):
                 return self._redirect("/login?error=locked")
             form = urllib.parse.parse_qs(raw.decode("utf-8", "replace"))
-            if auth.check_password(form.get("password", [""])[0]):
+            if auth.check(form.get("password", [""])[0], form.get("code", [""])[0]):
                 auth.record_success(client)
                 return self._redirect("/", {"Set-Cookie": self._cookie(auth.issue(), auth.max_age)})
             auth.record_failure(client)
             self._redirect("/login?error=1")
+
+        def _bridge_authed(self) -> bool:
+            sent = self.headers.get("Authorization", "")
+            return bridge_on and hmac.compare_digest(sent.encode(), f"Bearer {bridge_token}".encode())
+
+        def _bridge_result(self, raw: bytes):
+            if not self._bridge_authed():
+                return self._json(401, {"error": "bridge token required"})
+            try:
+                b = json.loads(raw or b"null")
+                order = live_orders.record_result(hub.events_dir, str(b["id"]), bool(b["ok"]), str(b.get("detail", "")),
+                                                  int(b.get("filled_qty") or 0), b.get("fill_price"),
+                                                  b.get("positions") if isinstance(b.get("positions"), dict) else None)
+            except (ValueError, KeyError, TypeError, AttributeError) as e:
+                return self._json(400, {"error": str(e)})
+            self._json(200, {"order": order})
+
+        def _live_decide(self, raw: bytes):
+            if not self._authed():
+                return self._json(401, {"error": "sign in required"})
+            if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                return self._json(415, {"error": "send JSON"})
+            if not (auth.two_step and bridge_on):
+                return self._json(403, {"error": "Real money needs two-step login (DASHBOARD_TOTP_SECRET) and "
+                                                 "BRIDGE_TOKEN set first."})
+            client = self._client()
+            if not auth.allowed(client):
+                return self._json(429, {"error": "Too many wrong codes. Try again in 15 minutes."})
+            try:
+                b = json.loads(raw or b"null")
+                order_id, approve, code = str(b["id"]), bool(b["approve"]), str(b.get("code", ""))
+            except (ValueError, KeyError, TypeError) as e:
+                return self._json(400, {"error": f"bad request: {e}"})
+            if approve and not auth.check_code(code):
+                auth.record_failure(client)
+                return self._json(403, {"error": "That code isn't right. Use a fresh code from your authenticator."})
+            try:
+                order = live_orders.decide(hub.events_dir, order_id, approve, live_orders.Limits(env))
+            except ValueError as e:
+                return self._json(409, {"error": str(e)})
+            self._json(200, {"order": order})
 
         def _set_agents(self, raw: bytes):
             if not self._authed():

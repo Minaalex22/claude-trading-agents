@@ -1,8 +1,8 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>ATS Matrix</title>
-<meta name="theme-color" content="#0f1115">
+<title>ATS Matrix · Command</title>
+<meta name="theme-color" content="#05070d">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -10,16 +10,85 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/command.css">
 </head><body>
-<header><b>ATS Matrix</b> <span class="mut">paper mode · <span id="total">0</span> agents reporting · <span id="status">connecting…</span></span>
-<a href="/3d">3D view</a> <a href="/jarvis">JARVIS</a>
-<form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
-<div id="shards"></div>
-<div id="hud"><div class="card"><b>Signal heatmap</b> <span class="mut">8-bot ring</span><div id="heat"></div></div>
-<div class="card"><b>Jev decision desk</b><div id="desk" class="mut">waiting…</div></div></div>
-<div id="matrixpanel" class="card" hidden><b>Whole Matrix</b> <span class="mut" id="matrixsub"></span>
-<div class="tbl-wrap"><table id="mtable"></table></div><div id="pairs"></div></div>
-<div id="log"></div>
-<script src="/app.js"></script>
+<header class="bar">
+ <div class="brand"><span class="pulse-dot" id="liveDot"></span><b>ATS MATRIX</b><span class="tag" id="marketTag">connecting</span></div>
+ <nav><a class="on" href="/">Command</a><a href="/3d">3D lab</a><a href="/jarvis">JARVIS</a><a href="/log">Event log</a></nav>
+ <form method="post" action="/logout"><button type="submit">Sign out</button></form>
+</header>
+
+<section class="kpis" aria-label="Key numbers">
+ <div class="kpi"><span>Equity</span><b id="kEquity">–</b><small id="kEquitySub">paper book</small></div>
+ <div class="kpi"><span>Session P&amp;L</span><b id="kPnl">–</b><small id="kPnlSub">all engine shards</small></div>
+ <div class="kpi"><span>Today</span><b id="kDay">–</b><small id="kDaySub">stops at −2%</small></div>
+ <div class="kpi"><span>Agents</span><b id="kAgents">–</b><small id="kAgentsSub">voting now</small></div>
+ <div class="kpi"><span>Jev gate</span><b id="kJev">–</b><small id="kJevSub">approval rate</small></div>
+ <div class="kpi state" id="kState"><span>Trading</span><b id="kStateText">–</b><small id="kStateSub">all stops clear</small></div>
+</section>
+
+<main class="grid">
+ <section class="hero card" aria-label="Agent clusters">
+  <div id="scene"></div>
+  <div class="hero-head"><h2>The brain, live</h2><span class="mut">every dot is an agent · drag to turn · scroll to zoom</span>
+   <canvas id="beat" width="260" height="46" aria-label="Heartbeat: spikes on every tick, higher on orders"></canvas></div>
+  <div class="legend"><i class="g"></i>buy / trending <i class="r"></i>sell / choppy <i class="n"></i>warming up
+   <i class="f"></i>data flowing <i class="o"></i>order</div>
+  <div class="hero-stats" id="heroStats"></div>
+  <div id="err3d" hidden>The 3D library didn't load. Everything else still works.</div>
+ </section>
+
+ <aside class="side">
+  <section class="card" aria-label="Risk">
+   <h3>Risk limits <span class="mut">how close each stop is</span></h3>
+   <div class="gauges">
+    <div class="gauge" id="gDay"><svg viewBox="0 0 120 70"><path class="track" d="M10 62 A50 50 0 0 1 110 62"/><path class="fill" d="M10 62 A50 50 0 0 1 110 62"/></svg><b>–</b><span>daily loss</span></div>
+    <div class="gauge" id="gDd"><svg viewBox="0 0 120 70"><path class="track" d="M10 62 A50 50 0 0 1 110 62"/><path class="fill" d="M10 62 A50 50 0 0 1 110 62"/></svg><b>–</b><span>drawdown</span></div>
+    <div class="gauge" id="gGross"><svg viewBox="0 0 120 70"><path class="track" d="M10 62 A50 50 0 0 1 110 62"/><path class="fill" d="M10 62 A50 50 0 0 1 110 62"/></svg><b>–</b><span>exposure</span></div>
+   </div>
+   <div class="facts" id="riskFacts"></div>
+  </section>
+
+  <section class="card approvals" aria-label="Real-money approvals">
+   <h3>Real money <span class="mut" id="liveSub">checking…</span></h3>
+   <div id="liveList" class="mut">–</div>
+   <label class="code" id="codeRow" hidden>Authenticator code <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123 456"></label>
+   <div id="liveMsg" class="mut" aria-live="polite"></div>
+  </section>
+  <section class="card" aria-label="Signal heatmap">
+   <h3>8-bot ring <span class="mut">signal heatmap</span></h3>
+   <div id="heat" class="heat"></div>
+  </section>
+  <section class="card grow" aria-label="Activity">
+   <h3>Activity <span class="mut">every second, last minute</span></h3>
+   <canvas id="activity" class="activity" aria-label="Orders, risk cuts, Jev rejections and order checks per second"></canvas>
+   <div id="actTotals" class="act-totals"></div>
+  </section>
+ </aside>
+
+ <section class="card chart" aria-label="Prices">
+  <h3>Price <span class="tabs" id="symTabs"></span><span class="view" id="symView"></span></h3>
+  <div id="priceChart" class="plot"></div>
+ </section>
+ <section class="card chart" aria-label="P&L">
+  <h3>Session P&amp;L <span class="mut">agent engines, paper</span></h3>
+  <div id="pnlChart" class="plot"></div>
+ </section>
+
+ <section class="card" aria-label="Managers">
+  <h3>Managers and departments</h3>
+  <div id="depts" class="mut">waiting for the first report…</div>
+ </section>
+ <section class="card" aria-label="News">
+  <h3>News desk <span class="mut" id="newsSub">headlines the reading room scored</span></h3>
+  <div id="news" class="news mut">no headlines yet</div>
+ </section>
+ <section class="card stream" aria-label="Events">
+  <h3>Live orders and checks</h3>
+  <div id="stream" class="mut">waiting…</div>
+ </section>
+</main>
+<script src="/vendor/three.min.js"></script>
+<script src="/vendor/lightweight-charts.js"></script>
+<script src="/command.js"></script>
 </body></html>

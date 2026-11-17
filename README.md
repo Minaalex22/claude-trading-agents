@@ -159,8 +159,43 @@ short run: memory pays off across restarts, the coach needs an API key.
 **Paper trading on live prices.** `MARKET=live` swaps the simulated market for real prices (Coinbase for BTC
 and ETH, Yahoo Finance for stocks), polled every 15 s (`LIVE_POLL_SECONDS`). Orders still go to the paper broker;
 real money stays locked. The cloud app runs live by default (`render.yaml`); set `MARKET=sim` to go back.
-The simulated news wire is off on live prices (it hints at the simulator's hidden drift), so live views come
-from the charts until a real news feed is added.
+The simulated news wire is off on live prices (it hints at the simulator's hidden drift). Instead
+`trading/news_feed.py` reads **real headlines** from free RSS feeds every 5 minutes: Yahoo Finance and a Google
+News search per symbol, plus CNBC, MarketWatch, CoinDesk and Cointelegraph matched by ticker or company name.
+The same story from many sites counts once, and anything older than 6 hours is dropped. The reading room reads
+each headline (Claude with a key, otherwise a finance lexicon that knows words like "beats", "plunges",
+"downgrade"). `LIVE_NEWS=off` turns it off.
+
+**Bad live data can't drive trades** (`trading/live_market.py`):
+- A price more than 8% from the last good one is held until the next poll confirms it.
+- A symbol whose price is more than 10 minutes old (feed down, or the stock market closed) can be exited but
+  not added to.
+- Backup sources: Kraken for crypto when Coinbase fails, a second Yahoo host for stocks.
+
+**Backtest on real prices** (`trading/backtest.py`): `python -m trading.backtest` fetches two years of hourly
+Yahoo prices for every symbol and replays them through the same agents, desk and risk limits, with 3 bp of cost
+per fill (1 bp fee + 2 bp slippage). The report gives return, Sharpe, Sortino, max drawdown and Calmar for the
+first year (where the agents learn) and the second year (the honest test), next to buy-and-hold.
+
+What it found (Nov 2024 to Nov 2026, 10 symbols, 400 agents, drawdown halt loosened so the strategy runs the
+whole time):
+
+| Desk setting | Year 1 | Year 2 (unseen) | Costs (year 2) |
+|---|---|---|---|
+| Old: trade any call above 0.15, rebalances from $100 | −1.9% | −5.2% | $4,928 |
+| New default: only calls above 0.5, rebalances from $5,000 | +2.9% | +0.9% | $630 |
+| Buy and hold the same symbols | +30.3% | −3.4% | |
+
+The old desk traded so often that costs ate more than it earned. The new setting was chosen on year 1 only and
+held up on year 2, but +0.9% a year is close to flat: **this is not yet evidence that the agents beat the
+market**. With the 5% drawdown halt on (the default), the old setting stopped trading for good after ten months.
+
+**Stops above the order limits** (`trading/risk.py`):
+- **Daily loss stop:** a 2% loss from the start of the UTC day stops new risk until the next day
+  (`DAILY_LOSS_LIMIT`).
+- **Kill switch:** create a file named `KILL` in the events folder and every shard closes all positions and opens
+  nothing. Delete it to trade again.
+- Every `tick` event says which stop is on (`stopped`) and which symbols are stale (`stale`).
 
 **Training never stops (practice hours).** Every practice hour (3,600 s of ticks, `PRACTICE_HOUR_TICKS`):
 - **Every strategy trader (Trend and Reversion) makes at least 20 practice trades.** The desk keeps each trader
@@ -179,7 +214,32 @@ The managers read their departments every 5 ticks and report a call ("favour tre
 The hard limits in `trading/risk.py` have the final say: order size, position size, gross exposure, and a
 drawdown limit that halts new risk.
 
-**Paper mode only.** The market is simulated and fills are fake. No real orders are ever sent.
+**Paper mode only.** Prices are simulated, or real with `MARKET=live`, but fills are always paper. No real
+orders are ever sent.
+
+## Real money: the approval desk and the bridge
+
+Off by default, and every step needs you. Nothing in the cloud app holds broker passwords or talks to the broker.
+
+1. **The desk proposes.** With `MARKET=live` and all three of `LIVE_MAX_ORDER_USD`, `LIVE_MAX_DAY_USD` and
+   `LIVE_SYMBOLS` set, shard 0 turns each paper order in those symbols into a small proposal: whole shares up to
+   the per-order limit, buys within the day's limit, sells only of shares the real account holds (no shorting),
+   one open order per symbol (`trading/live_orders.py`).
+2. **You approve.** Each proposal waits on the dashboard for 5 minutes. Approving needs a fresh code from your
+   authenticator app, so two-step login (`DASHBOARD_TOTP_SECRET`) must be on, and `BRIDGE_TOKEN` (32+ random
+   characters) must be set. An approved order not collected within 5 minutes expires.
+3. **The bridge places it** (`trading/bridge.py`). It runs on your own computer next to moomoo's OpenD app and
+   only reaches out: it asks the app for approved orders with `BRIDGE_TOKEN`, re-checks its **own** copy of the
+   limits (so a hacked app still can't make it place a bigger order), places a limit order 0.3% through the
+   price, and reports the result and the account's positions back. Without `BRIDGE_REAL_MONEY=I-ACCEPT-THE-RISK`
+   it trades moomoo's paper account. A `KILL` file next to it stops it.
+
+Why moomoo: it serves Australian residents, its OpenAPI places US-stock orders from Python through OpenD, and
+JARVIS already reads its paper account. **Polymarket is blocked in Australia** (ACMA, August 2025) and Kalshi
+doesn't accept Australian residents, so there is no prediction-market connector for real money.
+
+**Before real money:** the backtest above shows the agents roughly flat on real prices after costs. Run the bridge
+on moomoo's paper account first, keep the limits small, and expect to lose what you put in.
 
 ## 3D cluster view and agent slider
 
