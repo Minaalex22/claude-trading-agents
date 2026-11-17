@@ -80,7 +80,13 @@ class StackTests(unittest.TestCase):
     def test_dashboard_page(self):
         with urllib.request.urlopen(URL + "/", timeout=5) as resp:
             page = resp.read()
-        self.assertIn(b"Signal heatmap", page)
+        self.assertIn(b"The brain, live", page)
+        self.assertIn(b"Risk limits", page)
+        self.assertIn(b'src="/command.js"', page)
+        with urllib.request.urlopen(URL + "/command.js", timeout=5) as resp:
+            self.assertIn(b"EventSource", resp.read())
+        with urllib.request.urlopen(URL + "/log", timeout=5) as resp:
+            page = resp.read()
         self.assertIn(b"Jev decision desk", page)
         self.assertIn(b'src="/app.js"', page)
         with urllib.request.urlopen(URL + "/app.js", timeout=5) as resp:
