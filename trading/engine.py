@@ -26,6 +26,7 @@ Configured with environment variables so the same image runs as any shard:
                 (default 0.02). A file named KILL in EVENTS_DIR closes every position and opens nothing.
   MEMORY        "off" stops saving and restoring what the agents learned (default on when EVENTS_DIR or
                 MEMORY_DIR is set). Saved to MEMORY_DIR (default EVENTS_DIR)/memory-<shard>.json.
+  MINDS         "off" turns off every trader's two-step mind (think, then decide), for comparison
   COACH         "off" keeps the hourly Claude coach off even with ANTHROPIC_API_KEY set
   COACH_MODEL   Claude model for the coach (default claude-opus-5-5)
   SIGNAL_THRESHOLD  how strong the desk's combined call must be to hold a position (default 0.5)
@@ -109,6 +110,8 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     seed = int(env.get("SEED", 42))
     events_dir = env.get("EVENTS_DIR")
 
+    from . import mind
+    mind.ENABLED = env.get("MINDS", "on").lower() not in ("off", "0", "false", "no")
     agents = shard_agents(agent_count, symbols, shard_id, shard_count, seed)
     log = EventLog(shard_id, Path(events_dir) / f"events-{shard_id}.jsonl" if events_dir else None, stream)
     broker = PaperBroker(fee_bps=float(env.get("FEE_BPS", 1.0)))

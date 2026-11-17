@@ -27,7 +27,8 @@ def agent_state(a) -> dict:
     return {"brain": {"weight": b.weight, "experience": b.experience, "wins": b.wins, "memory": list(b.memory)},
             "rules": dict(a.rules), "trial": a.trial, "pnl": a.pnl,
             "workspace": {k: a.workspace[k] for k in WORKSPACE_KEYS if k in a.workspace},
-            "account": a.account.state() if getattr(a, "account", None) is not None else None}
+            "account": a.account.state() if getattr(a, "account", None) is not None else None,
+            "mind": a.mind.state() if getattr(a, "mind", None) is not None else None}
 
 
 def save(desk, path: Path) -> None:
@@ -68,6 +69,8 @@ def restore(desk, path: Path) -> int:
             a.workspace.update({k: v for k, v in s.get("workspace", {}).items() if k in WORKSPACE_KEYS})
             if getattr(a, "account", None) is not None and isinstance(s.get("account"), dict):
                 a.account.load(s["account"])  # its practice-account record, so a track record survives restarts
+            if getattr(a, "mind", None) is not None and isinstance(s.get("mind"), dict):
+                a.mind.load(s["mind"])  # how it thinks and decides, as it learned it
         except (KeyError, TypeError, ValueError):
             continue
         restored += 1
