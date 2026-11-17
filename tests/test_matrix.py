@@ -198,5 +198,26 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(self.desk.beta.overruns, 0)
 
 
+class SlippageReportTests(unittest.TestCase):
+    def test_jev_gets_slippage_in_percent(self):
+        d = desk()
+        d.warm_up(3 * 1440)
+        seen = []
+        real = d.beta.jev.validate
+
+        def spy(proposal):
+            seen.append(proposal)
+            return real(proposal)
+
+        d.beta.jev.validate = spy
+        for _ in range(300):
+            d.step()
+        self.assertTrue(seen)
+        for p in seen:
+            pct = p["qty"] * p["price"] / p["depth_usdc"] * 100
+            self.assertAlmostEqual(p["expected_slippage_pct"], pct)
+            self.assertLessEqual(p["expected_slippage_pct"], CFG.risk.slippage_tolerance_pct)
+
+
 if __name__ == "__main__":
     unittest.main()
