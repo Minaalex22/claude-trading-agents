@@ -1,4 +1,4 @@
-:root{--bg:#0f1115;--fg:#e6e6e6;--mut:#8a8f98;--up:#3fb950;--dn:#f85149;--card:#171a21}
+:root{--bg:#010409;--fg:#d9fbff;--mut:#6fa9b6;--up:#5dffc4;--dn:#ff5c8a;--card:rgba(79,243,255,.04);--line:rgba(79,243,255,.16);--acc:#4ff3ff}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 ui-monospace,Menlo,Consolas,monospace}
 header{padding:12px 16px;border-bottom:1px solid #222}
 #shards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;padding:12px 16px}
@@ -29,3 +29,7 @@ button{background:var(--card);color:var(--fg);border:1px solid #2a2f3a;border-ra
 #pairs div{background:#11141a;padding:6px 8px;border-radius:4px}
 .tbl-wrap{overflow-x:auto}
 header a{color:#58a6ff}
+
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:50;background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 3px);mix-blend-mode:overlay}
+.card{border-color:rgba(79,243,255,.18)!important;box-shadow:inset 0 0 24px rgba(79,243,255,.05)}
+header b,.card h3{color:#4ff3ff;letter-spacing:.2em;text-shadow:0 0 8px rgba(79,243,255,.6)}

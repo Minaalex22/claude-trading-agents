@@ -30,7 +30,8 @@
 <main class="grid">
  <section class="hero card" aria-label="Agent clusters">
   <div id="scene"></div>
-  <div class="hero-head"><h2>The brain, live</h2><span class="mut">every dot is an agent · drag to turn · scroll to zoom</span></div>
+  <div class="hero-head"><h2>The brain, live</h2><span class="mut">every dot is an agent · drag to turn · scroll to zoom</span>
+   <canvas id="beat" width="260" height="46" aria-label="Heartbeat: spikes on every tick, higher on orders"></canvas></div>
   <div class="legend"><i class="g"></i>buy / trending <i class="r"></i>sell / choppy <i class="n"></i>warming up
    <i class="f"></i>data flowing <i class="o"></i>order</div>
   <div class="hero-stats" id="heroStats"></div>
@@ -57,6 +58,11 @@
   <section class="card" aria-label="Signal heatmap">
    <h3>8-bot ring <span class="mut">signal heatmap</span></h3>
    <div id="heat" class="heat"></div>
+  </section>
+  <section class="card grow" aria-label="Activity">
+   <h3>Activity <span class="mut">every second, last minute</span></h3>
+   <canvas id="activity" class="activity" aria-label="Orders, risk cuts, Jev rejections and order checks per second"></canvas>
+   <div id="actTotals" class="act-totals"></div>
   </section>
  </aside>
 

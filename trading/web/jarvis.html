@@ -3,12 +3,15 @@
 <title>JARVIS</title>
 <meta name="theme-color" content="#02060c">
 <link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="/command.css">
 <link rel="stylesheet" href="/jarvis.css">
+<link rel="stylesheet" href="/holo-pages.css">
 </head><body>
-<header><b>JARVIS</b>
- <span class="mut">your assistant · paper mode</span>
- <a href="/">live log</a> <a href="/3d">3D view</a>
- <form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<header class="bar">
+ <div class="brand"><span class="pulse-dot on"></span><b>ATS MATRIX</b></div>
+ <nav><a href="/">Command</a><a href="/3d">3D lab</a><a class="on" href="/jarvis">JARVIS</a><a href="/log">Event log</a></nav>
+ <form method="post" action="/logout"><button type="submit">Sign out</button></form>
+</header>
 <main>
  <section id="stage" aria-label="JARVIS hologram">
   <div id="holo"></div>

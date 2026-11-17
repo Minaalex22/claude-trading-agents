@@ -45,6 +45,7 @@ STATIC = {
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/command.css": ("command.css", "text/css; charset=utf-8"),
     "/command.js": ("command.js", "text/javascript; charset=utf-8"),
+    "/holo-pages.css": ("holo-pages.css", "text/css; charset=utf-8"),
     "/3d.css": ("3d.css", "text/css; charset=utf-8"),
     "/3d.js": ("3d.js", "text/javascript; charset=utf-8"),
     "/jarvis.css": ("jarvis.css", "text/css; charset=utf-8"),
