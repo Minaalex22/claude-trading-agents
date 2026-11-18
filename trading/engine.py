@@ -193,7 +193,7 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
             if live:
                 risk.frozen = market.stale()
                 if desk.ticks % 20 == 0:
-                    log.emit("market", **market.status(), **(news.status() if news else {}))
+                    log.emit("market", **feed_status(market, news))
             desk.step(prices, news.tick(market.drift, desk.ticks + 1) if news else [])
             if memory_path and desk.ticks % memory.SAVE_EVERY == 0:
                 _save(desk, memory_path, log)
@@ -206,6 +206,14 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     log.emit("stop", ticks=desk.ticks, equity=round(broker.equity(market.prices), 2))
     log.close()
     return desk
+
+
+def feed_status(market, news) -> dict:
+    """The price feed's status plus the news feed's; news keys that clash (polls, last_error) get a news_ prefix."""
+    status = dict(market.status())
+    for key, value in (news.status() if news else {}).items():
+        status[key if key not in status else f"news_{key}"] = value
+    return status
 
 
 if __name__ == "__main__":
