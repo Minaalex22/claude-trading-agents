@@ -5,17 +5,18 @@ services:
   - type: web
     name: ats-matrix
     runtime: docker
-    plan: starter
+    # Free plan: no card needed. It sleeps after 15 minutes with no visitors and wakes in about a minute.
+    # For 24/7 running and a permanent memory disk, change to "starter" and restore the disk block below.
+    plan: free
     branch: main
     autoDeploy: true
     dockerCommand: python -m trading.cloud
     healthCheckPath: /health
-    # A permanent disk for /events: the agents' memory (what they learned), JARVIS's passphrase and the live
-    # logs survive every update and restart. About $0.25 a month for 1 GB.
-    disk:
-      name: events
-      mountPath: /events
-      sizeGB: 1
+    # Free plans can't have a disk, so memory resets on restart. On a paid plan, add this back:
+    # disk:
+    #   name: events
+    #   mountPath: /events
+    #   sizeGB: 1
     envVars:
       - key: DASHBOARD_PASSWORD
         generateValue: true
