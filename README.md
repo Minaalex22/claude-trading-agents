@@ -281,6 +281,13 @@ Backtest on the same two years of real hourly prices (year 2 = prices the agents
 Proven-only makes less but swings less, which is why it guards real money rather than the paper desk. In the
 simulator agents get proven within minutes (its prices are easy); on live 15-second prices it takes far longer.
 
+## Trade report
+
+`GET /api/report` returns a read-only summary: equity, session and today's profit and loss, orders, the agents'
+trades won and lost, proven and top agents, risk stops, stale prices, and real-money proposals, fills and positions.
+It opens for a signed-in session, or with `Authorization: Bearer <REPORT_TOKEN>` (set `REPORT_TOKEN`, 32+ random
+characters, in Render). It can't change anything, and the bridge token doesn't open it.
+
 ## 3D cluster view and agent slider
 
 Open **http://127.0.0.1:8080/3d**:

@@ -32,6 +32,9 @@ services:
       # locked. Set to "sim" to go back to the simulated practice market.
       - key: MARKET
         value: live
+      # Read-only trade report at /api/report for Claude or a script (32+ random characters). Optional.
+      - key: REPORT_TOKEN
+        sync: false
       # Real money (off until all are set): see "Real money" in the README. BRIDGE_TOKEN is shared with the
       # bridge on your computer; the limits are also set there.
       - key: BRIDGE_TOKEN
