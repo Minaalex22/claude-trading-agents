@@ -2,7 +2,7 @@
 
 from collections import defaultdict, deque
 
-from . import academy, accounts, coach as coaching, hooks, review
+from . import academy, accounts, coach as coaching, hooks, review, sessions
 from . import mind as mindmod
 
 from .agents import REVERSION, Agent, Trader
@@ -37,6 +37,9 @@ class Desk:
         self.signal_threshold = SIGNAL_THRESHOLD
         self.min_trade = MIN_TRADE  # dollars: smaller rebalances aren't worth their cost
         # Proven agents (trading/accounts.py): their own view per symbol, and whether only they steer the desk.
+        self.use_clock = True  # read the market clock (trading/sessions.py) when the market has real time
+        self.clock = None
+        self.session_avg = sessions.SessionAverages()
         self.proven_only = False
         self.proven_min = PROVEN_MIN
         self.proven_view: dict[str, tuple[float, int]] = {}
@@ -71,8 +74,12 @@ class Desk:
         self.hour_start = 0
         self.hour_stats: dict[str, dict] = {}
 
-    def step(self, prices: dict[str, float], headlines: list[dict] | None = None) -> None:
+    def step(self, prices: dict[str, float], headlines: list[dict] | None = None, now: float | None = None) -> None:
+        """One tick. `now` is the market time (unix seconds) for live prices and backtests; None in the simulator."""
         self.ticks += 1
+        self.clock = sessions.clock(now) if self.use_clock else None
+        if self.clock is not None:
+            self.session_avg.update(self.clock, prices)
         for headline in headlines or ():
             self.news.appendleft(headline)
         self.last_prices = dict(prices)
@@ -95,6 +102,7 @@ class Desk:
                     agent.hear(headline)
                 if agent.macro_view is not None:
                     votes[agent.symbol]["macro"].append(agent.macro_view)
+            agent.clock = self.clock
             if agent.role == "trader":
                 agent.news_view = self.news_view.get(agent.symbol)
                 agent.view = views.get(agent.symbol)
@@ -134,7 +142,8 @@ class Desk:
                 continue  # ignore tiny rebalances
             check = hooks.OrderCheck(symbol, desired, self.broker.position(symbol), prices[symbol],
                                      view=views.get(symbol), paused=symbol in self.managers.paused,
-                                     streak=self.journal.streak(symbol))
+                                     streak=self.journal.streak(symbol), clock=self.clock,
+                                     session_avg=self.session_avg.get(symbol) if self.clock else None)
             desired, notes = hooks.run_hooks(check)
             if notes:
                 self.checks["blocked" if abs(desired * prices[symbol]) < self.min_trade else "shrunk"] += 1
@@ -185,7 +194,8 @@ class Desk:
         self.log.emit(
             "tick", tick=self.ticks, agents=len(self.agents), orders=orders, exposure_vote=round(exposure, 3),
             equity=round(equity, 2), pnl=round(equity - self.broker.starting_cash, 2), halted=self.risk.halted,
-            proven=self.proven_count(), stopped=self.risk.stop_reason, stale=sorted(self.risk.frozen), killed=self.risk.killed,
+            proven=self.proven_count(), clock=self.clock.snapshot() if self.clock else None,
+            stopped=self.risk.stop_reason, stale=sorted(self.risk.frozen), killed=self.risk.killed,
             risk=self._risk_gauges(prices, equity),
             prices={s: round(p, 4) for s, p in prices.items()}, **extra,
         )

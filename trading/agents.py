@@ -62,6 +62,7 @@ class Agent:
                           "reviews": 0, "lessons": []}
         self.must_practice = False  # set by the desk when the agent is behind its practice-trade quota
         self.account = accounts.PracticeAccount() if self.role == "trader" else None  # its own paper book
+        self.clock = None  # sessions.MarketClock: the market's time of day, set by the desk (None in the simulator)
         # Its own two-step mind (trading/mind.py): step 1 thinks, step 2 decides.
         self.mind = mind.Mind(agent_id) if self.role == "trader" and mind.ENABLED else None
 
@@ -211,6 +212,10 @@ class Agent:
     def decide(self) -> float:
         raise NotImplementedError
 
+    def trend_trust(self) -> float:
+        """How far to trust a trend signal at this time of day (trading/sessions.py)."""
+        return self.clock.trend_trust(self.symbol) if self.clock is not None else 1.0
+
 
 class Trader(Agent):
     role = "trader"
@@ -222,7 +227,7 @@ class Momentum(Trader):
 
     def decide(self):
         change = self.prices[-1] / self.prices[0] - 1
-        return max(-1.0, min(1.0, change * 50))
+        return max(-1.0, min(1.0, change * 50 * self.trend_trust()))
 
 
 class MovingAverageCross(Trader):
@@ -240,10 +245,11 @@ class Breakout(Trader):
 
     def decide(self):
         prior = list(self.prices)[:-1]
+        trust = min(1.0, self.trend_trust())  # breakouts in New York's opening hour are often fakes
         if self.prices[-1] > max(prior):
-            return 1.0
+            return trust
         if self.prices[-1] < min(prior):
-            return -1.0
+            return -trust
         return 0.0
 
 

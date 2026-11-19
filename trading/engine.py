@@ -33,6 +33,8 @@ Configured with environment variables so the same image runs as any shard:
   MIN_TRADE     smallest rebalance in dollars the desk will send (default 5000)
   LIVE_MAX_ORDER_USD, LIVE_MAX_DAY_USD, LIVE_SYMBOLS  real-money mirror (shard 0, MARKET=live): each desk
                 order in LIVE_SYMBOLS becomes a capped proposal the owner approves (trading/live_orders.py)
+  SESSIONS      "off" stops the market clock (trading/sessions.py): New York opening hour, midday, power hour,
+                crypto weekends and the session average (default on; it needs real time, so live or backtest only)
   PROVEN_ONLY   "on": the paper desk trades only on what proven agents (trading/accounts.py) say (default off;
                 real-money proposals always need proven agents' backing)
   FEE_BPS       paper broker cost per fill in basis points (default 1; the backtest adds slippage)
@@ -126,6 +128,7 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     desk = Desk(agents, broker, risk, log, beta=BrainBeta(cfg), alpha=alpha,
                 hour_ticks=hour_ticks, room=room, reviews=env.get("REVIEWS", "on") != "off", coach=make_coach(env))
     desk.signal_threshold = float(env.get("SIGNAL_THRESHOLD", desk.signal_threshold))
+    desk.use_clock = env.get("SESSIONS", "on").lower() not in ("off", "0", "false", "no")
     desk.proven_only = env.get("PROVEN_ONLY", "off").lower() in ("on", "1", "true", "yes")
     desk.min_trade = float(env.get("MIN_TRADE", desk.min_trade))
     limits_live = live_orders.Limits(env)
@@ -194,7 +197,8 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
                 risk.frozen = market.stale()
                 if desk.ticks % 20 == 0:
                     log.emit("market", **feed_status(market, news))
-            desk.step(prices, news.tick(market.drift, desk.ticks + 1) if news else [])
+            now = market.now() if hasattr(market, "now") else (time.time() if live else None)
+            desk.step(prices, news.tick(market.drift, desk.ticks + 1) if news else [], now=now)
             if memory_path and desk.ticks % memory.SAVE_EVERY == 0:
                 _save(desk, memory_path, log)
             if tick_seconds:

@@ -12,6 +12,10 @@ The checks:
 - **symbol_paused**: Sentinel, Head of Risk, has flagged the symbol after an hour of losing trades: new risk
   there goes in at half size. (A full block was tried and cost profit: losing streaks often turn.)
 - **losing_streak**: the desk's last trades in this symbol lost: halve the size until one wins.
+- **market_clock**: the time of day in the market's own time zone (trading/sessions.py): half size in New York's
+  opening hour and on crypto weekends, 3/4 at midday and in Asia-only crypto hours.
+- **chasing**: no chasing: new risk more than 1.5% away from the session average, in the direction of the move,
+  goes in at half size (banks and funds buy near the day's average, not far above it).
 
 `DeskJournal` is the desk's own trade record per symbol (the agents keep their own). A trade closes when the
 desk's position goes flat or flips side. Sentinel and the Claude coach read it.
@@ -22,6 +26,8 @@ chart said, so every decision can be explained afterwards. Paper only.
 
 from collections import deque
 from dataclasses import dataclass, field
+
+from . import sessions
 
 STREAK = 2  # this many losing desk trades in a row in a symbol halves the next order
 RECENT = 50  # trades kept per symbol
@@ -36,6 +42,8 @@ class OrderCheck:
     view: object = None  # reading_room.View or None
     paused: bool = False
     streak: int = 0  # losing desk trades in a row in this symbol
+    clock: object = None  # sessions.MarketClock or None (simulator)
+    session_avg: float | None = None
     notes: list = field(default_factory=list)
 
     @property
@@ -63,7 +71,26 @@ def losing_streak(c: OrderCheck) -> tuple[float, str | None]:
     return 1.0, None
 
 
-HOOKS = (symbol_paused, against_the_room, losing_streak)
+def market_clock(c: OrderCheck) -> tuple[float, str | None]:
+    if c.clock is None:
+        return 1.0, None
+    size = c.clock.size(c.symbol)
+    if size < 1.0:
+        return size, f"x{size:g}: {c.clock.phase(c.symbol).replace('_', ' ')} ({c.clock.ny_time})"
+    return 1.0, None
+
+
+def chasing(c: OrderCheck) -> tuple[float, str | None]:
+    if c.clock is None or not c.session_avg:
+        return 1.0, None
+    gap = c.price / c.session_avg - 1
+    side = 1.0 if c.position + c.qty > 0 else -1.0
+    if side * gap > sessions.CHASE:
+        return 0.5, f"halved: {100 * gap:+.1f}% from the session average, chasing the move"
+    return 1.0, None
+
+
+HOOKS = (symbol_paused, against_the_room, losing_streak, market_clock, chasing)
 
 
 def run_hooks(c: OrderCheck, hooks=HOOKS) -> tuple[float, list[str]]:

@@ -281,6 +281,29 @@ Backtest on the same two years of real hourly prices (year 2 = prices the agents
 Proven-only makes less but swings less, which is why it guards real money rather than the paper desk. In the
 simulator agents get proven within minutes (its prices are easy); on live 15-second prices it takes far longer.
 
+## The market clock
+
+Prices don't move the same way all day, and the money that moves them works on New York and London time, not
+Australian time. `trading/sessions.py` gives every agent and the desk the time of day in each market's own zone:
+
+| Market | Part of the day | What the agents do |
+|---|---|---|
+| US stocks | Opening hour (9:30 to 10:30 New York) | The first move is often a fake. Trend and breakout signals count 30%, new risk at half size |
+| US stocks | Midday (11:30 to 14:00) | Desks at lunch, thin and choppy. New risk at 3/4, trend signals 80% |
+| US stocks | Power hour (15:00 to 16:00) | Funds and banks trade into the close. Trend signals count 120% |
+| US stocks | Closed | Stale prices: exits only |
+| Crypto | London and New York both open | Deepest market, full size |
+| Crypto | Asia only | Thinner, new risk at 3/4 |
+| Crypto | Weekend | Banks away, easy to push. Half size |
+
+Banks and funds measure their fills against the day's average price, so **new risk more than 1.5% from the
+session average, in the direction of the move, is halved** (no chasing). Every order's checks say which rule
+changed it. `SESSIONS=off` turns it off. It needs real time, so it works on live prices and in backtests, not in
+the simulator.
+
+On two years of real hourly prices (year 2 unseen) it made year 2 slightly better (+0.15% vs −0.23%, worst drop
+0.18% vs 0.58%) and year 1 slightly worse (+0.50% vs +0.76%). A small effect: kept on because it is safer.
+
 ## 3D cluster view and agent slider
 
 Open **http://127.0.0.1:8080/3d**:

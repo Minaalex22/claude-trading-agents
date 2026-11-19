@@ -55,6 +55,10 @@ class HistoricalMarket:
         self.prices: dict[str, float] = dict(self.rows[0]) if self.rows else {}
         self.drift: dict[str, float] = {}
 
+    def now(self) -> float | None:
+        """The time of the bar last handed out by tick()."""
+        return self.times[min(max(self.i - 1, 0), len(self.times) - 1)] if self.times else None
+
     def __len__(self) -> int:
         return len(self.rows)
 
