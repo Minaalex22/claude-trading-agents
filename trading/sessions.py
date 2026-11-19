@@ -25,11 +25,37 @@ The simulator has no real clock, so none of this applies there; live prices and 
 """
 
 from dataclasses import dataclass
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
 
-NEW_YORK = ZoneInfo("America/New_York")
-LONDON = ZoneInfo("Europe/London")
+# New York and London time from their daylight-saving rules, so the clock needs no time-zone database (Windows
+# and slim Docker images ship none). US: 2 a.m. local on the second Sunday of March to the first Sunday of
+# November. UK: 1 a.m. UTC on the last Sunday of March to the last Sunday of October.
+
+
+def _sunday(year: int, month: int, nth: int) -> int:
+    """Day of month of the nth Sunday (nth=-1: the last one)."""
+    if nth > 0:
+        first = datetime(year, month, 1).weekday()
+        return 1 + (6 - first) % 7 + 7 * (nth - 1)
+    last = (datetime(year + month // 12, month % 12 + 1, 1) - timedelta(days=1))
+    return last.day - (last.weekday() + 1) % 7
+
+
+def _ny(ts: float) -> datetime:
+    utc = datetime.fromtimestamp(ts, timezone.utc)
+    y = utc.year
+    start = datetime(y, 3, _sunday(y, 3, 2), 7, tzinfo=timezone.utc)  # 2 a.m. EST
+    end = datetime(y, 11, _sunday(y, 11, 1), 6, tzinfo=timezone.utc)  # 2 a.m. EDT
+    return utc.astimezone(timezone(timedelta(hours=-4 if start <= utc < end else -5)))
+
+
+def _london(ts: float) -> datetime:
+    utc = datetime.fromtimestamp(ts, timezone.utc)
+    y = utc.year
+    start = datetime(y, 3, _sunday(y, 3, -1), 1, tzinfo=timezone.utc)
+    end = datetime(y, 10, _sunday(y, 10, -1), 1, tzinfo=timezone.utc)
+    return utc.astimezone(timezone(timedelta(hours=1 if start <= utc < end else 0)))
+
 CRYPTO = {"BTC", "ETH", "SOL"}
 CHASE = 0.015  # 1.5% from the session average counts as chasing
 
@@ -77,10 +103,10 @@ def _stock_phase(ny: datetime) -> str:
 
 
 def _crypto_phase(ts: float) -> str:
-    utc = datetime.fromtimestamp(ts, ZoneInfo("UTC"))
+    utc = datetime.fromtimestamp(ts, timezone.utc)
     if utc.weekday() >= 5:
         return "weekend"
-    london, ny = datetime.fromtimestamp(ts, LONDON), datetime.fromtimestamp(ts, NEW_YORK)
+    london, ny = _london(ts), _ny(ts)
     london_open = 8 <= london.hour < 17
     ny_open = (ny.hour, ny.minute) >= (9, 30) and ny.hour < 17
     if london_open and ny_open:
@@ -95,7 +121,7 @@ def _crypto_phase(ts: float) -> str:
 def clock(ts: float | None) -> MarketClock | None:
     if ts is None:
         return None
-    ny = datetime.fromtimestamp(ts, NEW_YORK)
+    ny = _ny(ts)
     return MarketClock(ts, _stock_phase(ny), _crypto_phase(ts), ny.strftime("%a %H:%M New York"), ny.strftime("%Y-%m-%d"))
 
 
@@ -108,7 +134,7 @@ class SessionAverages:
         self.n: dict[str, int] = {}
 
     def update(self, c: MarketClock, prices: dict[str, float]) -> None:
-        utc_day = datetime.fromtimestamp(c.ts, ZoneInfo("UTC")).strftime("%Y-%m-%d")
+        utc_day = datetime.fromtimestamp(c.ts, timezone.utc).strftime("%Y-%m-%d")
         for s, p in prices.items():
             if s not in CRYPTO and c.stock_phase == "closed":
                 continue

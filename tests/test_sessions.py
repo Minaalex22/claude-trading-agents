@@ -1,12 +1,12 @@
 """The market clock: phases in each market's own time zone, sizing, trend trust and the session average."""
 
 import unittest
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
 
 from trading import hooks, sessions
 
-NY = ZoneInfo("America/New_York")
+NY = timezone(timedelta(hours=-5))  # New York in November (EST); no time-zone database needed on Windows
+MELBOURNE = timezone(timedelta(hours=11))  # AEDT
 
 
 def ts(y, mo, d, h, mi, tz=NY):
@@ -21,13 +21,18 @@ class ClockTests(unittest.TestCase):
             self.assertEqual(sessions.clock(ts(2026, 11, 18, h, m)).stock_phase, phase, (h, m))
         self.assertEqual(sessions.clock(ts(2026, 11, 21, 12, 0)).stock_phase, "closed")  # Saturday
         # 10:00 in Melbourne on a Wednesday is still Tuesday evening in New York: closed
-        self.assertEqual(sessions.clock(ts(2026, 11, 18, 10, 0, ZoneInfo("Australia/Melbourne"))).stock_phase, "closed")
+        self.assertEqual(sessions.clock(ts(2026, 11, 18, 10, 0, MELBOURNE)).stock_phase, "closed")
 
     def test_crypto_phases(self):
         self.assertEqual(sessions.clock(ts(2026, 11, 18, 10, 0)).crypto_phase, "overlap")  # London and New York open
         self.assertEqual(sessions.clock(ts(2026, 11, 18, 3, 0)).crypto_phase, "london")
         self.assertEqual(sessions.clock(ts(2026, 11, 18, 20, 0)).crypto_phase, "asia")
         self.assertEqual(sessions.clock(ts(2026, 11, 21, 12, 0)).crypto_phase, "weekend")
+
+    def test_daylight_saving(self):
+        self.assertEqual(sessions._ny(datetime(2026, 7, 1, 13, 45, tzinfo=timezone.utc).timestamp()).hour, 9)  # EDT
+        self.assertEqual(sessions._ny(datetime(2026, 12, 1, 14, 45, tzinfo=timezone.utc).timestamp()).hour, 9)  # EST
+        self.assertEqual(sessions._london(datetime(2026, 7, 1, 7, 0, tzinfo=timezone.utc).timestamp()).hour, 8)  # BST
 
     def test_sizing_and_trust(self):
         c = sessions.clock(ts(2026, 11, 18, 9, 45))
