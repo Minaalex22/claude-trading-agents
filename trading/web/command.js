@@ -22,6 +22,7 @@ const pct = (v, d = 1) => (v === null || v === undefined ? '–' : (100 * v).toF
 const shown = {};
 function tween(id, value, fmt, flash) {
   const node = $(id); const from = shown[id] ?? value; shown[id] = value;
+  if (from !== value && !reduced) { node.classList.remove('glitch'); void node.offsetWidth; node.classList.add('glitch'); }
   if (flash && from !== value) { const k = node.closest('.kpi'); if (k) { k.classList.remove('flash'); void k.offsetWidth; k.classList.add('flash'); } }
   if (reduced || from === value) { node.textContent = fmt(value); return; }
   const t0 = performance.now();
@@ -103,6 +104,51 @@ function ring(radius, pos, tilt, color, opacity, dashed) {
   const m = dashed ? new THREE.LineDashedMaterial({ color, dashSize: 2.5, gapSize: 2, transparent: true, opacity, blending: THREE.AdditiveBlending })
     : new THREE.LineBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending });
   const l = new THREE.Line(g, m); if (dashed) l.computeLineDistances(); l.position.set(...pos); l.rotation.x = tilt || 0; scene.add(l); return l;
+}
+// ---- floating holo screens: one per symbol, orbiting behind the brain, each a live price chart ----------------
+const screens = {};
+function holoScreen(symbol, i, n) {
+  const c = document.createElement('canvas'); c.width = 320; c.height = 170;
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.92, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending, depthWrite: false });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(62, 33), mat);
+  const a = Math.PI * (0.08 + 0.84 * (i / Math.max(1, n - 1))), R = 165;
+  m.userData = { base: new THREE.Vector3(36 - Math.cos(a) * R, 40 + (i % 2) * 30, -Math.sin(a) * R * 0.6 - 20), phase: i * 0.7 };
+  m.position.copy(m.userData.base); scene.add(m);
+  return (screens[symbol] = { m, c, tex, last: null });
+}
+function drawScreen(sc, symbol, pts) {
+  const g = sc.c.getContext('2d'), w = sc.c.width, h = sc.c.height; g.clearRect(0, 0, w, h);
+  const up = pts.length > 1 && pts[pts.length - 1] >= pts[0], col = up ? '#5dffc4' : '#ff5c8a';
+  g.strokeStyle = 'rgba(79,243,255,.55)'; g.lineWidth = 2; g.strokeRect(3, 3, w - 6, h - 6);
+  g.fillStyle = 'rgba(79,243,255,.07)'; g.fillRect(3, 3, w - 6, h - 6);
+  for (let y = 8; y < h; y += 4) { g.fillStyle = 'rgba(79,243,255,.04)'; g.fillRect(4, y, w - 8, 1); }
+  g.font = '600 22px ui-monospace, Menlo, monospace'; g.fillStyle = '#9ffbff'; g.shadowColor = '#4ff3ff'; g.shadowBlur = 12; g.fillText(symbol, 14, 34);
+  if (pts.length) {
+    const last = pts[pts.length - 1], chg = pts.length > 1 ? last / pts[0] - 1 : 0;
+    g.textAlign = 'right'; g.fillStyle = col; g.shadowColor = col; g.fillText(last.toFixed(2), w - 14, 34);
+    g.font = '16px ui-monospace, Menlo, monospace'; g.fillText((chg >= 0 ? '+' : '') + (100 * chg).toFixed(2) + '%', w - 14, 56); g.textAlign = 'left';
+    const lo = Math.min(...pts), hi = Math.max(...pts), span = hi - lo || 1, x0 = 14, x1 = w - 14, y0 = h - 16, y1 = 66;
+    const X = (i) => x0 + (x1 - x0) * i / Math.max(1, pts.length - 1), Y = (v) => y0 - (y0 - y1) * (v - lo) / span;
+    const grd = g.createLinearGradient(0, y1, 0, y0); grd.addColorStop(0, up ? 'rgba(93,255,196,.35)' : 'rgba(255,92,138,.35)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.beginPath(); pts.forEach((v, i) => (i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v)))); g.lineTo(x1, y0); g.lineTo(x0, y0); g.closePath(); g.fillStyle = grd; g.shadowBlur = 0; g.fill();
+    g.beginPath(); pts.forEach((v, i) => (i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v)))); g.strokeStyle = col; g.lineWidth = 2.5; g.shadowColor = col; g.shadowBlur = 14; g.stroke();
+    g.beginPath(); g.arc(x1, Y(last), 5, 0, Math.PI * 2); g.fillStyle = '#fff'; g.fill();
+  }
+  sc.tex.needsUpdate = true;
+}
+function updateScreens() {
+  if (!scene || !history.length) return;
+  const syms = Object.keys(history[history.length - 1].prices);
+  syms.forEach((s, i) => { const sc = screens[s] || holoScreen(s, i, syms.length);
+    drawScreen(sc, s, history.slice(-90).map((h) => h.prices[s]).filter((v) => v !== undefined)); });
+}
+function floatScreens(t) {
+  for (const sc of Object.values(screens)) {
+    const u = sc.m.userData; sc.m.position.set(u.base.x, u.base.y + 2.5 * Math.sin(t * 0.9 + u.phase), u.base.z);
+    sc.m.lookAt(camera.position); sc.m.material.opacity = Math.random() < 0.01 ? 0.4 : 0.92;
+  }
 }
 function holoProjector() {
   // A projector on the floor under the brain, a cone of light rising from it, and a scan plane sweeping the projection.
@@ -227,7 +273,7 @@ function init3d() {
   resize(); addEventListener('resize', resize); controls(); requestAnimationFrame(frame);
 }
 function resize() { const w = host.clientWidth, h = host.clientHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
-  if (!lastInput) dist = camera.aspect < 1 ? 400 : 215; }
+  if (!lastInput) dist = camera.aspect < 1 ? 470 : 265; }
 function controls() {
   let drag = null;
   host.addEventListener('pointerdown', (e) => { drag = [e.clientX, e.clientY]; host.setPointerCapture(e.pointerId); host.style.cursor = 'grabbing'; lastInput = performance.now(); });
@@ -258,7 +304,7 @@ function frame(now) {
       // flicker like a projection: brief dips in brightness
       c.points.material.opacity = Math.random() < 0.012 ? 0.45 : 0.95; }
   }
-  if (!reduced) animateHolo(t);
+  if (!reduced) { animateHolo(t); floatScreens(t); } else if (Object.keys(screens).length) floatScreens(0);
   sparks(1 / 60);
   if (!reduced && Math.floor(now / 33) !== beat.frame) { beat.frame = Math.floor(now / 33); drawBeat(); }
   for (const m of Object.values(stageMesh)) m.scale.setScalar(1 + (reduced ? 0 : 0.12 * Math.sin(t * 2.2 + m.position.x)));
@@ -316,7 +362,7 @@ function loadPrices() {
       tabs.replaceChildren(...syms.map((s) => { const b = el('button', s === sym ? 'on' : '', s); b.type = 'button';
         b.onclick = () => { sym = s; for (const x of tabs.children) x.classList.toggle('on', x === b); drawPrice(); showView(); }; return b; }));
     }
-    drawPrice(); showView();
+    drawPrice(); showView(); updateScreens();
     if (pnlSeries && d.pnl.length) { const t0 = Math.floor(Date.now() / 1000) - d.pnl.length; pnlSeries.setData(d.pnl.map((p, i) => ({ time: t0 + i, value: p.pnl }))); }
   }).catch(() => {});
 }
@@ -526,5 +572,15 @@ const loadState = () => api('/api/state').then(renderState).catch(() => {});
 const loadOrg = () => api('/api/org').then(renderOrg).catch(() => {});
 loadState(); loadOrg(); loadPrices(); loadLive(); connect();
 setInterval(loadState, 2000); setInterval(loadOrg, 2500); setInterval(loadPrices, 4000); setInterval(loadLive, 5000);
+if (!reduced && matchMedia('(hover: hover)').matches) {
+  document.addEventListener('pointermove', (e) => {
+    const card = e.target.closest && e.target.closest('.card:not(.hero), .kpi'); if (!card) return;
+    const r = card.getBoundingClientRect(), x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5;
+    card.style.transform = `perspective(900px) rotateX(${(-y * 6).toFixed(2)}deg) rotateY(${(x * 8).toFixed(2)}deg) translateZ(6px)`;
+    card.style.setProperty('--mx', ((x + 0.5) * 100).toFixed(1) + '%'); card.style.setProperty('--my', ((y + 0.5) * 100).toFixed(1) + '%');
+  });
+  document.addEventListener('pointerout', (e) => { const card = e.target.closest && e.target.closest('.card, .kpi');
+    if (card && !card.contains(e.relatedTarget)) card.style.transform = ''; });
+}
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 })();
