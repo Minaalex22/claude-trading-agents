@@ -148,3 +148,38 @@ class EndToEndTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReportTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        (self.dir / "events-0.jsonl").write_text(
+            '{"ts":1,"shard":0,"type":"start","agents":200,"market":"live"}\n'
+            '{"ts":2,"shard":0,"type":"tick","tick":5,"equity":101000,"pnl":1000,"proven":2,"stopped":null,'
+            '"stale":["AAPL"],"risk":{"day_pnl":400,"drawdown":0.01},"jev":{"approved":7,"rejected":1}}\n')
+        hub = EventHub(self.dir)
+        hub.poll_files()
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(
+            hub, WebAuth(PASSWORD, "secret"), env={**ENV, "REPORT_TOKEN": "r" * 40}))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.tmp.cleanup()
+
+    call = EndToEndTests.call
+
+    def test_report_with_token(self):
+        status, rep = self.call("GET", "/api/report", token="r" * 40)
+        self.assertEqual(status, 200)
+        self.assertEqual((rep["market"], rep["session_pnl"], rep["today_pnl"], rep["orders"], rep["proven_agents"]),
+                         ("live", 1000, 400, 7, 2))
+        self.assertEqual(rep["stale_prices"], ["AAPL"])
+        self.assertIn("real_money", rep)
+
+    def test_report_refused_without_token(self):
+        self.assertEqual(self.call("GET", "/api/report")[0], 401)
+        self.assertEqual(self.call("GET", "/api/report", token="x" * 40)[0], 401)
+        self.assertEqual(self.call("GET", "/api/report", token=TOKEN)[0], 401)  # the bridge token doesn't open it

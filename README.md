@@ -304,6 +304,13 @@ the simulator.
 On two years of real hourly prices (year 2 unseen) it made year 2 slightly better (+0.15% vs −0.23%, worst drop
 0.18% vs 0.58%) and year 1 slightly worse (+0.50% vs +0.76%). A small effect: kept on because it is safer.
 
+## Trade report
+
+`GET /api/report` returns a read-only summary: equity, session and today's profit and loss, orders, the agents'
+trades won and lost, proven and top agents, risk stops, stale prices, and real-money proposals, fills and positions.
+It opens for a signed-in session, or with `Authorization: Bearer <REPORT_TOKEN>` (set `REPORT_TOKEN`, 32+ random
+characters, in Render). It can't change anything, and the bridge token doesn't open it.
+
 ## 3D cluster view and agent slider
 
 Open **http://127.0.0.1:8080/3d**:
