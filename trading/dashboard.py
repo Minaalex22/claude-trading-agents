@@ -15,6 +15,7 @@ Endpoints:
   /api/jarvis   GET her status; POST /api/jarvis/unlock {"passphrase"} and /api/jarvis/ask {"question"}
   /api/platforms  real platform connectors: mode and whether keys are set (names only)
   /health       200 once at least one shard is reporting
+  /api/report   read-only trade report (signed-in session, or bearer REPORT_TOKEN)
   /login        password sign-in when the dashboard is reachable from the internet
 
 When auth is on (see trading/webauth.py), /, /3d, /events and the /api/
@@ -245,11 +246,49 @@ def _read(name: str) -> bytes:
 MIN_BRIDGE_TOKEN = 32
 
 
+def trade_report(hub: "EventHub", events_dir: Path, env=os.environ) -> dict:
+    """A read-only summary of the trading: paper desk money, orders, wins and losses, agents, stops, real money."""
+    st, org = hub.state(), hub.org()
+    engines = {k: v for k, v in st["shards"].items() if k.isdigit()}
+    ticks = [v["tick"] for v in engines.values() if "tick" in v]
+    risks = [t["risk"] for t in ticks if isinstance(t.get("risk"), dict)]
+    depts = org.get("departments", {})
+    wins = sum(d.get("trade_wins", 0) for d in depts.values())
+    losses = sum(d.get("trade_losses", 0) for d in depts.values())
+    top = sorted((r for v in engines.values() for r in (v.get("leaderboard") or {}).get("top", []) if r.get("account")),
+                 key=lambda r: (r["account"]["proven"], r["account"]["equity"]), reverse=True)[:5]
+    live = live_orders.snapshot(events_dir, live_orders.Limits(env))
+    counts: dict[str, int] = {}
+    for o in live["orders"]:
+        counts[o["status"]] = counts.get(o["status"], 0) + 1
+    starts = [v["start"] for v in engines.values() if "start" in v]
+    market = next((s.get("market") for s in starts if s.get("market")), None)
+    rep = {
+        "generated_at": round(time.time()), "market": market, "agents": sum(s.get("agents", 0) for s in starts),
+        "tick": max((t.get("tick", 0) for t in ticks), default=0),
+        "equity": round(sum(t.get("equity", 0) for t in ticks), 2), "session_pnl": round(sum(t.get("pnl", 0) for t in ticks), 2),
+        "today_pnl": round(sum(r.get("day_pnl", 0) for r in risks), 2),
+        "orders": st["jev_desk"]["approved"], "jev_rejected": st["jev_desk"]["rejected"],
+        "agent_trades": {"won": wins, "lost": losses, "win_rate": round(wins / (wins + losses), 4) if wins + losses else None},
+        "proven_agents": sum(t.get("proven", 0) for t in ticks), "top_agents": top,
+        "stops": sorted({t["stopped"] for t in ticks if t.get("stopped")}),
+        "stale_prices": sorted({s for t in ticks for s in t.get("stale", [])}),
+        "drawdown": max((r.get("drawdown", 0) for r in risks), default=0),
+        "real_money": {"limits_on": live["limits"]["on"], "spent_today": live["spent_today"], "orders": counts,
+                       "positions": live["positions"], "latest": live["orders"][:5]},
+        "ring": {k: st["shards"]["ring"]["tick"].get(k) for k in ("equity", "pnl")} if "tick" in st["shards"].get("ring", {}) else None,
+    }
+    return rep
+
+
 def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | None = None, env=os.environ):
     auth = auth or WebAuth(None, None, enabled=False)
     # Real-money bridge (trading/live_orders.py, trading/bridge.py): off unless a long BRIDGE_TOKEN is set.
     bridge_token = env.get("BRIDGE_TOKEN", "")
     bridge_on = len(bridge_token) >= MIN_BRIDGE_TOKEN
+    # Read-only trade report for an assistant or script: a bearer REPORT_TOKEN (32+ characters) or a signed-in session.
+    report_token = env.get("REPORT_TOKEN", "")
+    report_on = len(report_token) >= MIN_BRIDGE_TOKEN
     jarvis = jarvis or Jarvis(None, required=auth.enabled)
     assets = {path: (_read(name), ctype) for path, (name, ctype) in STATIC.items()}
     index = _read("index.html")
@@ -337,6 +376,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 ok = state["agents_reporting"] > 0
                 body = {"ok": ok} if auth.enabled else {"ok": ok, **state}
                 self._send(200 if ok else 503, json.dumps(body).encode(), "application/json")
+            elif path == "/api/report" and (self._authed() or self._report_authed()):
+                self._json(200, trade_report(hub, hub.events_dir, env))
             elif path == "/api/bridge/next":
                 if not self._bridge_authed():
                     return self._json(401, {"error": "bridge token required"})
@@ -422,6 +463,10 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._redirect("/", {"Set-Cookie": self._cookie(auth.issue(), auth.max_age)})
             auth.record_failure(client)
             self._redirect("/login?error=1")
+
+        def _report_authed(self) -> bool:
+            sent = self.headers.get("Authorization", "")
+            return report_on and hmac.compare_digest(sent.encode(), f"Bearer {report_token}".encode())
 
         def _bridge_authed(self) -> bool:
             sent = self.headers.get("Authorization", "")
