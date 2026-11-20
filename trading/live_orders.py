@@ -11,8 +11,14 @@ The cloud app never holds broker credentials and never talks to the broker. Inst
 
 Every limit is checked here when an order is proposed and approved, and again by the bridge before it places.
 State lives in live_orders.json in the events folder, so the dashboard and the shards share it.
+
+**Audit trail.** Every step (proposed, approved, rejected, sent to the bridge, filled or failed) is also appended
+to audit.jsonl and never rewritten. Each line carries the hash of the line before it, so a deleted or edited line
+breaks the chain and `verify_audit()` says where. This is the governance record regulated firms keep for agent
+decisions: who decided what, when, and with what limits in force.
 """
 
+import hashlib
 import json
 import os
 import secrets
@@ -62,6 +68,51 @@ def _save(events_dir: Path, data: dict) -> None:
     os.replace(tmp, path)
 
 
+def _audit_path(events_dir: Path) -> Path:
+    return Path(events_dir) / "audit.jsonl"
+
+
+def _last_hash(path: Path) -> str:
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 4096))
+            lines = f.read().splitlines()
+        return json.loads(lines[-1])["hash"] if lines else "genesis"
+    except (OSError, ValueError, KeyError, IndexError):
+        return "genesis"
+
+
+def audit(events_dir: Path, step: str, order: dict, clock=time.time, **extra) -> None:
+    """Append one hash-chained line. Call with the module lock held, so lines never interleave."""
+    path = _audit_path(events_dir)
+    entry = {"at": round(clock(), 3), "step": step, "order": order["id"], "symbol": order["symbol"],
+             "side": order["side"], "qty": order["qty"], "price": order["price"], **extra, "prev": _last_hash(path)}
+    entry["hash"] = hashlib.sha256(json.dumps(entry, sort_keys=True).encode()).hexdigest()
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, sort_keys=True) + "\n")
+
+
+def verify_audit(events_dir: Path) -> dict:
+    """Check the chain: {"ok": True, "entries": n} or where it breaks."""
+    prev, n = "genesis", 0
+    try:
+        lines = _audit_path(events_dir).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {"ok": True, "entries": 0}
+    for i, line in enumerate(lines, 1):
+        try:
+            e = json.loads(line)
+            body = {k: v for k, v in e.items() if k != "hash"}
+            good = e["prev"] == prev and e["hash"] == hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+        except (ValueError, KeyError, TypeError):
+            good = False
+        if not good:
+            return {"ok": False, "entries": n, "broken_at_line": i}
+        prev, n = e["hash"], n + 1
+    return {"ok": True, "entries": n}
+
+
 def _day(t: float) -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(t))
 
@@ -102,10 +153,12 @@ def propose(events_dir: Path, symbol: str, side: str, price: float, why: str, li
                  "why": str(why)[:300], "status": "proposed", "proposed_at": now}
         data["orders"].append(order)
         _save(events_dir, data)
+        audit(events_dir, "proposed", order, clock, why=order["why"],
+              limits={"max_order": limits.max_order, "max_day": limits.max_day})
         return order
 
 
-def decide(events_dir: Path, order_id: str, approve: bool, limits: Limits, clock=time.time) -> dict:
+def decide(events_dir: Path, order_id: str, approve: bool, limits: Limits, clock=time.time, by: str = "owner") -> dict:
     """The owner's call on a proposal. The caller has already checked the authenticator code."""
     now = clock()
     with _lock:
@@ -122,6 +175,7 @@ def decide(events_dir: Path, order_id: str, approve: bool, limits: Limits, clock
         order["status"] = "approved" if approve else "rejected"
         order["approved_at" if approve else "rejected_at"] = now
         _save(events_dir, data)
+        audit(events_dir, order["status"], order, clock, by=by)
         return order
 
 
@@ -139,6 +193,7 @@ def next_for_bridge(events_dir: Path, clock=time.time) -> dict | None:
             return None
         order["status"], order["sent_at"] = "sent", now
         _save(events_dir, data)
+        audit(events_dir, "sent", order, clock)
         return dict(order)
 
 
@@ -155,6 +210,8 @@ def record_result(events_dir: Path, order_id: str, ok: bool, detail: str, filled
         if positions is not None:
             data["positions"] = {str(k).upper(): int(v) for k, v in positions.items()}
         _save(events_dir, data)
+        audit(events_dir, order["status"], order, clock, detail=order["detail"], filled_qty=order["filled_qty"],
+              fill_price=fill_price)
         return order
 
 
@@ -164,4 +221,4 @@ def snapshot(events_dir: Path, limits: Limits, clock=time.time) -> dict:
         data = load(events_dir)
         _expire(data, now)
     return {"limits": limits.as_dict(), "spent_today": round(spent_today(data, now), 2),
-            "positions": data["positions"], "orders": data["orders"][-50:][::-1]}
+            "positions": data["positions"], "orders": data["orders"][-50:][::-1], "audit": verify_audit(events_dir)}

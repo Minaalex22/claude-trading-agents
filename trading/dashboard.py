@@ -275,6 +275,7 @@ def trade_report(hub: "EventHub", events_dir: Path, env=os.environ) -> dict:
         "stale_prices": sorted({s for t in ticks for s in t.get("stale", [])}),
         "drawdown": max((r.get("drawdown", 0) for r in risks), default=0),
         "real_money": {"limits_on": live["limits"]["on"], "spent_today": live["spent_today"], "orders": counts,
+                       "audit": live["audit"],
                        "positions": live["positions"], "latest": live["orders"][:5]},
         "ring": {k: st["shards"]["ring"]["tick"].get(k) for k in ("equity", "pnl")} if "tick" in st["shards"].get("ring", {}) else None,
     }
@@ -504,7 +505,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 auth.record_failure(client)
                 return self._json(403, {"error": "That code isn't right. Use a fresh code from your authenticator."})
             try:
-                order = live_orders.decide(hub.events_dir, order_id, approve, live_orders.Limits(env))
+                order = live_orders.decide(hub.events_dir, order_id, approve, live_orders.Limits(env),
+                                           by=f"owner via dashboard from {client}")
             except ValueError as e:
                 return self._json(409, {"error": str(e)})
             self._json(200, {"order": order})

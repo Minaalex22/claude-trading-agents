@@ -183,3 +183,22 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(self.call("GET", "/api/report")[0], 401)
         self.assertEqual(self.call("GET", "/api/report", token="x" * 40)[0], 401)
         self.assertEqual(self.call("GET", "/api/report", token=TOKEN)[0], 401)  # the bridge token doesn't open it
+
+
+class AuditTests(unittest.TestCase):
+    def test_every_step_is_chained_and_tampering_is_caught(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            limits = live_orders.Limits(ENV)
+            o = live_orders.propose(d, "AAPL", "buy", 120.0, "desk", limits)
+            live_orders.decide(d, o["id"], True, limits, by="owner test")
+            sent = live_orders.next_for_bridge(d)
+            live_orders.record_result(d, sent["id"], True, "placed", 4, 120.0, {"AAPL": 4})
+            lines = [json.loads(x) for x in (d / "audit.jsonl").read_text().splitlines()]
+            self.assertEqual([x["step"] for x in lines], ["proposed", "approved", "sent", "filled"])
+            self.assertEqual(lines[1]["by"], "owner test")
+            self.assertEqual(live_orders.verify_audit(d), {"ok": True, "entries": 4})
+            raw = (d / "audit.jsonl").read_text().splitlines()
+            raw[1] = raw[1].replace('"approved"', '"rejected"')  # someone edits history
+            (d / "audit.jsonl").write_text("\n".join(raw) + "\n")
+            self.assertEqual(live_orders.verify_audit(d), {"ok": False, "entries": 1, "broken_at_line": 2})

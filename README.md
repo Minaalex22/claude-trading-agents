@@ -252,6 +252,11 @@ Why moomoo: it serves Australian residents, its OpenAPI places US-stock orders f
 JARVIS already reads its paper account. **Polymarket is blocked in Australia** (ACMA, August 2025) and Kalshi
 doesn't accept Australian residents, so there is no prediction-market connector for real money.
 
+**Audit trail** (the governance record the LangChain financial-agents guide calls for): every real-money step
+(proposed, approved or rejected and by whom, sent to the bridge, filled or failed) is appended to `audit.jsonl` in the
+events folder and never rewritten. Each line carries the hash of the one before, so a deleted or edited line breaks the
+chain. The trade report (`/api/report`) says whether the chain is intact.
+
 **Before real money:** the backtest above shows the agents roughly flat on real prices after costs. Run the bridge
 on moomoo's paper account first, keep the limits small, and expect to lose what you put in.
 
