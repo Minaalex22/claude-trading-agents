@@ -145,7 +145,7 @@ class LiveNewsTests(unittest.TestCase):
 
     def test_single_source_stays_half_strength(self):
         empty = b"<?xml version='1.0'?><rss><channel></channel></rss>"
-        feed = LiveNewsFeed(["TSLA"], get=lambda url: RSS if "yahoo" in url else empty, start_thread=False,
+        feed = LiveNewsFeed(["TSLA"], get=lambda url: RSS if "feeds.finance.yahoo.com" in url else empty, start_thread=False,
                             clock=Clock(1_794_830_400.0))
         feed.poll_once()
         tesla = [h for h in feed.tick({}, 1) if "Tesla" in h["text"]]
