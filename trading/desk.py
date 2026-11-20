@@ -39,6 +39,7 @@ class Desk:
         # Proven agents (trading/accounts.py): their own view per symbol, and whether only they steer the desk.
         self.use_clock = True  # read the market clock (trading/sessions.py) when the market has real time
         self.clock = None
+        self.now: float | None = None
         self.session_avg = sessions.SessionAverages()
         self.proven_only = False
         self.proven_min = PROVEN_MIN
@@ -77,6 +78,7 @@ class Desk:
     def step(self, prices: dict[str, float], headlines: list[dict] | None = None, now: float | None = None) -> None:
         """One tick. `now` is the market time (unix seconds) for live prices and backtests; None in the simulator."""
         self.ticks += 1
+        self.now = now
         self.clock = sessions.clock(now) if self.use_clock else None
         if self.clock is not None:
             self.session_avg.update(self.clock, prices)
@@ -143,6 +145,7 @@ class Desk:
             check = hooks.OrderCheck(symbol, desired, self.broker.position(symbol), prices[symbol],
                                      view=views.get(symbol), paused=symbol in self.managers.paused,
                                      streak=self.journal.streak(symbol), clock=self.clock,
+                                     cooling=self.journal.cooling(symbol, self.ticks, self.now, max(1, (self.hour_ticks or 7200) // 12)),
                                      session_avg=self.session_avg.get(symbol) if self.clock else None)
             desired, notes = hooks.run_hooks(check)
             if notes:
@@ -162,7 +165,7 @@ class Desk:
             if qty:
                 before = self.broker.position(symbol)
                 self.broker.fill(symbol, qty, prices[symbol])
-                self.journal.fill(symbol, before, qty, prices[symbol], self.ticks)
+                self.journal.fill(symbol, before, qty, prices[symbol], self.ticks, self.now)
                 orders += 1
                 why = hooks.why(votes[symbol], views.get(symbol), exposure)
                 self.log.emit("order", symbol=symbol, qty=round(qty, 4), price=round(prices[symbol], 4),

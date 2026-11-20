@@ -122,9 +122,13 @@ class LiveNewsTests(unittest.TestCase):
         clock = Clock(1_794_830_400.0)  # 16 Nov 2026 12:00 UTC
         feed = LiveNewsFeed(["NVDA", "TSLA", "AAPL"], get=lambda url: RSS, start_thread=False, clock=clock)
         feed.poll_once()
-        texts = [h["text"] for h in feed.tick({}, 1)]
+        out = feed.tick({}, 1)
+        texts = [h["text"] for h in out]
         self.assertIn("NVDA: Nvidia beats estimates as AI demand surges - Reuters", texts)
-        self.assertEqual(sum("beats estimates" in t for t in texts), 1)  # same story, one headline
+        story = [h for h in out if "beats estimates" in h["text"]]
+        # Reuters first (half strength), then CNBC confirms it (the other half); further copies add nothing.
+        self.assertEqual([(h["weight"], h["confirmed"]) for h in story], [(0.5, False), (0.5, True)])
+        self.assertGreaterEqual(feed.status()["confirmed"], 1)
         self.assertFalse(any("Old story" in t for t in texts))
         self.assertEqual(feed.tick({}, 2), [])
         self.assertEqual(feed.status()["feeds_failed"], 0)
@@ -138,6 +142,14 @@ class LiveNewsTests(unittest.TestCase):
         feed.poll_once()
         self.assertGreater(feed.feeds_failed, 0)
         self.assertTrue(feed.tick({}, 1))
+
+    def test_single_source_stays_half_strength(self):
+        empty = b"<?xml version='1.0'?><rss><channel></channel></rss>"
+        feed = LiveNewsFeed(["TSLA"], get=lambda url: RSS if "yahoo" in url else empty, start_thread=False,
+                            clock=Clock(1_794_830_400.0))
+        feed.poll_once()
+        tesla = [h for h in feed.tick({}, 1) if "Tesla" in h["text"]]
+        self.assertEqual([h["weight"] for h in tesla], [0.5])  # only one site carried it: never confirmed
 
     def test_reader_understands_real_headlines(self):
         self.assertGreater(read_headline("NVDA: Nvidia beats estimates as AI demand surges"), 0)

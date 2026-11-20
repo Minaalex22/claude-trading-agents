@@ -11,7 +11,8 @@ The checks:
 - **against_the_room**: no new exposure against a confident reading-room view (news + chart).
 - **symbol_paused**: Sentinel, Head of Risk, has flagged the symbol after an hour of losing trades: new risk
   there goes in at half size. (A full block was tried and cost profit: losing streaks often turn.)
-- **losing_streak**: the desk's last trades in this symbol lost: halve the size until one wins.
+- **losing_streak**: the owner's rule, as in the JARVIS risk gate: after 2 losing desk trades in a row in a symbol,
+  no new risk there for 5 minutes (time to review the losses), then half size until a trade wins.
 - **market_clock**: the time of day in the market's own time zone (trading/sessions.py): half size in New York's
   opening hour and on crypto weekends, 3/4 at midday and in Asia-only crypto hours.
 - **chasing**: no chasing: new risk more than 1.5% away from the session average, in the direction of the move,
@@ -29,7 +30,8 @@ from dataclasses import dataclass, field
 
 from . import sessions
 
-STREAK = 2  # this many losing desk trades in a row in a symbol halves the next order
+STREAK = 2  # this many losing desk trades in a row in a symbol pauses it, then halves the next orders
+PAUSE_SECONDS = 300  # the pause after a losing streak
 RECENT = 50  # trades kept per symbol
 
 
@@ -42,6 +44,7 @@ class OrderCheck:
     view: object = None  # reading_room.View or None
     paused: bool = False
     streak: int = 0  # losing desk trades in a row in this symbol
+    cooling: bool = False  # inside the pause after a losing streak
     clock: object = None  # sessions.MarketClock or None (simulator)
     session_avg: float | None = None
     notes: list = field(default_factory=list)
@@ -66,6 +69,8 @@ def symbol_paused(c: OrderCheck) -> tuple[float, str | None]:
 
 
 def losing_streak(c: OrderCheck) -> tuple[float, str | None]:
+    if c.streak >= STREAK and c.cooling:
+        return 0.0, f"paused: last {c.streak} desk trades here lost; 5-minute review before new risk"
     if c.streak >= STREAK:
         return 0.5, f"halved: last {c.streak} desk trades here lost"
     return 1.0, None
@@ -122,13 +127,13 @@ class DeskJournal:
         self.trades: dict[str, deque] = {}
         self.closed = 0
 
-    def fill(self, symbol: str, before: float, qty: float, price: float, tick: int) -> dict | None:
+    def fill(self, symbol: str, before: float, qty: float, price: float, tick: int, at: float | None = None) -> dict | None:
         after = before + qty
         closed = None
         if before and (not after or (after > 0) != (before > 0)):
             entry = self.entry.get(symbol, price)
             move = (price / entry - 1) * (1 if before > 0 else -1)
-            closed = {"tick": tick, "won": move > 0, "move": move}
+            closed = {"tick": tick, "at": at, "won": move > 0, "move": move}
             self.trades.setdefault(symbol, deque(maxlen=RECENT)).append(closed)
             self.closed += 1
         if after and (not before or (after > 0) != (before > 0)):
@@ -146,6 +151,16 @@ class DeskJournal:
                 break
             n += 1
         return n
+
+    def cooling(self, symbol: str, tick: int, now: float | None, pause_ticks: int) -> bool:
+        """True while inside the pause after the losing trade that made the streak."""
+        ts = self.trades.get(symbol)
+        if not ts or ts[-1]["won"]:
+            return False
+        last = ts[-1]
+        if now is not None and last.get("at") is not None:
+            return now - last["at"] < PAUSE_SECONDS
+        return tick - last["tick"] < pause_ticks
 
     def since(self, tick: int) -> dict[str, list[dict]]:
         return {s: [t for t in ts if t["tick"] > tick] for s, ts in self.trades.items()}

@@ -70,3 +70,30 @@ class HookTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LosingStreakPauseTests(unittest.TestCase):
+    def test_two_losses_pause_then_halve(self):
+        j = hooks.DeskJournal()
+        t0 = 1_800_000_000.0
+        for i, (buy, sell) in enumerate([(100, 95), (100, 96)]):
+            j.fill("AAPL", 0, 10, buy, i * 10, t0 + i * 60)
+            j.fill("AAPL", 10, -10, sell, i * 10 + 1, t0 + i * 60 + 30)
+        self.assertEqual(j.streak("AAPL"), 2)
+        now = t0 + 60 + 30 + 120  # two minutes after the second loss
+        self.assertTrue(j.cooling("AAPL", 25, now, 600))
+        qty, notes = hooks.run_hooks(hooks.OrderCheck("AAPL", 10, 0, 100, streak=2, cooling=True))
+        self.assertEqual(qty, 0.0)
+        self.assertTrue(any("paused" in n for n in notes))
+        self.assertFalse(j.cooling("AAPL", 25, now + 400, 600))  # past 5 minutes
+        qty, _ = hooks.run_hooks(hooks.OrderCheck("AAPL", 10, 0, 100, streak=2, cooling=False))
+        self.assertEqual(qty, 5.0)
+        # getting out is never blocked
+        self.assertEqual(hooks.run_hooks(hooks.OrderCheck("AAPL", -5, 10, 100, streak=2, cooling=True))[0], -5)
+
+    def test_simulator_uses_ticks(self):
+        j = hooks.DeskJournal()
+        j.fill("AAPL", 0, 10, 100, 1)
+        j.fill("AAPL", 10, -10, 90, 2)
+        self.assertTrue(j.cooling("AAPL", 50, None, 600))
+        self.assertFalse(j.cooling("AAPL", 700, None, 600))

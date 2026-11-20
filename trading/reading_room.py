@@ -130,7 +130,8 @@ class ReadingRoom:
                 self.read["unread"] += 1
                 continue
             self.read["by_claude"] += by_claude
-            self.news[s] = max(-1.0, min(1.0, self.news[s] + push))
+            # Real headlines carry a weight: half on the first source, the rest once a second confirms it.
+            self.news[s] = max(-1.0, min(1.0, self.news[s] + push * float(h.get("weight", 1.0))))
         if self.claude and self.ticks % CLAUDE_CHART_EVERY == 0:
             self.claude.request_charts({s: list(self.history[s]) for s in self.symbols})
         claude_charts = self.claude.charts() if self.claude else {}

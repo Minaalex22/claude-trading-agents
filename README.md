@@ -281,6 +281,14 @@ Backtest on the same two years of real hourly prices (year 2 = prices the agents
 Proven-only makes less but swings less, which is why it guards real money rather than the paper desk. In the
 simulator agents get proven within minutes (its prices are easy); on live 15-second prices it takes far longer.
 
+## Taken from JARVIS (the Mac app)
+
+- **Two-source news check:** a real headline counts at half strength when the first source reports it; the other
+  half arrives once a second, different source carries the same story (Google News publishers count separately).
+  The market status shows how many stories were confirmed.
+- **The owner's losing-streak rule:** after 2 losing desk trades in a row in a symbol, no new risk there for 5
+  minutes (market time on live prices and backtests), then half size until a trade wins. Getting out is never blocked.
+
 ## The market clock
 
 Prices don't move the same way all day, and the money that moves them works on New York and London time, not

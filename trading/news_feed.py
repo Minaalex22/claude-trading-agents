@@ -6,7 +6,11 @@ thread polls public RSS feeds every POLL_SECONDS (no keys, no accounts):
 - general: CNBC, MarketWatch, CoinDesk and Cointelegraph, matched to symbols by ticker or company name.
 
 Each headline is matched to one symbol, de-duplicated by its wording (the same story from ten sites
-counts once), and dropped if it is older than MAX_AGE_SECONDS. `tick()` hands the desk only headlines it
+counts once), and dropped if it is older than MAX_AGE_SECONDS.
+
+**Two-source check** (as in the JARVIS validation department): a story counts at half strength when the first
+source reports it, and the other half arrives once a second, different source carries the same story. A
+rumour from one site can't move the view on its own. `tick()` hands the desk only headlines it
 hasn't seen yet, in the same shape as the simulated wire, so the reading room reads their text: Claude when
 ANTHROPIC_API_KEY is set, otherwise the built-in finance lexicon. The academy's analysts don't read them:
 their courses use the simulator's event codes, which real headlines don't have.
@@ -80,6 +84,14 @@ def _key(title: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", title.rsplit(" - ", 1)[0].lower()).strip()
 
 
+def _source(title: str, url: str) -> str:
+    """Who reported it: the publisher Google News names after the dash, otherwise the feed's site."""
+    host = urllib.parse.urlsplit(url).netloc
+    if "news.google." in host and " - " in title:
+        return title.rsplit(" - ", 1)[1].strip().lower()
+    return host
+
+
 def match_symbol(title: str, symbols: list[str]) -> str | None:
     """The one symbol a general headline is about, by ticker ($NVDA, NVDA) or company name; None if not one."""
     found = set()
@@ -100,7 +112,7 @@ class LiveNewsFeed:
         self.get = get
         self.clock = clock
         self.latest: list[dict] = []
-        self.seen: dict[str, None] = {}  # insertion-ordered set of headline keys, bounded
+        self.seen: dict[str, set] = {}  # headline key -> sources that carried it, insertion-ordered, bounded
         self.queue: deque[dict] = deque(maxlen=500)
         self.polls = 0
         self.feeds_ok = 0
@@ -130,14 +142,24 @@ class LiveNewsFeed:
                     continue
                 s = symbol or match_symbol(title, self.symbols)
                 key = _key(title)
-                if s is None or not key or key in self.seen:
+                if s is None or not key:
                     continue
-                self.seen[key] = None
-                if len(self.seen) > SEEN_MAX:
-                    del self.seen[next(iter(self.seen))]
+                source = _source(title, url)
+                sources = self.seen.get(key)
+                if sources is None:
+                    self.seen[key] = {source}
+                    if len(self.seen) > SEEN_MAX:
+                        del self.seen[next(iter(self.seen))]
+                    weight, confirmed = 0.5, False  # one source so far: half strength
+                elif source not in sources and len(sources) == 1:
+                    sources.add(source)
+                    weight, confirmed = 0.5, True  # a second source: the other half
+                else:
+                    continue
                 with self._lock:
                     self.queue.append({"symbol": s, "kind": "live", "event": None, "value": None,
-                                       "text": f"{s}: {title}", "source": urllib.parse.urlsplit(url).netloc})
+                                       "text": f"{s}: {title}", "source": source, "weight": weight,
+                                       "confirmed": confirmed})
                 added += 1
         self.polls += 1
         self.feeds_ok, self.feeds_failed = ok, failed
@@ -160,5 +182,6 @@ class LiveNewsFeed:
 
     def status(self) -> dict:
         return {"news": "live", "sources": len(self.sources()), "feeds_ok": self.feeds_ok,
-                "feeds_failed": self.feeds_failed, "headlines_seen": len(self.seen), "polls": self.polls,
+                "feeds_failed": self.feeds_failed, "headlines_seen": len(self.seen),
+                "confirmed": sum(1 for v in self.seen.values() if len(v) > 1), "polls": self.polls,
                 "last_error": self.last_error}
