@@ -221,3 +221,36 @@ class SlippageReportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiveCrossMarketTests(unittest.TestCase):
+    def test_real_price_feed_drives_the_desk(self):
+        import io
+        import math as _m
+        from trading import config as ats_config
+        from trading.events import EventLog
+        from trading.matrix import MatrixDesk
+        from trading.xmarket import ASSETS, YAHOO, LiveCrossMarket
+
+        base = {t: ASSETS[a][0] for a, t in YAHOO.items()}
+
+        def fetch(ticker, interval, range_):
+            n = 2000 if range_ != "1d" else 5
+            return [(1_800_000_000 + 60 * i, base[ticker] * (1 + 0.01 * _m.sin(i / 50))) for i in range(n)]
+
+        market = LiveCrossMarket(fetch=fetch, start_thread=False)
+        desk = MatrixDesk(ats_config.load(None), EventLog("matrix", None, io.StringIO()))
+        desk.market = market
+        desk.warm_up(1500)
+        self.assertEqual(desk.sim_tick, 1500)  # warmed on the real-bar history
+        market.poll_once()
+        for _ in range(5):
+            desk.step()
+        self.assertEqual(set(desk.quotes), set(ASSETS))
+
+    def test_missing_asset_waits(self):
+        from trading.xmarket import LiveCrossMarket
+        m = LiveCrossMarket(fetch=lambda t, i, r: [] if t == "^NDX" else [(1.0, 2.0)], start_thread=False)
+        m.poll_once()
+        self.assertNotIn("NDX", m.tick())
+        self.assertEqual(m.history("1d"), [])

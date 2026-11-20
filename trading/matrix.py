@@ -42,7 +42,7 @@ from .broker import PaperBroker
 from .events import EventLog
 from .regimes import RegimeDetector, features
 from .risk import RiskLimits, RiskManager
-from .xmarket import ASSETS, PAIRS, CrossAssetMarket, Quote
+from .xmarket import ASSETS, PAIRS, CrossAssetMarket, LiveCrossMarket, Quote
 
 TIMEFRAMES = {"1m": 1, "15m": 15, "1h": 60, "1d": 1440}
 EMA_FAST, EMA_SLOW = 8, 21
@@ -265,8 +265,14 @@ class MatrixDesk:
                            if len(self.closes15[a]) >= 10 else None for a in ASSETS}
 
     def warm_up(self, ticks: int = WARMUP_TICKS) -> None:
-        for _ in range(ticks):
-            self._ingest(self.market.tick())
+        bars = self.market.history() if hasattr(self.market, "history") else None
+        if bars:  # real prices: warm up on the last few days of real one-minute bars
+            for quotes in bars[-ticks:]:
+                self._ingest(quotes)
+            ticks = min(ticks, len(bars))
+        else:
+            for _ in range(ticks):
+                self._ingest(self.market.tick())
         self.log.emit("warmup", sim_days=round(ticks / 1440, 1), regime_fits=self.detector.fits,
                       regimes=self.regime)
 
@@ -306,7 +312,11 @@ class MatrixDesk:
     def step(self) -> None:
         self.live_ticks += 1
         self.beta.begin()
-        self._ingest(self.market.tick())
+        quotes = self.market.tick()
+        if len(quotes) < len(ASSETS):  # live: not every asset priced yet
+            self.beta.end()
+            return
+        self._ingest(quotes)
         prices = {a: q.price for a, q in self.quotes.items()}
         self.risk.update(prices)
 
@@ -401,9 +411,13 @@ def run(env=os.environ, stream=None) -> MatrixDesk:
     interval = env.get("LEARNING_INTERVAL_SECONDS")
     log = EventLog("matrix", Path(events_dir) / "events-matrix.jsonl" if events_dir else None, stream)
     desk = MatrixDesk(cfg, log, int(env.get("SEED", 42)), learning_interval=float(interval) if interval else None)
+    live = env.get("MARKET", "sim").lower() == "live"
+    if live:  # real gold, oil, Nasdaq, Bitcoin and currency prices; one tick is still one minute
+        desk.market = LiveCrossMarket()
+        tick_seconds = float(env.get("MATRIX_TICK_SECONDS", 60))
     log.emit("start", agents=0, mode="paper", config_version=cfg.version, strategies=list(STRATEGIES),
              assets=list(ASSETS), pairs=[f"{a}/{b}" for a, b, _ in PAIRS], timeframes=list(TIMEFRAMES),
-             news_feed="neutral (not connected)", capital=CAPITAL_USDC)
+             news_feed="neutral (not connected)", capital=CAPITAL_USDC, market="live" if live else "simulated")
     desk.warm_up(warmup)
 
     stopping = False
