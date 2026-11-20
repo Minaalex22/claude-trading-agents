@@ -33,6 +33,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import control, live_orders, platforms
+from .alerts import Alerts
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
 from .org import DEPARTMENTS, finish_school, manager_reports
 from .webauth import COOKIE, WebAuth
@@ -287,6 +288,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     # Real-money bridge (trading/live_orders.py, trading/bridge.py): off unless a long BRIDGE_TOKEN is set.
     bridge_token = env.get("BRIDGE_TOKEN", "")
     bridge_on = len(bridge_token) >= MIN_BRIDGE_TOKEN
+    alerts = Alerts.from_env(env)  # fills and failures from the bridge go to the owner's phone
     # Read-only trade report for an assistant or script: a bearer REPORT_TOKEN (32+ characters) or a signed-in session.
     report_token = env.get("REPORT_TOKEN", "")
     report_on = len(report_token) >= MIN_BRIDGE_TOKEN
@@ -483,6 +485,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                                   b.get("positions") if isinstance(b.get("positions"), dict) else None)
             except (ValueError, KeyError, TypeError, AttributeError) as e:
                 return self._json(400, {"error": str(e)})
+            alerts.result(order)
             self._json(200, {"order": order})
 
         def _live_decide(self, raw: bytes):

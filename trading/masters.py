@@ -198,7 +198,12 @@ def _clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
 
+OFF: set[str] = set()  # masters switched off (MASTERS_OFF), e.g. after a real-price test shows they cost money
+
+
 def _asks(agent, course, x) -> bool | None:
+    if course in OFF:
+        return None
     training = getattr(agent, "training", None)
     if training is None or course not in training.students:
         return None

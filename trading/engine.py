@@ -33,6 +33,9 @@ Configured with environment variables so the same image runs as any shard:
   MIN_TRADE     smallest rebalance in dollars the desk will send (default 5000)
   LIVE_MAX_ORDER_USD, LIVE_MAX_DAY_USD, LIVE_SYMBOLS  real-money mirror (shard 0, MARKET=live): each desk
                 order in LIVE_SYMBOLS becomes a capped proposal the owner approves (trading/live_orders.py)
+  TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID  phone alerts (trading/alerts.py): real-money proposals, fills, stops
+  DASHBOARD_URL the app's address, so alerts can link to the approval desk
+  MASTERS_OFF   comma-separated masters whose rules are switched off (e.g. "soros,buffett"; see trading/masters.py)
   SESSIONS      "off" stops the market clock (trading/sessions.py): New York opening hour, midday, power hour,
                 crypto weekends and the session average (default on; it needs real time, so live or backtest only)
   PROVEN_ONLY   "on": the paper desk trades only on what proven agents (trading/accounts.py) say (default off;
@@ -48,11 +51,12 @@ import sys
 import time
 from pathlib import Path
 
-from . import academy, live_orders, memory
+from . import academy, live_orders, masters, memory
 from .coach import make_coach
 from . import config as ats_config
 from . import control
 from .agents import build_team
+from .alerts import Alerts
 from .org import DEPARTMENTS, MIN_DEPARTMENT_SIZE
 from .brains import BrainAlpha, BrainBeta
 from .broker import PaperBroker
@@ -128,9 +132,11 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     desk = Desk(agents, broker, risk, log, beta=BrainBeta(cfg), alpha=alpha,
                 hour_ticks=hour_ticks, room=room, reviews=env.get("REVIEWS", "on") != "off", coach=make_coach(env))
     desk.signal_threshold = float(env.get("SIGNAL_THRESHOLD", desk.signal_threshold))
+    masters.OFF = {m.strip() for m in env.get("MASTERS_OFF", "").split(",") if m.strip()}
     desk.use_clock = env.get("SESSIONS", "on").lower() not in ("off", "0", "false", "no")
     desk.proven_only = env.get("PROVEN_ONLY", "off").lower() in ("on", "1", "true", "yes")
     desk.min_trade = float(env.get("MIN_TRADE", desk.min_trade))
+    alerts = Alerts.from_env(env)  # Telegram phone alerts (trading/alerts.py); off without the two settings
     limits_live = live_orders.Limits(env)
     if live_market and events_dir and shard_id == 0 and limits_live.on and market is None:
         # Real-money mirror: shard 0's orders become small proposals the owner approves on the dashboard.
@@ -143,6 +149,7 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
                                         json.dumps(why, default=str)[:300], limits_live)
             if order:
                 log.emit("live_proposal", **{k: order[k] for k in ("id", "symbol", "side", "qty", "price")})
+                alerts.proposal(order)
         desk.on_order = mirror
     memory_dir = env.get("MEMORY_DIR") or events_dir
     memory_path = (Path(memory_dir) / f"memory-{shard_id}.json"
@@ -176,6 +183,7 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
              remembered=remembered, coach=desk.coach is not None)
 
     stopping = False
+    last_stop = None
 
     def stop(*_):
         nonlocal stopping
@@ -199,6 +207,9 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
                     log.emit("market", **feed_status(market, news))
             now = market.now() if hasattr(market, "now") else (time.time() if live else None)
             desk.step(prices, news.tick(market.drift, desk.ticks + 1) if news else [], now=now)
+            if desk.risk.stop_reason != last_stop:
+                last_stop = desk.risk.stop_reason
+                alerts.stop(shard_id, last_stop)
             if memory_path and desk.ticks % memory.SAVE_EVERY == 0:
                 _save(desk, memory_path, log)
             if tick_seconds:

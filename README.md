@@ -286,6 +286,17 @@ Backtest on the same two years of real hourly prices (year 2 = prices the agents
 Proven-only makes less but swings less, which is why it guards real money rather than the paper desk. In the
 simulator agents get proven within minutes (its prices are easy); on live 15-second prices it takes far longer.
 
+## Phone alerts
+
+Set `TELEGRAM_BOT_TOKEN` (make a bot with @BotFather) and `TELEGRAM_CHAT_ID` (your chat with it), and optionally
+`DASHBOARD_URL`, and the app messages your phone when:
+- a real-money proposal is waiting for approval (with a link to the approval desk), so it isn't missed in its 5 minutes;
+- the bridge reports a fill or a failure;
+- a stop switches on or off (daily loss stop, drawdown halt, kill switch).
+
+The same message isn't sent twice within 10 minutes, at most 30 go out an hour, and a Telegram outage never holds up
+trading (`trading/alerts.py`).
+
 ## Taken from JARVIS (the Mac app)
 
 - **Two-source news check:** a real headline counts at half strength when the first source reports it; the other

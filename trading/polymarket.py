@@ -131,6 +131,10 @@ class PolymarketBot:
             "expected_slippage_pct": round(slippage_pct(qty * price, depth), 4), "depth_usdc": round(depth, 2),
         }
 
+    def _deep_enough(self, *depths: float) -> bool:
+        """Jev refuses any leg on a book thinner than its minimum depth, so don't propose one."""
+        return min(depths) >= self.cfg.risk.min_depth_usdc
+
     def _budget(self, weight: float, min_depth: float) -> float:
         # Size so expected slippage stays at 80% of the tolerance even at full
         # scale. Brain Alpha's weight scales within that: equal weights give
@@ -145,6 +149,8 @@ class PolymarketBot:
             return None
         rate = self.cfg.fee_rates[event.category]
         min_depth = min(o.depth_usdc for o in event.outcomes)
+        if not self._deep_enough(min_depth):
+            return None
         sets = self._budget(weight, min_depth) / total
         fees = sum(taker_fee(o.yes_ask, rate) for o in event.outcomes)
         slip = sum(o.yes_ask * slippage_pct(sets * o.yes_ask, o.depth_usdc) / 100 for o in event.outcomes)  # $/set
@@ -160,6 +166,8 @@ class PolymarketBot:
         if 1 - cost < self.cfg.thresholds.cross_book_min_spread:
             return None
         rate = self.cfg.fee_rates[pair.category]
+        if not self._deep_enough(pair.depth_a, pair.depth_b):
+            return None
         shares = self._budget(weight, min(pair.depth_a, pair.depth_b)) / cost
         fees = taker_fee(pair.yes_ask_a, rate) + taker_fee(pair.no_ask_b, rate)
         slip = (pair.yes_ask_a * slippage_pct(shares * pair.yes_ask_a, pair.depth_a)
@@ -176,6 +184,8 @@ class PolymarketBot:
         if not lo <= market.mid <= hi:
             return None
         bid, ask = round(market.mid - MAKER_QUOTE_OFFSET, 4), round(market.mid + MAKER_QUOTE_OFFSET, 4)
+        if not self._deep_enough(market.depth_usdc):
+            return None
         shares = self._budget(weight, market.depth_usdc) * 0.25 / market.mid
         rebate_per_share = REBATE_SHARE * taker_fee(market.mid, self.cfg.fee_rates[market.category])
         fills = sum(self.rng.random() < MAKER_FILL_PROB for _ in range(2))
