@@ -287,6 +287,22 @@ Backtest on the same two years of real hourly prices (year 2 = prices the agents
 Proven-only makes less but swings less, which is why it guards real money rather than the paper desk. In the
 simulator agents get proven within minutes (its prices are easy); on live 15-second prices it takes far longer.
 
+## Which masters earn their place (real prices)
+
+Each master was switched off in turn (`MASTERS_OFF`) and the two years of real hourly prices replayed (400 agents,
+year 2 unseen). With all 19 on: +0.64% over the two years, year 2 +0.15%.
+
+| Switched off | Two years | Year 2 | What it means |
+|---|---|---|---|
+| Simons | −1.17% | +0.39% | Needed: fading stretched prices carries the desk overall |
+| Seykota | −0.56% | −0.63% | Needed: cutting losers and riding winners is the biggest help in year 2 |
+| Turtles | +0.46% | +0.05% | Helps a little |
+| Tudor Jones | +4.20% | +0.06% | Without his size limit the desk earns more in a rising year 1 but worse in year 2, with a 7x bigger drop: keep |
+| Kovner, Thorp, Williams | about +0.8% each | +0.16 to +0.19% | Tiny, possibly luck; all three off together: +0.86% and +0.18% |
+| Buffett, Soros, Livermore, Druckenmiller, Darvas, O'Neil, Elliott, Wyckoff, Gann (3) | +0.64% | +0.15% | No effect: their setups never came up on hourly bars |
+
+All 19 stay on. None of them is where real profit would come from: the desk is close to break-even either way.
+
 ## Phone alerts
 
 Set `TELEGRAM_BOT_TOKEN` (make a bot with @BotFather) and `TELEGRAM_CHAT_ID` (your chat with it), and optionally
