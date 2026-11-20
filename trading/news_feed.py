@@ -3,7 +3,8 @@
 MARKET=live turns this on in place of the simulated wire (LIVE_NEWS=off turns it off). A background
 thread polls public RSS feeds every POLL_SECONDS (no keys, no accounts):
 - per symbol: Yahoo Finance's headline feed and a Google News search for the company name;
-- general: CNBC, MarketWatch, CoinDesk and Cointelegraph, matched to symbols by ticker or company name.
+- general: 16 feeds from CNBC, MarketWatch, Yahoo Finance, Seeking Alpha, Nasdaq, CoinDesk, Cointelegraph, Decrypt
+  and Bitcoin Magazine, matched to symbols by ticker or company name.
 
 Each headline is matched to one symbol, de-duplicated by its wording (the same story from ten sites
 counts once), and dropped if it is older than MAX_AGE_SECONDS.
@@ -41,10 +42,26 @@ NAMES = {
 }
 CRYPTO = {"BTC", "ETH", "SOL"}
 GENERAL_FEEDS = [
+    # CNBC: top news, markets, investing, economy, technology, finance
     "https://www.cnbc.com/id/100003114/device/rss/rss.html",
+    "https://www.cnbc.com/id/20409666/device/rss/rss.html",
+    "https://www.cnbc.com/id/15839069/device/rss/rss.html",
+    "https://www.cnbc.com/id/20910258/device/rss/rss.html",
+    "https://www.cnbc.com/id/19854910/device/rss/rss.html",
+    "https://www.cnbc.com/id/10000664/device/rss/rss.html",
+    # MarketWatch: top stories, market pulse, real-time headlines
     "https://feeds.content.dowjones.io/public/rss/mw_topstories",
+    "https://feeds.content.dowjones.io/public/rss/mw_marketpulse",
+    "https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines",
+    # Yahoo Finance top stories, Seeking Alpha market currents, Nasdaq markets
+    "https://finance.yahoo.com/news/rssindex",
+    "https://seekingalpha.com/market_currents.xml",
+    "https://www.nasdaq.com/feed/rssoutbound?category=Markets",
+    # Crypto: CoinDesk, Cointelegraph, Decrypt, Bitcoin Magazine
     "https://www.coindesk.com/arc/outboundfeeds/rss/",
     "https://cointelegraph.com/rss",
+    "https://decrypt.co/feed",
+    "https://bitcoinmagazine.com/.rss/full/",
 ]
 
 

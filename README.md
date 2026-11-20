@@ -175,7 +175,8 @@ and ETH, Yahoo Finance for stocks), polled every 15 s (`LIVE_POLL_SECONDS`). Ord
 real money stays locked. The cloud app runs live by default (`render.yaml`); set `MARKET=sim` to go back.
 The simulated news wire is off on live prices (it hints at the simulator's hidden drift). Instead
 `trading/news_feed.py` reads **real headlines** from free RSS feeds every 5 minutes: Yahoo Finance and a Google
-News search per symbol, plus CNBC, MarketWatch, CoinDesk and Cointelegraph matched by ticker or company name.
+News search per symbol, plus 16 general feeds (CNBC, MarketWatch, Yahoo Finance, Seeking Alpha, Nasdaq, CoinDesk,
+Cointelegraph, Decrypt, Bitcoin Magazine) matched by ticker or company name.
 The same story from many sites counts once, and anything older than 6 hours is dropped. The reading room reads
 each headline (Claude with a key, otherwise a finance lexicon that knows words like "beats", "plunges",
 "downgrade"). `LIVE_NEWS=off` turns it off.
