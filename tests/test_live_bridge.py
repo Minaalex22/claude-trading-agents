@@ -10,6 +10,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from trading import live_orders
+from trading import bridge
 from trading.bridge import Bridge, Refused, check
 from trading.dashboard import EventHub, make_handler
 from trading.webauth import COOKIE, WebAuth, totp
@@ -202,3 +203,58 @@ class AuditTests(unittest.TestCase):
             raw[1] = raw[1].replace('"approved"', '"rejected"')  # someone edits history
             (d / "audit.jsonl").write_text("\n".join(raw) + "\n")
             self.assertEqual(live_orders.verify_audit(d), {"ok": False, "entries": 1, "broken_at_line": 2})
+
+
+class JarvisRulesTest(unittest.TestCase):
+    """The owner's JARVIS rules: 2 open positions, 3 real orders a day, STOP_TRADING, no first-5-minute trades."""
+
+    def setUp(self):
+        import tempfile
+        self.dir = Path(tempfile.mkdtemp())
+        self.limits = live_orders.Limits({"LIVE_MAX_ORDER_USD": "500", "LIVE_MAX_DAY_USD": "5000",
+                                          "LIVE_SYMBOLS": "AAPL,MSFT,NVDA,AMD"})
+
+    def _fill(self, symbol):
+        o = live_orders.propose(self.dir, symbol, "buy", 100.0, "t", self.limits)
+        live_orders.decide(self.dir, o["id"], True, self.limits)
+        sent = live_orders.next_for_bridge(self.dir)
+        data = live_orders.load(self.dir)
+        held = dict(data["positions"], **{symbol: o["qty"]})
+        live_orders.record_result(self.dir, sent["id"], True, "ok", o["qty"], 100.0, positions=held)
+
+    def test_two_open_positions_at_most(self):
+        self._fill("AAPL")
+        self._fill("MSFT")
+        self.assertIsNone(live_orders.propose(self.dir, "NVDA", "buy", 100.0, "t", self.limits))
+        self.assertIsNotNone(live_orders.propose(self.dir, "AAPL", "sell", 100.0, "t", self.limits))
+
+    def test_three_orders_a_day(self):
+        limits = live_orders.Limits({"LIVE_MAX_ORDER_USD": "500", "LIVE_MAX_DAY_USD": "5000",
+                                     "LIVE_SYMBOLS": "AAPL,MSFT,NVDA,AMD", "LIVE_MAX_POSITIONS": "9"})
+        self.limits = limits
+        for s in ("AAPL", "MSFT", "NVDA"):
+            self._fill(s)
+        self.assertIsNone(live_orders.propose(self.dir, "AMD", "buy", 100.0, "t", limits))
+
+    def test_bridge_counts_its_own_orders(self):
+        order = {"symbol": "AAPL", "side": "buy", "qty": 1, "price": 100.0}
+        with self.assertRaises(bridge.Refused):
+            bridge.check(order, self.limits, 0.0, orders_today=3)
+
+    def test_stop_trading_file_stops_the_bridge(self):
+        (self.dir / "STOP_TRADING").write_text("")
+        b = bridge.Bridge("https://x", "t" * 32, broker=None, limits=self.limits, http=lambda *a, **k: {},
+                          kill_path=self.dir / "KILL")
+        self.assertEqual(b.once(), "kill switch on")
+
+    def test_no_stock_risk_in_first_five_minutes(self):
+        from trading import hooks, sessions
+        import calendar
+        ts = calendar.timegm((2026, 11, 23, 14, 32, 0))  # Monday 09:32 New York (EST, UTC-5)
+        c = sessions.clock(ts)
+        self.assertEqual(c.stock_phase, "opening_bell")
+        qty, notes = hooks.run_hooks(hooks.OrderCheck("AAPL", 10, 0, 100.0, clock=c))
+        self.assertEqual(qty, 0)
+        self.assertIn("first 5 minutes", notes[-1])
+        later = sessions.clock(ts + 5 * 60)
+        self.assertEqual(later.stock_phase, "opening_hour")

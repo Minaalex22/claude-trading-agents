@@ -59,7 +59,8 @@ class RiskManager:
             self.day, self.day_start_equity, self.day_stopped = day, equity, False
         if not self.day_stopped and equity < self.day_start_equity * (1 - self.limits.max_daily_loss):
             self.day_stopped = True
-        self.killed = bool(self.kill_path and self.kill_path.exists())
+        self.killed = bool(self.kill_path and (self.kill_path.exists()
+                                               or self.kill_path.with_name("STOP_TRADING").exists()))
 
     def approve(self, symbol: str, qty: float, prices: dict[str, float]) -> tuple[float, str | None]:
         """Return the allowed quantity (possibly reduced to 0) and a reason if changed."""

@@ -36,6 +36,9 @@ class Limits:
         self.max_order = float(env.get("LIVE_MAX_ORDER_USD", 0) or 0)
         self.max_day = float(env.get("LIVE_MAX_DAY_USD", 0) or 0)
         self.symbols = {s.strip().upper() for s in env.get("LIVE_SYMBOLS", "").split(",") if s.strip()}
+        # the owner's JARVIS rules: at most 2 positions open and 3 real orders a day
+        self.max_positions = int(env.get("LIVE_MAX_POSITIONS", 2) or 2)
+        self.max_orders_day = int(env.get("LIVE_MAX_ORDERS_DAY", 3) or 3)
 
     @property
     def on(self) -> bool:
@@ -43,7 +46,7 @@ class Limits:
 
     def as_dict(self) -> dict:
         return {"max_order_usd": self.max_order, "max_day_usd": self.max_day, "symbols": sorted(self.symbols),
-                "on": self.on}
+                "max_positions": self.max_positions, "max_orders_day": self.max_orders_day, "on": self.on}
 
 
 def _path(events_dir: Path) -> Path:
@@ -123,6 +126,19 @@ def spent_today(data: dict, now: float) -> float:
                if o["status"] in ("approved", "sent", "filled") and _day(o.get("approved_at") or 0) == today)
 
 
+def orders_today(data: dict, now: float) -> int:
+    today = _day(now)
+    return sum(1 for o in data["orders"]
+               if o["status"] in ("approved", "sent", "filled") and _day(o.get("approved_at") or 0) == today)
+
+
+def open_positions(data: dict) -> set:
+    """Symbols held, plus symbols with a buy on its way: what counts against LIVE_MAX_POSITIONS."""
+    held = {s for s, q in data["positions"].items() if int(q) > 0}
+    return held | {o["symbol"] for o in data["orders"]
+                   if o["side"] == "buy" and o["status"] in ("proposed", "approved", "sent")}
+
+
 def _expire(data: dict, now: float) -> None:
     for o in data["orders"]:
         if o["status"] == "proposed" and now - o["proposed_at"] > PROPOSAL_TTL:
@@ -149,6 +165,10 @@ def propose(events_dir: Path, symbol: str, side: str, price: float, why: str, li
         qty = int(limits.max_order // price) if side == "buy" else held
         if qty <= 0 or (side == "buy" and spent_today(data, now) + qty * price > limits.max_day):
             return None
+        if orders_today(data, now) >= limits.max_orders_day:
+            return None
+        if side == "buy" and symbol not in open_positions(data) and len(open_positions(data)) >= limits.max_positions:
+            return None
         order = {"id": secrets.token_hex(6), "symbol": symbol, "side": side, "qty": qty, "price": round(price, 4),
                  "why": str(why)[:300], "status": "proposed", "proposed_at": now}
         data["orders"].append(order)
@@ -172,6 +192,8 @@ def decide(events_dir: Path, order_id: str, approve: bool, limits: Limits, clock
                 raise ValueError("That order is outside the current limits.")
             if order["side"] == "buy" and spent_today(data, now) + order["qty"] * order["price"] > limits.max_day:
                 raise ValueError("Approving it would pass today's real-money limit.")
+            if orders_today(data, now) >= limits.max_orders_day:
+                raise ValueError(f"Already {limits.max_orders_day} real orders today (LIVE_MAX_ORDERS_DAY).")
         order["status"] = "approved" if approve else "rejected"
         order["approved_at" if approve else "rejected_at"] = now
         _save(events_dir, data)
@@ -221,4 +243,5 @@ def snapshot(events_dir: Path, limits: Limits, clock=time.time) -> dict:
         data = load(events_dir)
         _expire(data, now)
     return {"limits": limits.as_dict(), "spent_today": round(spent_today(data, now), 2),
+            "orders_today": orders_today(data, now),
             "positions": data["positions"], "orders": data["orders"][-50:][::-1], "audit": verify_audit(events_dir)}

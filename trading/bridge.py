@@ -12,7 +12,7 @@ Run it on the computer where moomoo's OpenD app is open and logged in:
 It only reaches out (HTTPS to the app, and OpenD on this computer); nothing can connect in. Every 5 seconds it
 asks the app for the next approved order, re-checks this computer's own limits (a hacked app still can't
 make it place a bigger order), places a limit order a little through the price, and reports the result and
-the account's positions back. A file named KILL next to where it runs stops it placing anything.
+the account's positions back. A file named KILL (or STOP_TRADING, as on the JARVIS Mac) next to where it runs stops it placing anything.
 """
 
 import json
@@ -33,7 +33,7 @@ class Refused(Exception):
     pass
 
 
-def check(order: dict, limits: Limits, spent_today: float) -> None:
+def check(order: dict, limits: Limits, spent_today: float, orders_today: int = 0) -> None:
     """This computer's own limits, checked again before anything is placed."""
     if not limits.on:
         raise Refused("LIVE_MAX_ORDER_USD, LIVE_MAX_DAY_USD and LIVE_SYMBOLS must all be set on this computer")
@@ -46,6 +46,8 @@ def check(order: dict, limits: Limits, spent_today: float) -> None:
         raise Refused(f"order is ${qty * price:,.0f}, over this computer's ${limits.max_order:,.0f} limit")
     if side == "buy" and spent_today + qty * price > limits.max_day:
         raise Refused("over this computer's daily limit")
+    if orders_today >= limits.max_orders_day:
+        raise Refused(f"already {limits.max_orders_day} orders today on this computer (LIVE_MAX_ORDERS_DAY)")
 
 
 class MoomooBroker:
@@ -95,6 +97,7 @@ class Bridge:
         self.clock = clock
         self.log = log
         self.spent: dict[str, float] = {}  # UTC day -> dollars bought
+        self.placed: dict[str, int] = {}  # UTC day -> orders placed
 
     def _http(self, method: str, path: str, body: dict | None = None) -> dict:
         req = urllib.request.Request(self.url + path, method=method,
@@ -105,15 +108,16 @@ class Bridge:
             return json.loads(resp.read() or b"{}")
 
     def once(self) -> str:
-        if self.kill_path.exists():
+        if self.kill_path.exists() or self.kill_path.with_name("STOP_TRADING").exists():
             return "kill switch on"
         order = self.http("GET", "/api/bridge/next").get("order")
         if not order:
             return "idle"
         day = time.strftime("%Y-%m-%d", time.gmtime(self.clock()))
         try:
-            check(order, self.limits, self.spent.get(day, 0.0))
+            check(order, self.limits, self.spent.get(day, 0.0), self.placed.get(day, 0))
             placed = self.broker.place(order["symbol"], order["side"], order["qty"], order["price"])
+            self.placed[day] = self.placed.get(day, 0) + 1
             if order["side"] == "buy":
                 self.spent[day] = self.spent.get(day, 0.0) + order["qty"] * order["price"]
             ok, detail = True, f"placed {'real' if self.broker.real else 'paper'} order {placed['order_id']} " \

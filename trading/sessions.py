@@ -59,9 +59,9 @@ def _london(ts: float) -> datetime:
 CRYPTO = {"BTC", "ETH", "SOL"}
 CHASE = 0.015  # 1.5% from the session average counts as chasing
 
-STOCK_SIZE = {"opening_hour": 0.5, "morning": 1.0, "midday": 0.75, "afternoon": 1.0, "power_hour": 1.0, "closed": 1.0}
+STOCK_SIZE = {"opening_bell": 0.0, "opening_hour": 0.5, "morning": 1.0, "midday": 0.75, "afternoon": 1.0, "power_hour": 1.0, "closed": 1.0}
 CRYPTO_SIZE = {"overlap": 1.0, "london": 1.0, "new_york": 1.0, "asia": 0.75, "weekend": 0.5}
-TREND_TRUST = {"opening_hour": 0.3, "midday": 0.8, "power_hour": 1.2}  # how much trend/breakout signals count
+TREND_TRUST = {"opening_bell": 0.3, "opening_hour": 0.3, "midday": 0.8, "power_hour": 1.2}  # how much trend/breakout signals count
 
 
 @dataclass(frozen=True)
@@ -91,6 +91,8 @@ def _stock_phase(ny: datetime) -> str:
     m = ny.hour * 60 + ny.minute
     if m < 9 * 60 + 30 or m >= 16 * 60:
         return "closed"
+    if m < 9 * 60 + 35:
+        return "opening_bell"  # the owner's JARVIS rule: no new risk in the first 5 minutes after the open
     if m < 10 * 60 + 30:
         return "opening_hour"
     if m < 11 * 60 + 30:

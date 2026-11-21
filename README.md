@@ -248,7 +248,8 @@ Off by default, and every step needs you. Nothing in the cloud app holds broker 
 1. **The desk proposes.** With `MARKET=live` and all three of `LIVE_MAX_ORDER_USD`, `LIVE_MAX_DAY_USD` and
    `LIVE_SYMBOLS` set, shard 0 turns each paper order in those symbols into a small proposal: whole shares up to
    the per-order limit, buys within the day's limit, sells only of shares the real account holds (no shorting),
-   one open order per symbol (`trading/live_orders.py`).
+   one open order per symbol, and the JARVIS rules: at most `LIVE_MAX_POSITIONS` (2) positions open and
+   `LIVE_MAX_ORDERS_DAY` (3) real orders a day (`trading/live_orders.py`).
 2. **You approve.** Each proposal waits on the dashboard for 5 minutes. Approving needs a fresh code from your
    authenticator app, so two-step login (`DASHBOARD_TOTP_SECRET`) must be on, and `BRIDGE_TOKEN` (32+ random
    characters) must be set. An approved order not collected within 5 minutes expires.
@@ -256,7 +257,11 @@ Off by default, and every step needs you. Nothing in the cloud app holds broker 
    only reaches out: it asks the app for approved orders with `BRIDGE_TOKEN`, re-checks its **own** copy of the
    limits (so a hacked app still can't make it place a bigger order), places a limit order 0.3% through the
    price, and reports the result and the account's positions back. Without `BRIDGE_REAL_MONEY=I-ACCEPT-THE-RISK`
-   it trades moomoo's paper account. A `KILL` file next to it stops it.
+   it trades moomoo's paper account. A `KILL` or `STOP_TRADING` file next to it stops it, and it counts its own
+   orders against `LIVE_MAX_ORDERS_DAY` too.
+
+No new stock risk is taken in the first 5 minutes after the New York open (the JARVIS rule; `opening_bell`
+in `trading/sessions.py`), and a `STOP_TRADING` file in the events folder works like `KILL`.
 
 Why moomoo: it serves Australian residents, its OpenAPI places US-stock orders from Python through OpenD, and
 JARVIS already reads its paper account. **Polymarket is blocked in Australia** (ACMA, August 2025) and Kalshi
