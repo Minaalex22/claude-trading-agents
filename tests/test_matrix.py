@@ -254,3 +254,30 @@ class LiveCrossMarketTests(unittest.TestCase):
         m.poll_once()
         self.assertNotIn("NDX", m.tick())
         self.assertEqual(m.history("1d"), [])
+
+
+class LiveNewsTests(unittest.TestCase):
+    def test_headlines_move_the_assets_news_score(self):
+        from trading.matrix import LiveNews
+
+        class Feed:
+            def __init__(self):
+                self.batches = [[{"symbol": "GOLD", "text": "GOLD: Gold price surges to record high", "weight": 1.0},
+                                 {"symbol": "USDCAD", "text": "USDCAD: Canadian dollar surges", "weight": 0.5}], []]
+
+            def tick(self, drift, tick):
+                return self.batches.pop(0) if self.batches else []
+
+        news = LiveNews(feed=Feed())
+        gold = news.read("GOLD", 1)
+        self.assertGreater(gold.score, 0)
+        self.assertLess(news.read("USDCAD", 1).score, 0)  # a stronger Canadian dollar means USDCAD falls
+        self.assertIsNone(news.read("NDX", 1))
+        later = news.read("GOLD", 100)  # fades with time
+        self.assertTrue(later is None or later.score < gold.score)
+
+    def test_gold_feeds_use_the_futures_ticker(self):
+        from trading.news_feed import match_symbol, symbol_feeds
+        self.assertTrue(any("GC%3DF" in u for u in symbol_feeds("GOLD")))
+        self.assertEqual(match_symbol("Gold price climbs as dollar slips", ["GOLD", "NDX"]), "GOLD")
+        self.assertIsNone(match_symbol("Goldman Sachs earnings", ["GOLD"]))

@@ -39,7 +39,12 @@ NAMES = {
     "GOOG": ["Alphabet", "Google"], "GOOGL": ["Alphabet", "Google"], "TSLA": ["Tesla"],
     "META": ["Meta Platforms", "Facebook"], "AMD": ["AMD", "Advanced Micro Devices"],
     "BTC": ["Bitcoin"], "ETH": ["Ethereum", "Ether"], "SOL": ["Solana"],
+    # the Whole Matrix desk's assets
+    "GOLD": ["gold price", "gold"], "WTI": ["oil price", "crude oil", "crude", "OPEC"], "NDX": ["Nasdaq"],
+    "AUDUSD": ["Australian dollar", "Aussie dollar", "RBA"], "USDCAD": ["Canadian dollar", "loonie", "Bank of Canada"],
 }
+# Yahoo's headline feed for symbols whose ticker isn't the symbol itself
+YAHOO_RSS = {"GOLD": "GC=F", "WTI": "CL=F", "NDX": "^NDX", "AUDUSD": "AUDUSD=X", "USDCAD": "CAD=X"}
 CRYPTO = {"BTC", "ETH", "SOL"}
 GENERAL_FEEDS = [
     # CNBC: top news, markets, investing, economy, technology, finance
@@ -67,10 +72,11 @@ GENERAL_FEEDS = [
 
 def symbol_feeds(symbol: str) -> list[str]:
     name = NAMES.get(symbol, [symbol])[0]
-    query = urllib.parse.quote(f'"{name}" {"crypto" if symbol in CRYPTO else "stock"}')
+    kind = "crypto" if symbol in CRYPTO else "" if symbol in YAHOO_RSS else "stock"
+    query = urllib.parse.quote(f'"{name}" {kind}'.strip())
     feeds = [f"https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"]
-    yahoo = f"{symbol}-USD" if symbol in CRYPTO else symbol
-    feeds.append(f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={yahoo}&region=US&lang=en-US")
+    yahoo = YAHOO_RSS.get(symbol) or (f"{symbol}-USD" if symbol in CRYPTO else symbol)
+    feeds.append(f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={urllib.parse.quote(yahoo)}&region=US&lang=en-US")
     return feeds
 
 
@@ -114,7 +120,8 @@ def match_symbol(title: str, symbols: list[str]) -> str | None:
     found = set()
     for s in symbols:
         words = [s] + NAMES.get(s, [])
-        if any(re.search(rf"(?<![A-Za-z]){re.escape(w)}(?![A-Za-z])", title) for w in words):
+        # Names written all lowercase (gold, crude) match in any case; company names match exactly (Apple, not apple).
+        if any(re.search(rf"(?<![A-Za-z]){re.escape(w)}(?![A-Za-z])", title, re.I if w.islower() else 0) for w in words):
             found.add(s)
     return found.pop() if len(found) == 1 else None
 

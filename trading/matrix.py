@@ -73,6 +73,44 @@ class NeutralFeed:
         return None
 
 
+class LiveNews:
+    """Real headlines for the six assets (trading/news_feed.py), read with the reading room's finance lexicon.
+
+    Each asset keeps a news score that headlines push (at half strength until a second source confirms them) and
+    that fades by NEWS_KEEP every minute. The USDCAD headlines are about the Canadian dollar, so their sign flips.
+    """
+
+    NEWS_KEEP = 0.97
+    INVERT = {"USDCAD"}
+
+    def __init__(self, feed=None):
+        from .news_feed import LiveNewsFeed
+        self.feed = feed or LiveNewsFeed(list(ASSETS))
+        self.score = {a: 0.0 for a in ASSETS}
+        self.tick = -1
+        self.read_count = 0
+
+    def _update(self, tick: int) -> None:
+        if tick == self.tick:
+            return
+        from .reading_room import read_headline
+        for _ in range(max(1, tick - self.tick) if self.tick >= 0 else 1):
+            for a in self.score:
+                self.score[a] *= self.NEWS_KEEP
+        for h in self.feed.tick({}, tick):
+            a, push = h.get("symbol"), read_headline(h["text"])
+            if a in self.score and push is not None:
+                push *= -1 if a in self.INVERT else 1
+                self.score[a] = max(-1.0, min(1.0, self.score[a] + push * float(h.get("weight", 1.0))))
+                self.read_count += 1
+        self.tick = tick
+
+    def read(self, asset: str, tick: int) -> Sentiment | None:
+        self._update(tick)
+        s = self.score.get(asset, 0.0)
+        return Sentiment(s, 1.0) if abs(s) >= 0.05 else None
+
+
 class EMA:
     def __init__(self, n: int):
         self.k = 2 / (n + 1)
@@ -414,10 +452,13 @@ def run(env=os.environ, stream=None) -> MatrixDesk:
     live = env.get("MARKET", "sim").lower() == "live"
     if live:  # real gold, oil, Nasdaq, Bitcoin and currency prices; one tick is still one minute
         desk.market = LiveCrossMarket()
+        if env.get("LIVE_NEWS", "on").lower() not in ("off", "0", "false", "no"):
+            desk.feed = LiveNews()
         tick_seconds = float(env.get("MATRIX_TICK_SECONDS", 60))
     log.emit("start", agents=0, mode="paper", config_version=cfg.version, strategies=list(STRATEGIES),
              assets=list(ASSETS), pairs=[f"{a}/{b}" for a, b, _ in PAIRS], timeframes=list(TIMEFRAMES),
-             news_feed="neutral (not connected)", capital=CAPITAL_USDC, market="live" if live else "simulated")
+             news_feed="live headlines" if isinstance(desk.feed, LiveNews) else "neutral (not connected)",
+             capital=CAPITAL_USDC, market="live" if live else "simulated")
     desk.warm_up(warmup)
 
     stopping = False
