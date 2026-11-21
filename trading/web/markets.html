@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · Markets</title>
+<meta name="theme-color" content="#05070d">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/command.css">
+<link rel="stylesheet" href="/markets.css">
+</head><body>
+<header class="bar">
+ <div class="brand"><span class="pulse-dot on"></span><b>ATS MATRIX</b><span class="tag">practice only · real money locked</span></div>
+ <nav><a href="/">Command</a><a href="/3d">3D lab</a><a class="on" href="/markets">Markets</a><a href="/jarvis">JARVIS</a><a href="/log">Event log</a></nav>
+ <form method="post" action="/logout"><button type="submit">Sign out</button></form>
+</header>
+<main class="mk">
+ <div class="mk-grid2">
+  <section class="mk-card"><h3>Top risers · 1 day</h3><table id="risers"></table></section>
+  <section class="mk-card"><h3>Top fallers · 1 day</h3><table id="fallers"></table></section>
+ </div>
+ <section class="mk-card">
+  <div class="mk-tabs" id="tabs"></div>
+  <div class="mk-scroll"><table id="board" class="mk-board"></table></div>
+  <p class="mut mk-small" id="src">Loading prices…</p>
+ </section>
+</main>
+<script src="/markets.js"></script>
+</body></html>
