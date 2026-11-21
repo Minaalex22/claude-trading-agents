@@ -34,6 +34,7 @@ from pathlib import Path
 
 from . import control, live_orders, platforms
 from .alerts import Alerts
+from .atlas_sources import AtlasSources
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
 from .org import DEPARTMENTS, finish_school, manager_reports
 from .webauth import COOKIE, WebAuth
@@ -52,6 +53,8 @@ STATIC = {
     "/3d.js": ("3d.js", "text/javascript; charset=utf-8"),
     "/jarvis.css": ("jarvis.css", "text/css; charset=utf-8"),
     "/jarvis.js": ("jarvis.js", "text/javascript; charset=utf-8"),
+    "/orderflow.css": ("orderflow.css", "text/css; charset=utf-8"),
+    "/orderflow.js": ("orderflow.js", "text/javascript; charset=utf-8"),
     # Vendored so the strict CSP (scripts only from this site) holds and the cloud app needs no CDN.
     "/vendor/three.min.js": ("vendor/three.min.js", "text/javascript; charset=utf-8"),
     "/vendor/lightweight-charts.js": ("vendor/lightweight-charts.js", "text/javascript; charset=utf-8"),
@@ -67,6 +70,7 @@ STATIC = {
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; "
        "manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 MAX_FORM_BYTES = 4096
+MAX_TRADES_BYTES = 262144  # a batch of real trades for the order flow feed
 # Only JARVIS's page may use the microphone; nothing may use the camera, location or payment APIs.
 PERMISSIONS = "microphone=(self), camera=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
 
@@ -81,6 +85,8 @@ class EventHub:
         self.offsets: dict[Path, tuple[int, int]] = {}  # path -> (inode, offset)
         # Every engine shard sees the same market, so one shard's ticks give the price history.
         self.price_history: deque[dict] = deque(maxlen=PRICE_HISTORY)
+        # Atlas's extra eyes: in-house ATAS-style order flow + the 20 analysis houses' street view.
+        self.sources = AtlasSources()
         self.equity: dict[int, dict[str, float]] = {}
 
     def poll_files(self) -> None:
@@ -141,6 +147,7 @@ class EventHub:
             del self.equity[min(self.equity)]
         if not self.price_history or tick > self.price_history[-1]["tick"]:
             self.price_history.append({"tick": tick, "ts": event["ts"], "prices": event["prices"]})
+            self.sources.on_prices(event["prices"], event["ts"])
 
     def prices(self) -> dict:
         with self.cond:
@@ -298,6 +305,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     cluster_page = _read("3d.html")
     log_page = _read("log.html")
     jarvis_page = _read("jarvis.html")
+    orderflow_page = _read("orderflow.html")
     login_page = _read("login.html").decode()
 
     class Handler(BaseHTTPRequestHandler):
@@ -403,7 +411,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log"):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow"):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -415,6 +423,17 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._send(200, cluster_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/jarvis":
                 self._send(200, jarvis_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/orderflow":
+                self._send(200, orderflow_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/orderflow":
+                self._json(200, hub.sources.page_data())
+            elif path == "/api/atlas/check":
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                symbol = query.get("symbol", [""])[0][:32]
+                side = query.get("side", ["buy"])[0]
+                if not symbol or side not in ("buy", "sell"):
+                    return self._json(400, {"error": "symbol and side=buy|sell required"})
+                self._json(200, hub.sources.check(symbol, side))
             elif path == "/api/jarvis":
                 self._json(200, jarvis.status(self._jarvis_unlocked()))
             elif path == "/api/live":
@@ -444,7 +463,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 length = int(self.headers.get("Content-Length", 0))
             except ValueError:
                 length = MAX_FORM_BYTES + 1
-            if length > MAX_FORM_BYTES or length < 0:
+            limit = MAX_TRADES_BYTES if path == "/api/orderflow/trades" else MAX_FORM_BYTES
+            if length > limit or length < 0:
                 self.close_connection = True
                 return self._send(413, b"too large", "text/plain", {"Connection": "close"})
             raw = self.rfile.read(length) if length else b""
@@ -458,6 +478,10 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._redirect("/login", {"Set-Cookie": self._cookie("", 0)})
             if path == "/api/agents":
                 return self._set_agents(raw)
+            if path == "/api/orderflow/trades":
+                return self._orderflow_trades(raw)
+            if path == "/api/street/note":
+                return self._street_note(raw)
             if path in ("/api/jarvis/unlock", "/api/jarvis/ask", "/api/jarvis/lock", "/api/jarvis/setup"):
                 return self._jarvis_post(path, raw)
             if path != "/login" or not auth.enabled:
@@ -475,6 +499,39 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
         def _report_authed(self) -> bool:
             sent = self.headers.get("Authorization", "")
             return report_on and hmac.compare_digest(sent.encode(), f"Bearer {report_token}".encode())
+
+        def _orderflow_trades(self, raw: bytes):
+            """A real trade feed (e.g. a script on the owner's computer reading an exchange):
+            {"symbol": "BTC-USD", "trades": [{"ts", "price", "size", "side"}]}. Bridge token or signed in."""
+            if not (self._authed() or self._bridge_authed()):
+                return self._json(401, {"error": "sign in or bridge token required"})
+            try:
+                body = json.loads(raw or b"{}")
+                symbol = str(body["symbol"])[:32]
+                trades = body["trades"]
+                assert isinstance(trades, list)
+            except (ValueError, KeyError, TypeError, AssertionError):
+                return self._json(400, {"error": "need {symbol, trades: [...]}"})
+            self._json(200, {"used": hub.sources.on_trades(symbol, trades)})
+
+        def _street_note(self, raw: bytes):
+            """File one public analyst note: {"house": "dbs", "text": "...", "source": "url"}."""
+            if not self._authed():
+                return self._json(401, {"error": "sign in required"})
+            try:
+                body = json.loads(raw or b"{}")
+                house, text = str(body["house"]), str(body["text"])[:3500]
+            except (ValueError, KeyError, TypeError):
+                return self._json(400, {"error": "need {house, text}"})
+            prices = (hub.price_history[-1]["prices"] if hub.price_history else {})
+            try:
+                with hub.sources.lock:
+                    calls = hub.sources.street.add_note(house, text, source=str(body.get("source", ""))[:300],
+                                                        prices=prices)
+            except ValueError as e:
+                return self._json(400, {"error": str(e)})
+            self._json(200, {"calls": [{"market": c.market, "direction": c.direction,
+                                        "confidence": c.confidence} for c in calls]})
 
         def _bridge_authed(self) -> bool:
             sent = self.headers.get("Authorization", "")
