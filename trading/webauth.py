@@ -11,7 +11,8 @@
 - Fails closed: with auth on and no password set, the dashboard refuses to start.
 
 Auth is off only when DASHBOARD_AUTH=off (local Docker, port bound to localhost)
-or when the dashboard listens on a loopback address.
+or when the dashboard listens on a loopback address, unless DASHBOARD_AUTH=force (needed for real money on
+one's own computer: approvals need the two-step code).
 """
 
 import base64
@@ -79,7 +80,9 @@ class WebAuth:
 
     @classmethod
     def from_env(cls, host: str, env=os.environ) -> "WebAuth":
-        enabled = env.get("DASHBOARD_AUTH", "on").lower() != "off" and host not in LOOPBACK
+        mode = env.get("DASHBOARD_AUTH", "on").lower()
+        # "force" keeps login on even on this computer's own address: real money needs the two-step code there too.
+        enabled = mode == "force" or (mode != "off" and host not in LOOPBACK)
         return cls(env.get("DASHBOARD_PASSWORD"), env.get("SESSION_SECRET"), enabled,
                    float(env.get("SESSION_DAYS", 30)), totp_secret=env.get("DASHBOARD_TOTP_SECRET"))
 

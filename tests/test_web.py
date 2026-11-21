@@ -100,7 +100,7 @@ class ServerTests(unittest.TestCase):
 
     def request(self, method, path, body=None, cookie=None, headers=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
-        h = dict(headers or {})
+        h = {"Host": "ats.example.com", **(headers or {})}  # as when deployed; this computer's own address differs
         if cookie:
             h["Cookie"] = f"{COOKIE}={cookie}"
         if body is not None:
@@ -139,7 +139,8 @@ class ServerTests(unittest.TestCase):
             {"Origin": f"http://127.0.0.1:{port}"},
         ]
         for i, headers in enumerate(browser_like):
-            resp, _ = self.request("POST", "/login", form, headers={**headers, "X-Forwarded-For": f"5.5.5.{i}"})
+            resp, _ = self.request("POST", "/login", form, headers={**headers, "X-Forwarded-For": f"5.5.5.{i}",
+                                                                     "Host": f"127.0.0.1:{port}"})
             self.assertEqual(resp.getheader("Location"), "/", headers)
             self.assertIn(COOKIE, resp.getheader("Set-Cookie"), headers)
         resp, _ = self.request("GET", "/login")
@@ -191,6 +192,15 @@ class ServerTests(unittest.TestCase):
     def test_oversized_login_body_rejected(self):
         resp, _ = self.request("POST", "/login", body="password=" + "x" * 5000)
         self.assertEqual(resp.status, 413)
+
+    def test_own_computer_address_drops_secure_only_flags(self):
+        resp, _ = self.request(
+            "POST", "/login", urllib.parse.urlencode({"password": PASSWORD}), headers={"Host": "127.0.0.1:8080"})
+        cookie = resp.getheader("Set-Cookie")
+        self.assertIn("HttpOnly", cookie)
+        self.assertNotIn("Secure", cookie)  # plain http on the Mac itself: Safari would drop a Secure cookie
+        resp, _ = self.request("GET", "/login", headers={"Host": "localhost:8080"})
+        self.assertIsNone(resp.getheader("Strict-Transport-Security"))
 
     def test_security_headers(self):
         resp, _ = self.request("GET", "/login")
@@ -287,3 +297,18 @@ class TwoStepServerTests(unittest.TestCase):
         resp, _ = self.request("POST", "/login", urllib.parse.urlencode({"password": PASSWORD, "code": code}))
         self.assertEqual(resp.getheader("Location"), "/")
 
+
+
+class LocalForceAuthTests(unittest.TestCase):
+    def test_force_keeps_login_on_this_computer(self):
+        self.assertFalse(WebAuth.from_env("127.0.0.1", {"DASHBOARD_PASSWORD": PASSWORD}).enabled)
+        self.assertTrue(WebAuth.from_env("127.0.0.1", {"DASHBOARD_PASSWORD": PASSWORD, "DASHBOARD_AUTH": "force"}).enabled)
+
+    def test_bridge_accepts_the_app_on_this_computer(self):
+        from trading import bridge
+        with self.assertRaises(SystemExit) as e:
+            bridge.main({"BRIDGE_URL": "http://example.com", "BRIDGE_TOKEN": "t" * 40})
+        self.assertIn("https://", str(e.exception))
+        with self.assertRaises(SystemExit) as e:  # gets past the address check, stops at the missing limits
+            bridge.main({"BRIDGE_URL": "http://127.0.0.1:8080", "BRIDGE_TOKEN": "t" * 40})
+        self.assertIn("LIVE_MAX_ORDER_USD", str(e.exception))

@@ -232,6 +232,15 @@ drawdown limit that halts new risk.
 **Paper mode only.** Prices are simulated, or real with `MARKET=live`, but fills are always paper. No real
 orders are ever sent.
 
+## Run it on your own Mac (one double-click)
+
+Double-click `start-jarvis.command`. On the first run it creates its own Python environment, installs the moomoo
+library, makes your dashboard password, phone-code secret and bridge token (kept in `.jarvis-secrets`, readable only
+by you, never in Git), and shows the phone-code secret once for Google Authenticator. Then it starts JARVIS on live
+prices (paper book), opens http://127.0.0.1:8080 (password + phone code), and starts the moomoo bridge on moomoo's
+paper account with $200 per order and $500 a day on AAPL, MSFT and NVDA. Open moomoo OpenD and log in first. For real
+money, set `REAL_MONEY=yes` and `MOOMOO_TRADE_PASSWORD` in `.jarvis-secrets` and start it again.
+
 ## Real money: the approval desk and the bridge
 
 Off by default, and every step needs you. Nothing in the cloud app holds broker passwords or talks to the broker.

@@ -321,7 +321,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             self.send_header("Permissions-Policy", PERMISSIONS)
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
             self.send_header("Cross-Origin-Resource-Policy", "same-origin")
-            if auth.enabled:
+            if auth.enabled and self._secure():  # no HSTS for this computer's own plain-http address
                 self.send_header("Strict-Transport-Security", "max-age=31536000")
             for k, v in (extra or {}).items():
                 self.send_header(k, v)
@@ -334,8 +334,13 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
         def _redirect(self, to: str, extra: dict | None = None):
             self._send(303, b"", "text/plain", {"Location": to, **(extra or {})})
 
+        def _secure(self) -> str:
+            """'; Secure' except on this computer's own address (plain http there, and Safari drops Secure cookies)."""
+            host = self.headers.get("Host", "").rsplit(":", 1)[0].strip("[]")
+            return "" if host in ("127.0.0.1", "localhost", "::1") else "; Secure"
+
         def _cookie(self, value: str, max_age: int) -> str:
-            return f"{COOKIE}={value}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite=Lax"
+            return f"{COOKIE}={value}; Path=/; Max-Age={max_age}; HttpOnly{self._secure()}; SameSite=Lax"
 
         def _session(self, cookie: str = COOKIE) -> str | None:
             for part in self.headers.get("Cookie", "").split(";"):
@@ -538,7 +543,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._json(415, {"error": "send JSON"})
             if path == "/api/jarvis/lock":
                 return self._json(200, {"unlocked": False},
-                                  {"Set-Cookie": f"{UNLOCK_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict"})
+                                  {"Set-Cookie": f"{UNLOCK_COOKIE}=; Path=/; Max-Age=0; HttpOnly{self._secure()}; SameSite=Strict"})
             if not jarvis.enabled:
                 return self._json(403, jarvis.status(False))
             try:
@@ -557,7 +562,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                     return self._json(400, {"error": str(e)})
                 except OSError:
                     return self._json(503, {"error": "Could not save the passphrase."})
-                cookie = (f"{UNLOCK_COOKIE}={jarvis.issue()}; Path=/; Max-Age={jarvis.ttl}; HttpOnly; Secure; "
+                cookie = (f"{UNLOCK_COOKIE}={jarvis.issue()}; Path=/; Max-Age={jarvis.ttl}; HttpOnly{self._secure()}; "
                           "SameSite=Strict")
                 return self._json(200, {"unlocked": True}, {"Set-Cookie": cookie})
             if path == "/api/jarvis/unlock":
@@ -565,7 +570,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                     return self._json(429, {"error": "Too many wrong passphrases. Try again in 15 minutes."})
                 if jarvis.check_passphrase(str(body.get("passphrase", ""))):
                     jarvis.unlock_failures.clear(client)
-                    cookie = (f"{UNLOCK_COOKIE}={jarvis.issue()}; Path=/; Max-Age={jarvis.ttl}; HttpOnly; Secure; "
+                    cookie = (f"{UNLOCK_COOKIE}={jarvis.issue()}; Path=/; Max-Age={jarvis.ttl}; HttpOnly{self._secure()}; "
                               "SameSite=Strict")
                     return self._json(200, {"unlocked": True}, {"Set-Cookie": cookie})
                 jarvis.unlock_failures.hit(client)

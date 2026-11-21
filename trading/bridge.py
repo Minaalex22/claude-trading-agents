@@ -136,8 +136,10 @@ def main(env=os.environ) -> None:
     for name in ("BRIDGE_URL", "BRIDGE_TOKEN"):
         if not env.get(name):
             sys.exit(f"Set {name} first (see python -m trading.bridge --help).")
-    if not env["BRIDGE_URL"].startswith("https://"):
-        sys.exit("BRIDGE_URL must start with https://")
+    url = env["BRIDGE_URL"]
+    local = url.startswith(("http://127.0.0.1", "http://localhost"))  # the app running on this same computer
+    if not (url.startswith("https://") or local):
+        sys.exit("BRIDGE_URL must start with https:// (or be http://127.0.0.1 for the app on this computer)")
     real = env.get("BRIDGE_REAL_MONEY") == REAL_MONEY_PHRASE
     if real and not env.get("MOOMOO_TRADE_PASSWORD"):
         sys.exit("Set MOOMOO_TRADE_PASSWORD to trade the real account.")
