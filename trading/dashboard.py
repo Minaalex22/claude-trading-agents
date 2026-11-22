@@ -46,6 +46,7 @@ from .news_pipeline import NewsPipeline
 from .polymarket_desk import PolymarketDesk
 from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
+from . import session_desks
 from .org import DEPARTMENTS, finish_school, manager_reports
 from .wallet import Wallet, WalletError
 from .webauth import COOKIE, WebAuth
@@ -83,6 +84,8 @@ STATIC = {
     "/conductor.css": ("conductor.css", "text/css; charset=utf-8"),
     "/pairs.js": ("pairs.js", "text/javascript; charset=utf-8"),
     "/pairs.css": ("pairs.css", "text/css; charset=utf-8"),
+    "/desks.js": ("desks.js", "text/javascript; charset=utf-8"),
+    "/desks.css": ("desks.css", "text/css; charset=utf-8"),
     "/pipeline.css": ("pipeline.css", "text/css; charset=utf-8"),
     "/duel.js": ("duel.js", "text/javascript; charset=utf-8"),
     "/markets.js": ("markets.js", "text/javascript; charset=utf-8"),
@@ -107,6 +110,8 @@ MAX_FORM_BYTES = 4096
 MAX_TRADES_BYTES = 262144  # a batch of real trades for the order flow feed
 KIND_PAGES = ("/crypto", "/forex", "/commodities", "/indices", "/shares")
 CLOSED_KEEP = 500  # closed trades the Trades page can list
+DESK_PAGE = re.compile(r"/desks/(sydney|asia|london|newyork)")
+DESK_API = re.compile(r"/api/desks/(sydney|asia|london|newyork)")
 MARKET_PAGE = re.compile(r"/markets/[A-Za-z0-9]{1,10}")
 MARKET_API = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}")
 MARKET_FAV = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}/favourite")
@@ -388,6 +393,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     poly = {}  # the Polymarket practice desk, started on first use
     conductor_page = _read("conductor.html")
     pairs_page = _read("pairs.html")
+    desks_page = _read("desks.html")  # the four session desks: /desks and /desks/<sydney|asia|london|newyork>
     floor = {}  # the six-agent practice floor, started on first use
     floor_lock = threading.Lock()
     market_page = _read("market.html")
@@ -506,7 +512,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/wallet") or path in KIND_PAGES or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -589,6 +595,16 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                     self._json(200, pairs_kit.pair_study(query.get("pair", ["sim"])[0][:20].lower()))
                 except (KeyError, ValueError) as e:
                     self._json(404, {"error": str(e).strip("'\"")})
+            elif path == "/desks" or DESK_PAGE.fullmatch(path):
+                self._send(200, desks_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/desks" or DESK_API.fullmatch(path):
+                history = hub.prices()["history"]
+                body = session_desks.board(org=hub.org(), trades=hub.trades()["trades"],
+                                           prices=history[-1]["prices"] if history else {}, env=env)
+                if path != "/api/desks":
+                    key = path.rsplit("/", 1)[-1]
+                    body = {**body, "desk": next(d for d in body["desks"] if d["key"] == key)}
+                self._json(200, body)
             elif path in KIND_PAGES:
                 self._send(200, kind_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/pipeline":

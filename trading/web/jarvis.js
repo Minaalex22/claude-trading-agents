@@ -4,156 +4,180 @@
   const $ = (id) => document.getElementById(id);
   const state = { talk: 0, listening: false, speaking: false, unlocked: false, enabled: false };
 
-  // ---------- Hologram ----------
-  function rand(a, b) { return a + Math.random() * (b - a); }
+  // ---------- Hologram: Iron Man style HUD (crisp 2D canvas, no particles) ----------
+  // A glowing core, segmented rotating rings, a tick scale, a wireframe globe, a voice waveform ring and live
+  // desk readouts. Cyan is the hologram, orange (#FF5C00) marks the app's accents and alerts.
+  const CYAN = "63,224,255", ORANGE = "255,92,0", RED = "255,70,70";
+  const hud = { mode: "locked", thinking: 0, data: { pnl: null, win: null, trades: null, agents: null } };
 
-  function buildFigure() {
-    const pos = [], seed = [], kind = []; // kind: 0 body, 1 mouth, 2 eyes
-    const add = (x, y, z, k) => { pos.push(x, y, z); seed.push(Math.random()); kind.push(k || 0); };
-    // Head: an ellipsoid shaped into a face (narrow jaw, nose, eye sockets, lips, cheekbones).
-    for (let i = 0; i < 9000; i++) {
-      const u = Math.random() * 2 - 1, t = Math.random() * Math.PI * 2, r = Math.sqrt(1 - u * u);
-      let x = r * Math.cos(t), y = u, z = r * Math.sin(t);
-      const jaw = y < 0 ? 1 - 0.38 * Math.pow(-y, 1.4) : 1 - 0.08 * y * y;
-      x *= 0.62 * jaw; z *= 0.74 * (y < 0 ? 1 - 0.2 * -y : 1); y *= 0.9;
-      if (z > 0.3) {
-        const nose = Math.exp(-(x * x) / 0.006) * Math.exp(-Math.pow(y + 0.05, 2) / 0.05) * 0.16;
-        const brow = Math.exp(-Math.pow(y - 0.22, 2) / 0.004) * 0.03;
-        const eyes = Math.exp(-(Math.pow(Math.abs(x) - 0.22, 2) + Math.pow(y - 0.12, 2)) / 0.006) * -0.07;
-        const cheek = Math.exp(-(Math.pow(Math.abs(x) - 0.3, 2) + Math.pow(y + 0.05, 2)) / 0.02) * 0.04;
-        const lips = Math.exp(-(x * x) / 0.03 - Math.pow(y + 0.36, 2) / 0.003) * 0.05;
-        z += nose + brow + eyes + cheek + lips;
-      }
-      add(x, y + 1.62, z);
-    }
-    // Hair: a fuller shell over the top and back, falling past the shoulders.
-    for (let i = 0; i < 9000; i++) {
-      const u = Math.random() * 2 - 1, t = Math.random() * Math.PI * 2, r = Math.sqrt(1 - u * u);
-      let x = r * Math.cos(t) * 0.7, y = u * 0.98, z = r * Math.sin(t) * 0.82;
-      if (z > 0.25 && y < 0.5) continue; // leave the face open
-      if (y < -0.2 && z > -0.1 && Math.abs(x) < 0.5) continue;
-      add(x * 1.04, y + 1.66, z * 1.02 - 0.02);
-    }
-    for (let i = 0; i < 4000; i++) { // long hair falling behind the shoulders
-      const y = rand(0.3, 1.3), a = rand(0.15, Math.PI - 0.15), spread = 0.6 + (1.3 - y) * 0.22;
-      add(Math.cos(a) * spread, y, -Math.sin(a) * spread * 0.55 - 0.12);
-    }
-    // Neck.
-    for (let i = 0; i < 1500; i++) {
-      const t = Math.random() * Math.PI * 2, y = rand(0.55, 1.05);
-      add(Math.cos(t) * 0.2, y, Math.sin(t) * 0.2 + 0.02);
-    }
-    // Shoulders and upper chest.
-    for (let i = 0; i < 11000; i++) {
-      const t = rand(0, Math.PI * 2), y = rand(-1.0, 0.62);
-      const w = y > 0.25 ? 0.24 + 0.88 * Math.sqrt((0.62 - y) / 0.37) : 1.12 - (0.25 - y) * 0.12;
-      const d = y > 0.25 ? 0.2 + 0.2 * (0.62 - y) / 0.37 : 0.4 + 0.04 * Math.exp(-Math.pow(y + 0.15, 2) / 0.05);
-      add(Math.cos(t) * w, y, Math.sin(t) * d);
-    }
-    // Lips (move when she speaks) and eyes (glow).
-    for (let i = 0; i < 500; i++) { const x = rand(-0.11, 0.11); add(x, 1.26 + rand(-0.012, 0.012), 0.69 - x * x * 2, 1); }
-    for (let i = 0; i < 200; i++) {
-      const s = i % 2 ? 1 : -1, a = rand(0, Math.PI * 2), r = rand(0, 0.035);
-      add(s * 0.21 + Math.cos(a) * r * 1.4, 1.73 + Math.sin(a) * r * 0.7, 0.62, 2);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute("seed", new THREE.Float32BufferAttribute(seed, 1));
-    g.setAttribute("kind", new THREE.Float32BufferAttribute(kind, 1));
-    return g;
+  function fmtMoney(v) { if (v == null) return "--"; const s = v < 0 ? "-" : "+"; return s + "$" + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+  async function loadHudData() {
+    try {
+      const [t, s] = await Promise.all([
+        fetch("/api/trades", { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fetch("/api/state", { credentials: "same-origin" }).then((r) => (r.ok ? r.json() : null)).catch(() => null)]);
+      if (t && t.totals) { hud.data.pnl = t.totals.pnl; hud.data.win = t.totals.win_rate; hud.data.trades = t.totals.trades; }
+      if (s && s.agents_reporting != null) hud.data.agents = s.agents_reporting;
+    } catch (e) { /* readouts stay "--" */ }
   }
-
-  const vertex = `
-    uniform float uTime; uniform float uTalk; uniform float uListen;
-    attribute float seed; attribute float kind;
-    varying float vAlpha; varying float vKind;
-    void main() {
-      vec3 p = position;
-      if (kind == 1.0) { p.y += (seed - 0.5) * uTalk * 0.07; }
-      p.x += sin(uTime * 7.0 + p.y * 40.0) * 0.004 * (1.0 + uListen);
-      vec4 mv = modelViewMatrix * vec4(p, 1.0);
-      float scan = smoothstep(0.08, 0.0, abs(fract(p.y * 0.35 - uTime * 0.25) - 0.5));
-      float flicker = 0.55 + 0.45 * sin(uTime * 3.0 + seed * 40.0);
-      vAlpha = (0.25 + 0.45 * flicker + scan * 0.8) * (kind > 0.0 ? 1.6 : 1.0) * smoothstep(-1.0, -0.15, p.y);
-      vKind = kind;
-      gl_PointSize = (kind == 2.0 ? 3.2 : 2.2) * (6.0 / -mv.z);
-      gl_Position = projectionMatrix * mv;
-    }`;
-  const fragment = `
-    uniform vec3 uColor; varying float vAlpha; varying float vKind;
-    void main() {
-      vec2 c = gl_PointCoord - 0.5; float d = dot(c, c);
-      if (d > 0.25) discard;
-      vec3 col = vKind == 2.0 ? vec3(0.6, 1.0, 1.0) : uColor;
-      gl_FragColor = vec4(col, vAlpha * (1.0 - d * 4.0));
-    }`;
 
   function startHologram() {
     const host = $("holo");
-    if (!window.THREE) { $("state").textContent = "hologram unavailable"; return; }
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-    host.appendChild(renderer.domElement);
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
-    camera.position.set(0, 1.3, 7.2);
-    camera.lookAt(0, 0.85, 0);
-
-    const uniforms = { uTime: { value: 0 }, uTalk: { value: 0 }, uListen: { value: 0 },
-                       uColor: { value: new THREE.Color(0xff5c00) } };
-    const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: vertex, fragmentShader: fragment,
-                                           transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
-    const figure = new THREE.Points(buildFigure(), mat);
-    figure.position.y = -0.1;
-    scene.add(figure);
-
-    // Projector base: glowing rings and a faint light cone.
-    const ringMat = new THREE.LineBasicMaterial({ color: 0xff5c00, transparent: true, opacity: 0.6,
-                                                  blending: THREE.AdditiveBlending });
-    const rings = [];
-    [0.9, 1.25, 1.6].forEach((r, i) => {
-      const pts = [];
-      for (let a = 0; a <= 128; a++) { const t = a / 128 * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(t) * r, 0, Math.sin(t) * r)); }
-      const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), ringMat.clone());
-      ring.position.y = -1.05 - i * 0.02; scene.add(ring); rings.push(ring);
-    });
-    const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.6, 3.4, 48, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0xff5c00, transparent: true, opacity: 0.05, side: THREE.DoubleSide,
-                                    blending: THREE.AdditiveBlending, depthWrite: false }));
-    cone.position.y = 0.65; scene.add(cone);
-    const dust = new THREE.BufferGeometry(), dp = [];
-    for (let i = 0; i < 600; i++) dp.push(rand(-2.5, 2.5), rand(-1, 3), rand(-2, 2));
-    dust.setAttribute("position", new THREE.Float32BufferAttribute(dp, 3));
-    const dustPts = new THREE.Points(dust, new THREE.PointsMaterial({ color: 0xff5c00, size: 0.015, transparent: true, opacity: 0.5 }));
-    scene.add(dustPts);
-
-    let mx = 0, my = 0;
+    const cv = document.createElement("canvas");
+    host.appendChild(cv);
+    const ctx = cv.getContext("2d");
+    if (!ctx) { $("state").textContent = "hologram unavailable"; return; }
+    let W = 0, H = 0, dpr = 1, mx = 0, my = 0;
+    function resize() {
+      dpr = Math.min(2, window.devicePixelRatio || 1);
+      W = host.clientWidth; H = host.clientHeight;
+      cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + "px"; cv.style.height = H + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    window.addEventListener("resize", resize); resize();
     host.addEventListener("pointermove", (e) => {
       const r = host.getBoundingClientRect();
       mx = (e.clientX - r.left) / r.width - 0.5; my = (e.clientY - r.top) / r.height - 0.5;
     });
-    function resize() {
-      const w = host.clientWidth, h = host.clientHeight;
-      renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
-    }
-    window.addEventListener("resize", resize); resize();
 
-    const clock = new THREE.Clock();
-    (function frame() {
-      const t = clock.getElapsedTime();
-      if (state.speaking) state.talk = Math.max(state.talk, 0.35 + 0.35 * Math.abs(Math.sin(t * 11)));
+    const wave = new Array(96).fill(0);
+    const glow = (rgb, blur) => { ctx.shadowColor = "rgba(" + rgb + ",0.9)"; ctx.shadowBlur = blur; };
+    const stroke = (rgb, a, w) => { ctx.strokeStyle = "rgba(" + rgb + "," + a + ")"; ctx.lineWidth = w; };
+
+    function arc(cx, cy, r, a0, a1, rgb, a, w) { ctx.beginPath(); ctx.arc(cx, cy, r, a0, a1); stroke(rgb, a, w); ctx.stroke(); }
+    function segments(cx, cy, r, n, fill, rot, rgb, a, w) {
+      const step = (Math.PI * 2) / n;
+      for (let i = 0; i < n; i++) { const s = rot + i * step; arc(cx, cy, r, s, s + step * fill, rgb, a, w); }
+    }
+    function ticks(cx, cy, r, n, len, rot, rgb, a) {
+      ctx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const t = rot + (i / n) * Math.PI * 2, L = i % 5 === 0 ? len * 1.9 : len;
+        ctx.moveTo(cx + Math.cos(t) * r, cy + Math.sin(t) * r);
+        ctx.lineTo(cx + Math.cos(t) * (r - L), cy + Math.sin(t) * (r - L));
+      }
+      stroke(rgb, a, 1); ctx.stroke();
+    }
+    function globe(cx, cy, r, rotY, tilt, rgb, a) { // wireframe sphere: latitude + longitude lines, back lines dimmer
+      const ct = Math.cos(tilt), st = Math.sin(tilt);
+      const proj = (x, y, z) => { const y2 = y * ct - z * st, z2 = y * st + z * ct; return [cx + x * r, cy + y2 * r, z2]; };
+      const line = (pts) => {
+        for (let i = 1; i < pts.length; i++) {
+          const p = pts[i - 1], q = pts[i], front = (p[2] + q[2]) > 0;
+          ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]);
+          stroke(rgb, front ? a : a * 0.25, front ? 1 : 0.6); ctx.stroke();
+        }
+      };
+      for (let k = 1; k < 6; k++) { // latitudes
+        const phi = -Math.PI / 2 + (k * Math.PI) / 6, y = Math.sin(phi), rr = Math.cos(phi), pts = [];
+        for (let i = 0; i <= 48; i++) { const th = (i / 48) * Math.PI * 2 + rotY; pts.push(proj(rr * Math.cos(th), y, rr * Math.sin(th))); }
+        line(pts);
+      }
+      for (let k = 0; k < 8; k++) { // longitudes
+        const th = (k / 8) * Math.PI + rotY, pts = [];
+        for (let i = 0; i <= 40; i++) { const phi = -Math.PI / 2 + (i / 40) * Math.PI; pts.push(proj(Math.cos(phi) * Math.cos(th), Math.sin(phi), Math.cos(phi) * Math.sin(th))); }
+        line(pts);
+      }
+    }
+    function bracket(x, y, w, h, rgb, a) { // HUD corner brackets
+      const c = 14; ctx.beginPath();
+      ctx.moveTo(x, y + c); ctx.lineTo(x, y); ctx.lineTo(x + c, y);
+      ctx.moveTo(x + w - c, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + c);
+      ctx.moveTo(x + w, y + h - c); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - c, y + h);
+      ctx.moveTo(x + c, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - c);
+      stroke(rgb, a, 1.2); ctx.stroke();
+    }
+    function readout(x, y, label, value, rgb, align) {
+      ctx.textAlign = align; ctx.shadowBlur = 0;
+      ctx.font = "600 10px ui-monospace,SFMono-Regular,Menlo,monospace"; ctx.fillStyle = "rgba(" + CYAN + ",0.6)";
+      ctx.fillText(label, x, y);
+      glow(rgb, 10); ctx.font = "600 20px ui-monospace,SFMono-Regular,Menlo,monospace"; ctx.fillStyle = "rgba(" + rgb + ",0.95)";
+      ctx.fillText(value, x, y + 22); ctx.shadowBlur = 0;
+      const lx = align === "left" ? x : x - 120; ctx.beginPath(); ctx.moveTo(lx, y + 30); ctx.lineTo(lx + 120, y + 30);
+      stroke(rgb, 0.35, 1); ctx.stroke();
+    }
+
+    let last = performance.now(), t = 0;
+    (function frame(now) {
+      const dt = Math.min(0.05, ((now || last) - last) / 1000); last = now || last; t += dt;
+      if (state.speaking) state.talk = Math.max(state.talk, 0.35 + 0.45 * Math.abs(Math.sin(t * 13)));
       state.talk *= 0.9;
-      uniforms.uTime.value = t; uniforms.uTalk.value = state.talk;
-      uniforms.uListen.value += ((state.listening ? 1 : 0) - uniforms.uListen.value) * 0.1;
-      figure.rotation.y += (mx * 0.6 + Math.sin(t * 0.4) * 0.12 - figure.rotation.y) * 0.05;
-      figure.rotation.x += (my * 0.15 - figure.rotation.x) * 0.05;
-      figure.position.y = -0.1 + Math.sin(t * 1.2) * 0.02;
-      rings.forEach((r, i) => { r.rotation.y = t * (0.3 + i * 0.15) * (i % 2 ? -1 : 1);
-        r.material.opacity = 0.35 + 0.3 * Math.sin(t * (state.listening ? 6 : 2) + i); });
-      dustPts.rotation.y = t * 0.03;
-      renderer.render(scene, camera);
+      const mode = !state.enabled ? "offline" : !state.unlocked ? "locked" : state.speaking ? "speaking"
+        : hud.thinking > 0 ? "thinking" : state.listening ? "listening" : "ready";
+      const live = mode !== "locked" && mode !== "offline";
+      const main = live ? CYAN : ORANGE;
+      const speed = mode === "thinking" ? 3 : mode === "listening" ? 1.8 : live ? 1 : 0.35;
+
+      ctx.clearRect(0, 0, W, H);
+      const cx = W / 2 + mx * 18, cy = H * 0.47 + my * 12, R = Math.min(W, H) * 0.36;
+
+      // faint grid
+      ctx.shadowBlur = 0; stroke(CYAN, 0.05, 1); ctx.beginPath();
+      for (let x = (cx % 40); x < W; x += 40) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+      for (let y = (cy % 40); y < H; y += 40) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+      ctx.stroke();
+
+      // core glow
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.42);
+      g.addColorStop(0, "rgba(220,250,255," + (live ? 0.95 : 0.5) + ")");
+      g.addColorStop(0.25, "rgba(" + main + "," + (0.55 + state.talk * 0.4) + ")");
+      g.addColorStop(1, "rgba(" + main + ",0)");
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R * 0.42, 0, Math.PI * 2); ctx.fill();
+
+      glow(main, 12);
+      // wireframe globe inside the core rings
+      globe(cx, cy, R * 0.3, t * 0.5 * speed, 0.35 + my * 0.3, main, 0.55);
+      arc(cx, cy, R * 0.34, 0, Math.PI * 2, main, 0.9, 2);
+      segments(cx, cy, R * 0.4, 12, 0.7, -t * 0.8 * speed, main, 0.8, 3);
+      // voice waveform ring
+      for (let i = 0; i < wave.length; i++) {
+        const target = live ? (state.talk * (0.4 + 0.6 * Math.abs(Math.sin(i * 0.7 + t * 9)))
+          + (state.listening ? 0.12 + 0.1 * Math.abs(Math.sin(i * 1.3 + t * 5)) : 0.04)) : 0.02;
+        wave[i] += (target - wave[i]) * 0.25;
+      }
+      ctx.beginPath();
+      for (let i = 0; i < wave.length; i++) {
+        const a = (i / wave.length) * Math.PI * 2, r0 = R * 0.46, r1 = r0 + 4 + wave[i] * R * 0.16;
+        ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0); ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+      }
+      stroke(main, 0.85, 2); ctx.stroke();
+      // tick scale and segmented outer rings
+      ticks(cx, cy, R * 0.72, 120, 5, t * 0.15 * speed, main, 0.55);
+      segments(cx, cy, R * 0.78, 3, 0.28, t * 0.4 * speed, ORANGE, 0.9, 3);
+      segments(cx, cy, R * 0.84, 48, 0.55, -t * 0.25 * speed, main, 0.45, 2);
+      arc(cx, cy, R * 0.92, 0, Math.PI * 2, main, 0.25, 1);
+      segments(cx, cy, R * 0.97, 6, 0.12, t * 0.6 * speed, main, 0.8, 4);
+      // scanning sweep
+      const sw = t * 1.2 * speed;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, R * 0.92, sw, sw + 0.35); ctx.closePath();
+      const sg = ctx.createRadialGradient(cx, cy, R * 0.45, cx, cy, R * 0.92);
+      sg.addColorStop(0, "rgba(" + main + ",0)"); sg.addColorStop(1, "rgba(" + main + ",0.18)");
+      ctx.fillStyle = sg; ctx.shadowBlur = 0; ctx.fill();
+      if (mode === "thinking") { glow(ORANGE, 14); arc(cx, cy, R * 0.6, t * 6, t * 6 + 1.2, ORANGE, 0.95, 3); arc(cx, cy, R * 0.6, t * 6 + Math.PI, t * 6 + Math.PI + 1.2, ORANGE, 0.95, 3); }
+
+      // title + status
+      ctx.shadowBlur = 0; ctx.textAlign = "center";
+      glow(main, 14); ctx.fillStyle = "rgba(" + main + ",0.95)"; ctx.font = "700 " + Math.max(14, R * 0.09) + "px ui-monospace,SFMono-Regular,Menlo,monospace";
+      ctx.fillText("J.A.R.V.I.S.", cx, cy + R * 1.12);
+      ctx.shadowBlur = 0; ctx.font = "600 10px ui-monospace,SFMono-Regular,Menlo,monospace"; ctx.fillStyle = "rgba(" + CYAN + ",0.6)";
+      ctx.fillText("ATS MATRIX  //  PRACTICE MODE  //  REAL MONEY LOCKED", cx, cy + R * 1.12 + 18);
+
+      // readouts and brackets (only when there is room)
+      const d = hud.data, wide = W > 620;
+      bracket(10, 10, W - 20, H - 20, CYAN, 0.35);
+      if (wide) {
+        readout(28, 44, "DESK P&L", fmtMoney(d.pnl), d.pnl != null && d.pnl < 0 ? RED : main, "left");
+        readout(28, 104, "WIN RATE", d.win == null ? "--" : (d.win * 100).toFixed(1) + "%", main, "left");
+        readout(W - 28, 44, "CLOSED TRADES", d.trades == null ? "--" : d.trades.toLocaleString(), main, "right");
+        readout(W - 28, 104, "AGENTS REPORTING", d.agents == null ? "--" : d.agents.toLocaleString(), main, "right");
+        ctx.textAlign = "left"; ctx.font = "600 10px ui-monospace,SFMono-Regular,Menlo,monospace"; ctx.fillStyle = "rgba(" + CYAN + ",0.55)";
+        ctx.fillText(new Date().toLocaleTimeString() + "  MELBOURNE", 28, H - 30);
+        ctx.textAlign = "right"; ctx.fillStyle = "rgba(" + (live ? CYAN : ORANGE) + ",0.8)";
+        ctx.fillText("STATUS: " + mode.toUpperCase(), W - 28, H - 30);
+      }
       requestAnimationFrame(frame);
     })();
+    loadHudData(); setInterval(loadHudData, 15000);
   }
 
   // ---------- Voice out ----------
@@ -239,8 +263,9 @@
   function note(text) { add("her", '<span class="err">' + esc(text) + "</span>"); }
 
   async function ask(q) {
-    add("me", esc(q)); setState("thinking");
+    add("me", esc(q)); setState("thinking"); hud.thinking = 1;
     const r = await post("/api/jarvis/ask", { question: q });
+    hud.thinking = 0;
     if (r.status === 403 || r.status === 401) { await refresh(); note(r.data.error || "Locked."); return; }
     if (!r.ok) { note(r.data.error || "Something went wrong."); setState("ready"); return; }
     add("her", "<b>JARVIS</b> " + esc(r.data.reply));

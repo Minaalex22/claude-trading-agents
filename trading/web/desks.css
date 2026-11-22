@@ -1,0 +1,33 @@
+/* 24/7 session desks: four desk cards, a 24-hour clock strip and the hand-off list. Colours from theme.css. */
+.dk-tabs { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dk-tabs a { text-decoration: none; }
+.dk-clock { display: flex; flex-direction: column; gap: 8px; }
+.dk-row { display: grid; grid-template-columns: 86px 1fr; gap: 10px; align-items: center; font: 600 12px var(--ats-mono); color: var(--ats-w); }
+.dk-track { position: relative; height: 18px; background: #0d0d0d; border: 1px solid #1c1c1c; border-radius: 6px; overflow: hidden; }
+.dk-bar { position: absolute; top: 2px; bottom: 2px; background: #3a3a3a; border-radius: 4px; }
+.dk-bar.lead { background: var(--ats-o); box-shadow: 0 0 10px rgba(255, 92, 0, .6); }
+.dk-ticks { display: grid; grid-template-columns: 86px 1fr; gap: 10px; font: 10px var(--ats-mono); color: var(--ats-g); }
+.dk-ticks div { display: flex; justify-content: space-between; }
+.dk-desks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.dk-desk { display: block; text-decoration: none; color: inherit; transition: border-color .2s, transform .2s; }
+.dk-desk:hover { border-color: var(--ats-o); transform: translateY(-2px); }
+.dk-desk.leading { border-color: var(--ats-o); box-shadow: 0 0 0 1px rgba(255, 92, 0, .4), 0 0 24px rgba(255, 92, 0, .15); }
+.dk-desk.closed { opacity: .72; }
+.dk-desk header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.dk-desk h2 { margin: 0; font: 700 22px var(--ats-sans); color: var(--ats-w); }
+.dk-desk .t { font: 600 13px var(--ats-mono); color: var(--ats-g); }
+.dk-desk p { margin: 6px 0 10px; color: var(--ats-g); font-size: 13px; min-height: 36px; }
+.dk-desk dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0 0 10px; font: 12px var(--ats-mono); }
+.dk-desk dt { color: var(--ats-g); } .dk-desk dd { margin: 0; color: var(--ats-w); text-align: right; }
+.dk-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.dk-chip { font: 600 11px var(--ats-mono); padding: 3px 7px; border-radius: 5px; background: #121212; border: 1px solid #262626; color: var(--ats-w); text-decoration: none; }
+.dk-chip:hover { border-color: var(--ats-o); }
+.pg-pill.lead { background: var(--ats-o); color: #000; }
+.pg-pill.open { background: rgba(47, 211, 122, .14); color: var(--ats-up); }
+.dk-crew { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.dk-crew div { background: #0d0d0d; border: 1px solid #1c1c1c; border-radius: 8px; padding: 8px; }
+.dk-crew small { display: block; font: 10px var(--ats-mono); color: var(--ats-g); text-transform: uppercase; letter-spacing: .1em; }
+.dk-crew b { font: 700 20px var(--ats-mono); color: var(--ats-w); }
+.dk.one .dk-desks { grid-template-columns: 1fr; }
+@media (max-width: 1100px) { .dk-desks { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .dk-desks, .dk-crew { grid-template-columns: 1fr 1fr; } .dk-desks { grid-template-columns: 1fr; } .dk-row, .dk-ticks { grid-template-columns: 64px 1fr; } }

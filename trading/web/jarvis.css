@@ -29,3 +29,6 @@ button:hover{border-color:var(--holo)}
 .her{align-self:flex-start;background:#110904;border-color:#4a2207;max-width:92%}
 .her b{color:var(--holo)}
 .err{color:var(--dn)}
+#stage{background:radial-gradient(ellipse at 50% 47%,rgba(63,224,255,.10) 0%,rgba(0,8,14,.9) 45%,#000 75%)!important;border-color:rgba(63,224,255,.25)!important}
+#holo canvas{width:100%;height:100%}
+#state{color:rgba(63,224,255,.75);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
