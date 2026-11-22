@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · 24/7 desks</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/pages.css">
+<link rel="stylesheet" href="/desks.css">
+</head><body>
+<header class="ats-bar"><a class="ats-brand" href="/"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><a class="on" href="/desks">24/7 desks</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/">Desk</a><details class="ats-more"><summary>More</summary><div><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/decision">Decision</a><a href="/smart">Smart money</a><a href="/jarvis">JARVIS</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<main class="pg dk">
+ <div class="pg-head">
+  <div><small id="kicker">Follow the sun · practice</small><h1 id="title"><b>24/7</b> trading desks</h1>
+   <p id="lede">Four desks, one for each trading session: Sydney, Asia, London and New York. When one city closes the next one takes over, so the agents trade around the clock. All times are Melbourne time.</p></div>
+  <span class="pg-badge">PRACTICE ONLY · REAL MONEY LOCKED</span>
+ </div>
+ <section class="pg-grid">
+  <div class="pg-card c12 dk-tabs"><div class="pg-tabs" id="tabs"></div><span class="g" id="now">–</span></div>
+  <div class="pg-card c3 pg-kpi"><small>Leading now</small><b class="o" id="k-lead">–</b><em id="k-lead-sub">–</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Next hand-off</small><b id="k-next">–</b><em id="k-next-sub">–</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Hours covered, next 24</small><b id="k-cov">–</b><em id="k-cov-sub">–</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Orders go to</small><b id="k-route">–</b><em id="k-route-sub">–</em></div>
+  <div class="pg-card c12"><h3>Next 24 hours <span>Melbourne time · orange = leading</span></h3><div class="dk-clock" id="clock"></div></div>
+  <div class="c12 dk-desks" id="desks"></div>
+  <div class="pg-card c6"><h3>Hand-offs <span>who passes the lead to whom</span></h3><div class="pg-list" id="handoffs"></div></div>
+  <div class="pg-card c6"><h3>Trades by desk <span>closed practice trades, by the desk leading at the time</span></h3><div class="pg-scroll"><table class="pg-tbl" id="book"></table></div></div>
+ </section>
+ <p class="pg-note">Desk hours: Sydney 07:00 to 16:00 Sydney time, Asia 09:00 to 18:00 Tokyo time, London 08:00 to 17:00 London time, New York 08:00 to 17:00 New York time, Monday to Friday in each city. Weekends trade crypto only at half size. Each desk's crew is a quarter of every department. Orders go to the paper desk; the MetaTrader 5 demo route turns on when it is set up. Not investment advice.</p>
+</main>
+<script src="/desks.js"></script>
+</body></html>
