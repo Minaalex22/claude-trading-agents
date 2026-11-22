@@ -13,7 +13,8 @@ Safety first:
 Environment:
   POLYMARKET_MODE                    quotes need no key (public order book)
   ETORO_MODE, ETORO_API_KEY, ETORO_USER_KEY, ETORO_API_BASE (default https://public-api.etoro.com)
-  MT5_MODE, MT5_LOGIN, MT5_PASSWORD, MT5_SERVER   (needs the MetaTrader5 package and terminal, Windows)
+  MT5_MODE, METAAPI_TOKEN, METAAPI_ACCOUNT_ID     (MetaApi cloud: works from Render, no computer needed)
+  or MT5_LOGIN, MT5_PASSWORD, MT5_SERVER          (MetaTrader5 package next to the terminal, Windows only)
   MOOMOO_MODE, MOOMOO_HOST, MOOMOO_PORT           (needs the moomoo package and the OpenD gateway)
 
 Run `python -m trading.platforms` for a status table, or
@@ -28,6 +29,7 @@ import urllib.request
 import uuid
 from dataclasses import dataclass
 
+from . import metaapi
 from .broker import PaperBroker
 
 LIVE_TRADING_ENABLED = False  # real-money orders: locked in this build
@@ -51,11 +53,12 @@ class Platform:
 PLATFORMS = (
     Platform("polymarket", "Polymarket", "prediction markets", (), False),
     Platform("etoro", "eToro", "stocks, crypto, ETFs, FX", ("ETORO_API_KEY", "ETORO_USER_KEY"), False),
-    Platform("mt5", "MetaTrader 5", "FX, CFDs, indices, metals", ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER"), True),
+    Platform("mt5", "MetaTrader 5", "FX, CFDs, indices, metals", ("METAAPI_TOKEN", "METAAPI_ACCOUNT_ID"), True),
     Platform("moomoo", "moomoo", "US and HK stocks, options", (), True),
 )
 BY_KEY = {p.key: p for p in PLATFORMS}
-SECRET_NAMES = tuple(k for p in PLATFORMS for k in p.keys if "LOGIN" not in k and "SERVER" not in k)
+SECRET_NAMES = tuple(k for p in PLATFORMS for k in p.keys if not k.endswith(("LOGIN", "SERVER", "ACCOUNT_ID")))
+NATIVE_MT5 = ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER")
 
 
 def get_json(url: str, headers: dict | None = None) -> dict:
@@ -154,6 +157,19 @@ class EToroConnector(Connector):
 class MT5Connector(Connector):
     platform = BY_KEY["mt5"]
 
+    @property
+    def cloud(self) -> bool:
+        return metaapi.configured(self.env)
+
+    @property
+    def missing(self) -> list[str]:
+        if self.cloud or all(self.env.get(k) for k in NATIVE_MT5):
+            return []
+        return list(self.platform.keys)
+
+    def api(self) -> "metaapi.MetaApi":
+        return metaapi.MetaApi(self.env)
+
     def _mt5(self):
         try:
             import MetaTrader5 as mt5  # Windows only, with the MetaTrader 5 terminal installed
@@ -165,10 +181,17 @@ class MT5Connector(Connector):
         return mt5
 
     def quote(self, symbol: str) -> float:
+        if self.cloud:
+            return self.api().price(symbol)
         tick = self._mt5().symbol_info_tick(symbol)
         return (tick.bid + tick.ask) / 2
 
     def _demo_order(self, symbol: str, side: str, qty: float) -> dict:
+        if self.cloud:
+            try:
+                return self.api().demo_order(symbol, side, qty)
+            except metaapi.NotDemo as e:
+                raise LiveTradingLocked(str(e)) from e
         mt5 = self._mt5()
         account = mt5.account_info()
         if account is None or account.trade_mode != mt5.ACCOUNT_TRADE_MODE_DEMO:
@@ -237,6 +260,8 @@ def status(env=os.environ) -> list[dict]:
     rows = []
     for p in PLATFORMS:
         missing = [k for k in p.keys if not env.get(k)]
+        if p.key == "mt5" and all(env.get(k) for k in NATIVE_MT5):
+            missing = []
         asked = requested_mode(p, env)
         mode = resolve_mode(p, env)
         note = None

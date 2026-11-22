@@ -673,3 +673,14 @@ and each house is scored on how often its calls come true.
 
 `GET /api/atlas/check?symbol=BTC-USD&side=buy` combines both: approve or veto, a confidence multiplier and
 plain reasons. It never places orders. Real money stays locked.
+
+## MetaTrader 5 (GO Markets or any MT5 broker)
+
+The app reaches MT5 through the MetaApi cloud, so nothing has to run on your computer.
+
+1. Sign up at app.metaapi.cloud (free tier is fine).
+2. Add your MT5 **demo** login there: account number, password and server (for GO Markets something like `GoMarkets-Demo`). Copy the account id it shows.
+3. In MetaApi, Settings > API tokens, make a token.
+4. On Render, open the service > Environment and add `METAAPI_TOKEN`, `METAAPI_ACCOUNT_ID` and `MT5_MODE=demo`. Save.
+
+Then `/api/mt5` shows balance and open positions, `/api/mt5/report?days=30` shows where money was lost, and agents' MT5 orders go to the demo account. Orders are refused unless the broker says the account is a demo account. Real money stays locked.

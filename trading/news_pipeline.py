@@ -192,6 +192,14 @@ class NewsPipeline:
             if self.gate != was:
                 self.gate_moves.append({"from": was, "to": self.gate, "agree": round(rate, 3)})
 
+    def lean(self, symbol: str, last: int = 20) -> tuple[float | None, int]:
+        """Net verdict of the pipeline's recent reads on one symbol, newest weighted most, for the agents' gate."""
+        recs = [r for r in list(self.log)[::-1] if r.get("symbol") == symbol][:last]
+        if not recs:
+            return None, 0
+        w = [0.9 ** i for i in range(len(recs))]
+        return sum(r["final_lean"] * wi for r, wi in zip(recs, w)) / sum(w), len(recs)
+
     def snapshot(self) -> dict:
         c = {k: round(v, 4) for k, v in self.cost.items()}
         save = 1 - c["hybrid"] / c["deep_only"] if c["deep_only"] else 0.0
