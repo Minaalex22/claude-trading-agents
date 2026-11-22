@@ -572,7 +572,11 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             elif path == "/decision":
                 self._send(200, decision_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/decision":
-                body = decision_desk.build(hub.org(), hub.trades(), hub.prices(), getattr(hub, "sources", None), smart)
+                prices_now = hub.prices()
+                hist = prices_now.get("history") or []
+                with hub.cond:
+                    leans = {sym: hub.pipeline.lean(sym) for sym in (hist[-1]["prices"] if hist else {})}
+                body = decision_desk.build(hub.org(), hub.trades(), prices_now, getattr(hub, "sources", None), smart, leans)
                 self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/smart":
                 self._send(200, smart_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})

@@ -79,5 +79,21 @@ class DecisionDeskTest(unittest.TestCase):
         self.assertIn(body["decisions"][0]["verdict"], ("ACT", "ESCALATE", "HOLD"))
 
 
+    def test_pipeline_head(self):
+        body = build({"departments": {}}, {"trades": [], "by_symbol": {}, "totals": {}},
+                     {"history": [{"prices": {"BTC": 1.0}}]}, None, None, {"BTC": (0.6, 5)})
+        head = [h for h in body["decisions"][0]["heads"] if h["head"] == "pipeline"][0]
+        self.assertEqual(head["vote"], "up")
+
+
+class PipelineLeanTest(unittest.TestCase):
+    def test_lean(self):
+        from trading.news_pipeline import NewsPipeline
+        p = NewsPipeline(seed=1)
+        self.assertEqual(p.lean("BTC"), (None, 0))
+        p.log.append({"symbol": "BTC", "final_lean": 0.5})
+        self.assertEqual(p.lean("BTC"), (0.5, 1))
+
+
 if __name__ == "__main__":
     unittest.main()

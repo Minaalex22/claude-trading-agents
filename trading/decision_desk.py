@@ -28,7 +28,7 @@ def _risk_checks(org: dict, pnls: list[float]) -> list[tuple[str, bool, str]]:
     return checks
 
 
-def build(org: dict, trades: dict, prices: dict, sources, smart=None) -> dict:
+def build(org: dict, trades: dict, prices: dict, sources, smart=None, pipeline_leans: dict | None = None) -> dict:
     deps = org.get("departments", {})
     closed = list(reversed(trades.get("trades", [])))  # oldest first
     pnls = [float(t.get("pnl") or 0.0) for t in closed]
@@ -63,6 +63,8 @@ def build(org: dict, trades: dict, prices: dict, sources, smart=None) -> dict:
         heads.append(fg.head_from_value("street", sv["direction"] * max(sv["confidence"], 0.2) if sv.get("ready") else None,
                                         1.0, why=f"{sv.get('houses', 0)} analyst houses"))
         heads.append(fg.history_head(by_symbol.get(sym)))
+        pl, n = (pipeline_leans or {}).get(sym, (None, 0))
+        heads.append(fg.head_from_value("pipeline", pl, 2.0, dead=0.05, why=f"News Pipeline: {n} recent reads"))
         v, sc, why = smart_money.vote(smart.summary(sym) if smart else None)
         heads.append(fg.Head("insiders", v, sc, why))
         out.append(fg.decide(sym, heads, risk, calib, sizing, drift))

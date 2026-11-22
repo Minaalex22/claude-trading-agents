@@ -12,6 +12,7 @@ has, so a decision takes milliseconds. Heads come from our own departments and m
   street     analyst houses (Atlas sources): their net call on the market
   history    our own closed practice trades in this symbol: votes only with 30+ trades and a Wilson range clear of 50%
   insiders   SEC Form 4 open-market buys and sells by company insiders (smart_money.py); abstains without data
+  pipeline   the News Pipeline's recent verdicts on the symbol (cheap triage -> gate -> deep read), so the agents use it
   risk       Sentinel: never votes; a failed risk check turns any verdict into HOLD
 
 CONFIDENCE = (scores with the direction - scores against) / heads that voted, times min(1, votes / 4), so one or two
