@@ -14,6 +14,9 @@ Endpoints:
   /jarvis       JARVIS, the owner's voice assistant with the hologram (trading/jarvis.py)
   /api/jarvis   GET her status; POST /api/jarvis/unlock {"passphrase"} and /api/jarvis/ask {"question"}
   /api/platforms  real platform connectors: mode and whether keys are set (names only)
+  /api/mt5      MetaTrader 5 account and open positions (read only, via MetaApi cloud)
+  /api/mt5/report?days=30  where the money went: win rate, losers by symbol, costs, drawdown, notes
+                POST /api/mt5/order {"symbol","side","volume"} sends a DEMO order; real accounts are refused
   /health       200 once at least one shard is reporting
   /api/report   read-only trade report (signed-in session, or bearer REPORT_TOKEN)
   /login        password sign-in when the dashboard is reachable from the internet
@@ -38,7 +41,7 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import control, live_orders, markets, platforms
+from . import control, live_orders, markets, metaapi, platforms
 from .alerts import Alerts
 from .atlas_sources import AtlasSources
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
@@ -505,6 +508,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                  "bridge": bridge_on, "two_step": auth.two_step})
             elif path == "/api/platforms":
                 self._json(200, {"platforms": platforms.status(), "live_trading": "locked"})
+            elif path in ("/api/mt5", "/api/mt5/report"):
+                self._mt5_get(path)
             elif path == "/api/state":
                 self._send(200, json.dumps(hub.state()).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/api/pipeline":
@@ -575,6 +580,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._set_agents(raw)
             if path == "/api/orderflow/trades":
                 return self._orderflow_trades(raw)
+            if path == "/api/mt5/order":
+                return self._mt5_order(raw)
             if path == "/api/street/note":
                 return self._street_note(raw)
             if path in ("/api/jarvis/unlock", "/api/jarvis/ask", "/api/jarvis/lock", "/api/jarvis/setup"):
@@ -597,6 +604,46 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._redirect("/news", {"Set-Cookie": self._cookie(auth.issue(), auth.max_age)})
             auth.record_failure(client)
             self._redirect("/login?error=1")
+
+        def _mt5_get(self, path: str):
+            if not metaapi.configured(env):
+                return self._json(200, {"connected": False, "needs": list(metaapi.ENV_KEYS),
+                                        "help": "Add METAAPI_TOKEN and METAAPI_ACCOUNT_ID on Render (Environment)."})
+            try:
+                api = metaapi.MetaApi(env)
+                if path == "/api/mt5":
+                    body = {"connected": True, **api.snapshot()}
+                else:
+                    query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                    try:
+                        days = int(query.get("days", ["30"])[0])
+                    except ValueError:
+                        days = 30
+                    body = {"connected": True, **api.report(days)}
+            except Exception as e:  # noqa: BLE001  (network or MetaApi error: report it, keep serving)
+                return self._json(502, {"connected": False, "error": f"MetaTrader cloud: {type(e).__name__}: "
+                                                                     f"{str(e)[:200]}"})
+            self._json(200, body)
+
+        def _mt5_order(self, raw: bytes):
+            """Demo account only. The account type is checked with the broker on every order."""
+            if not self._authed():
+                return self._json(401, {"error": "sign in required"})
+            if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                return self._json(415, {"error": "send JSON"})
+            try:
+                b = json.loads(raw or b"null")
+                symbol, side, volume = str(b["symbol"])[:32], str(b["side"]), float(b["volume"])
+                if b.get("live"):
+                    raise platforms.LiveTradingLocked("Real-money orders are locked.")
+                fill = metaapi.MetaApi(env).demo_order(symbol, side, volume, b.get("stop_loss"), b.get("take_profit"))
+            except (platforms.LiveTradingLocked, metaapi.NotDemo) as e:
+                return self._json(403, {"error": str(e)})
+            except (ValueError, KeyError, TypeError) as e:
+                return self._json(400, {"error": f"need symbol, side, volume: {e}"})
+            except Exception as e:  # noqa: BLE001
+                return self._json(502, {"error": f"MetaTrader cloud: {type(e).__name__}"})
+            self._json(200, {"order": fill})
 
         def _report_authed(self) -> bool:
             sent = self.headers.get("Authorization", "")
