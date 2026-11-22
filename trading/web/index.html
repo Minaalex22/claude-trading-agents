@@ -2,7 +2,7 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ATS Matrix · Command</title>
-<meta name="theme-color" content="#05070d">
+<meta name="theme-color" content="#000000">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -11,10 +11,11 @@
 <link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <link rel="stylesheet" href="/command.css">
+<link rel="stylesheet" href="/theme.css">
 </head><body>
-<header class="bar">
+<header class="bar ats-bar">
  <div class="brand"><span class="pulse-dot" id="liveDot"></span><b>ATS MATRIX</b><span class="tag" id="marketTag">connecting</span></div>
- <nav><a class="on" href="/">Command</a><a href="/galaxy">Galaxy</a><a href="/3d">3D lab</a><a href="/markets">Markets</a><a href="/jarvis">JARVIS</a><a href="/log">Event log</a><a href="/orderflow">Order flow</a></nav>
+ <nav class="ats-nav"><a href="/news">News</a><a href="/trades">Trades</a><a class="on" href="/">Desk</a><a href="/markets">Markets</a><a href="/orderflow">Order flow</a><details class="ats-more"><summary>More</summary><div><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/jarvis">JARVIS</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav>
  <form method="post" action="/logout"><button type="submit">Sign out</button></form>
 </header>
 

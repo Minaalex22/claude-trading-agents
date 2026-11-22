@@ -141,7 +141,7 @@ class ServerTests(unittest.TestCase):
         for i, headers in enumerate(browser_like):
             resp, _ = self.request("POST", "/login", form, headers={**headers, "X-Forwarded-For": f"5.5.5.{i}",
                                                                      "Host": f"127.0.0.1:{port}"})
-            self.assertEqual(resp.getheader("Location"), "/", headers)
+            self.assertEqual(resp.getheader("Location"), "/news", headers)
             self.assertIn(COOKIE, resp.getheader("Set-Cookie"), headers)
         resp, _ = self.request("GET", "/login")
         self.assertEqual(resp.getheader("Referrer-Policy"), "same-origin")
@@ -162,7 +162,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(resp.getheader("Location"), "/login?error=1")
         self.assertIsNone(resp.getheader("Set-Cookie"))
         resp, _ = self.login()
-        self.assertEqual(resp.getheader("Location"), "/")
+        self.assertEqual(resp.getheader("Location"), "/news")
         set_cookie = resp.getheader("Set-Cookie")
         for flag in ("HttpOnly", "Secure", "SameSite=Lax", "Max-Age=2592000"):
             self.assertIn(flag, set_cookie)
@@ -184,7 +184,7 @@ class ServerTests(unittest.TestCase):
         resp, _ = self.login(ip="7.7.7.7")  # even the right password is refused while locked
         self.assertEqual(resp.getheader("Location"), "/login?error=locked")
         resp, _ = self.login(ip="8.8.8.8")
-        self.assertEqual(resp.getheader("Location"), "/")
+        self.assertEqual(resp.getheader("Location"), "/news")
 
     def test_stalled_connections_time_out(self):
         self.assertEqual(self.server.RequestHandlerClass.timeout, 60)
@@ -295,7 +295,7 @@ class TwoStepServerTests(unittest.TestCase):
         self.assertEqual(resp.getheader("Location"), "/login?error=1")
         code = totp(self.SECRET, time.time())
         resp, _ = self.request("POST", "/login", urllib.parse.urlencode({"password": PASSWORD, "code": code}))
-        self.assertEqual(resp.getheader("Location"), "/")
+        self.assertEqual(resp.getheader("Location"), "/news")
 
 
 

@@ -64,6 +64,12 @@ STATIC = {
     "/markets.css": ("markets.css", "text/css; charset=utf-8"),
     "/galaxy.css": ("galaxy.css", "text/css; charset=utf-8"),
     "/galaxy.js": ("galaxy.js", "text/javascript; charset=utf-8"),
+    "/duel.css": ("duel.css", "text/css; charset=utf-8"),
+    "/theme.css": ("theme.css", "text/css; charset=utf-8"),
+    "/pages.css": ("pages.css", "text/css; charset=utf-8"),
+    "/news.js": ("news.js", "text/javascript; charset=utf-8"),
+    "/trades.js": ("trades.js", "text/javascript; charset=utf-8"),
+    "/duel.js": ("duel.js", "text/javascript; charset=utf-8"),
     "/markets.js": ("markets.js", "text/javascript; charset=utf-8"),
     "/market.js": ("market.js", "text/javascript; charset=utf-8"),
     # Vendored so the strict CSP (scripts only from this site) holds and the cloud app needs no CDN.
@@ -82,6 +88,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self';
        "manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 MAX_FORM_BYTES = 4096
 MAX_TRADES_BYTES = 262144  # a batch of real trades for the order flow feed
+CLOSED_KEEP = 500  # closed trades the Trades page can list
 MARKET_PAGE = re.compile(r"/markets/[A-Za-z0-9]{1,10}")
 MARKET_API = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}")
 MARKET_FAV = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}/favourite")
@@ -102,6 +109,9 @@ class EventHub:
         # Atlas's extra eyes: in-house ATAS-style order flow + the 20 analysis houses' street view.
         self.sources = AtlasSources()
         self.equity: dict[int, dict[str, float]] = {}
+        # Closed round trips for the Trades page: the latest ones plus running totals since the app started.
+        self.closed: deque[dict] = deque(maxlen=CLOSED_KEEP)
+        self.closed_totals = {"trades": 0, "won": 0, "lost": 0, "pnl": 0.0, "by_symbol": {}}
 
     def poll_files(self) -> None:
         for path in sorted(self.events_dir.glob("events-*.jsonl")):
@@ -150,9 +160,34 @@ class EventHub:
                 shard[kind] = event
             if kind == "resize" and "start" in shard:
                 shard["start"] = {**shard["start"], "agents": event["agents"], "total_agents": event["total_agents"]}
+            if kind == "closed":
+                self._record_closed(event)
             if kind == "tick" and "prices" in event and isinstance(event.get("shard"), int):
                 self._record_tick(event)  # engine shards only; the ring and matrix trade other books
             self.cond.notify_all()
+
+    def _record_closed(self, event: dict) -> None:
+        won, pnl = bool(event.get("won")), float(event.get("pnl") or 0.0)
+        self.closed.append({k: event.get(k) for k in ("ts", "shard", "symbol", "side", "qty", "entry", "exit", "move", "won", "pnl")})
+        t = self.closed_totals
+        t["trades"] += 1
+        t["won" if won else "lost"] += 1
+        t["pnl"] += pnl
+        sym = t["by_symbol"].setdefault(str(event.get("symbol")), {"trades": 0, "won": 0, "pnl": 0.0})
+        sym["trades"] += 1
+        sym["won"] += won
+        sym["pnl"] += pnl
+
+    def trades(self) -> dict:
+        """Every closed paper trade we still hold (newest first), with wins, losses and money made or lost."""
+        with self.cond:
+            t = self.closed_totals
+            recent = list(self.closed)[::-1]
+            by_symbol = {k: {**v, "pnl": round(v["pnl"], 2), "win_rate": round(v["won"] / v["trades"], 4)}
+                         for k, v in sorted(t["by_symbol"].items(), key=lambda kv: -kv[1]["pnl"])}
+            return {"trades": recent, "totals": {"trades": t["trades"], "won": t["won"], "lost": t["lost"],
+                                                 "win_rate": round(t["won"] / t["trades"], 4) if t["trades"] else None,
+                                                 "pnl": round(t["pnl"], 2)}, "by_symbol": by_symbol}
 
     def _record_tick(self, event: dict) -> None:
         tick = event["tick"]
@@ -322,6 +357,9 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     orderflow_page = _read("orderflow.html")
     markets_page = _read("markets.html")
     galaxy_page = _read("galaxy.html")
+    duel_page = _read("duel.html")
+    news_page = _read("news.html")
+    trades_page = _read("trades.html")
     market_page = _read("market.html")
     login_page = _read("login.html").decode()
 
@@ -417,7 +455,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._json(200, {"order": live_orders.next_for_bridge(hub.events_dir)})
             elif path == "/login":
                 if not auth.enabled or self._authed():
-                    return self._redirect("/")
+                    return self._redirect("/news")  # News is the first page
                 query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 message = {"1": "Wrong password or code." if auth.two_step else "Wrong password.",
                            "locked": "Too many attempts. Try again in 15 minutes."}
@@ -428,7 +466,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy") or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades") or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -460,6 +498,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._json(200, {"platforms": platforms.status(), "live_trading": "locked"})
             elif path == "/api/state":
                 self._send(200, json.dumps(hub.state()).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/api/trades":
+                self._send(200, json.dumps(hub.trades()).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/api/org":
                 self._send(200, json.dumps(hub.org()).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/api/prices":
@@ -469,6 +509,12 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/galaxy":
                 self._send(200, galaxy_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/duel":
+                self._send(200, duel_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/news":
+                self._send(200, news_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/trades":
+                self._send(200, trades_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/markets":
                 self._send(200, markets_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif MARKET_PAGE.fullmatch(path):
@@ -533,7 +579,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             form = urllib.parse.parse_qs(raw.decode("utf-8", "replace"))
             if auth.check(form.get("password", [""])[0], form.get("code", [""])[0]):
                 auth.record_success(client)
-                return self._redirect("/", {"Set-Cookie": self._cookie(auth.issue(), auth.max_age)})
+                return self._redirect("/news", {"Set-Cookie": self._cookie(auth.issue(), auth.max_age)})
             auth.record_failure(client)
             self._redirect("/login?error=1")
 

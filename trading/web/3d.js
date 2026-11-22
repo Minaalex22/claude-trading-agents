@@ -47,12 +47,12 @@ function init3d(){scene=new THREE.Scene();camera=new THREE.PerspectiveCamera(50,
  renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});renderer.setPixelRatio(Math.min(2,devicePixelRatio));
  scene_el.prepend(renderer.domElement);
  for(const [k,d] of Object.entries(DEPTS)){buildCluster(k,350);clusters[k].label=addLabel(`<b>${d.label}</b><br><span class="mut">–</span>`,[d.pos[0],d.pos[1]-16,d.pos[2]])}
- for(const [k,label,pos] of STAGES){stageNodes[k]={mesh:node(pos,0x4ff3ff,3),pos};addLabel(`<b>${label}</b>`,[pos[0],pos[1]-7,pos[2]])}
- for(const d of Object.values(DEPTS)){line(STAGES[0][2],d.pos,0x4ff3ff);line(d.pos,STAGES[1][2],0x4ff3ff)}
- for(let i=1;i<STAGES.length-1;i++)line(STAGES[i][2],STAGES[i+1][2],0x4ff3ff);
- for(const [name,m] of Object.entries(MANAGERS)){m.mesh=node(m.pos,0xc69bff,3.4);
+ for(const [k,label,pos] of STAGES){stageNodes[k]={mesh:node(pos,0xff5c00,3),pos};addLabel(`<b>${label}</b>`,[pos[0],pos[1]-7,pos[2]])}
+ for(const d of Object.values(DEPTS)){line(STAGES[0][2],d.pos,0xff5c00);line(d.pos,STAGES[1][2],0xff5c00)}
+ for(let i=1;i<STAGES.length-1;i++)line(STAGES[i][2],STAGES[i+1][2],0xff5c00);
+ for(const [name,m] of Object.entries(MANAGERS)){m.mesh=node(m.pos,0xffa040,3.4);
   m.label=addLabel(`<b>${name}</b><br><span class="mut">–</span>`,[m.pos[0],m.pos[1]+8,m.pos[2]]);
-  for(const k of m.depts)line(m.pos,DEPTS[k].pos,0xc69bff)}
+  for(const k of m.depts)line(m.pos,DEPTS[k].pos,0xffa040)}
  resize();addEventListener('resize',resize);controls();requestAnimationFrame(frame)}
 
 function resize(){const w=scene_el.clientWidth,h=scene_el.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix()}
@@ -131,10 +131,10 @@ function renderOrg(org){let agents=0,active=0;renderSchool(org);renderProgram(or
 
 let priceChart,priceSeries,pnlSeries,history=[],sym=null;
 function initCharts(){if(!window.LightweightCharts)return;
- const opts={layout:{background:{color:'transparent'},textColor:'#6fa9b6'},grid:{vertLines:{color:'rgba(79,243,255,.06)'},horzLines:{color:'rgba(79,243,255,.06)'}},
-  rightPriceScale:{borderColor:'rgba(79,243,255,.18)'},timeScale:{borderColor:'rgba(79,243,255,.18)',timeVisible:true,secondsVisible:true},autoSize:true};
+ const opts={layout:{background:{color:'transparent'},textColor:'#8a8a8a'},grid:{vertLines:{color:'rgba(255,92,0,.06)'},horzLines:{color:'rgba(255,92,0,.06)'}},
+  rightPriceScale:{borderColor:'rgba(255,92,0,.18)'},timeScale:{borderColor:'rgba(255,92,0,.18)',timeVisible:true,secondsVisible:true},autoSize:true};
  priceChart=LightweightCharts.createChart(document.getElementById('price'),opts);
- priceSeries=priceChart.addAreaSeries({lineColor:'#4ff3ff',topColor:'rgba(79,243,255,.32)',bottomColor:'rgba(79,243,255,0)',lineWidth:2});
+ priceSeries=priceChart.addAreaSeries({lineColor:'#ff5c00',topColor:'rgba(255,92,0,.32)',bottomColor:'rgba(255,92,0,0)',lineWidth:2});
  const pc=LightweightCharts.createChart(document.getElementById('pnl'),opts);
  pnlSeries=pc.addBaselineSeries({baseValue:{type:'price',price:0},topLineColor:'#3fb950',bottomLineColor:'#f85149',
   topFillColor1:'rgba(63,185,80,.3)',topFillColor2:'rgba(63,185,80,0)',bottomFillColor1:'rgba(248,81,73,0)',bottomFillColor2:'rgba(248,81,73,.3)'})}
@@ -158,8 +158,8 @@ if(window.THREE)init3d();initCharts();loadOrg();loadPrices();
 setInterval(loadOrg,2000);setInterval(loadPrices,3000);
 const es=new EventSource('/events');
 es.onmessage=m=>{if(!scene)return;const e=JSON.parse(m.data);const P=k=>stageNodes[k].pos;
- if(e.type==='tick'&&e.shard===0){const d=Object.values(DEPTS)[e.tick%4];pulse([P('feed'),d.pos,P('desk')],0x4ff3ff)}
+ if(e.type==='tick'&&e.shard===0){const d=Object.values(DEPTS)[e.tick%4];pulse([P('feed'),d.pos,P('desk')],0xff5c00)}
  if(e.type==='order')pulse([P('desk'),P('riskgate'),P('jev'),P('broker')],0xffc65c);
- if(e.type==='risk')pulse([P('desk'),P('riskgate')],0xff5c8a);
- if(e.type==='jev'&&e.decision==='rejected')pulse([P('riskgate'),P('jev')],0xff5c8a)};
+ if(e.type==='risk')pulse([P('desk'),P('riskgate')],0xff4d4d);
+ if(e.type==='jev'&&e.decision==='rejected')pulse([P('riskgate'),P('jev')],0xff4d4d)};
 })();

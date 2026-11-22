@@ -1,7 +1,7 @@
 /* Loaded last on the 3D lab, JARVIS and event log pages: brings them onto the command center's hologram look
    (command.css) after each page's own layout sheet. */
-body{background:radial-gradient(ellipse 80% 60% at 50% 115%,rgba(20,140,170,.35),transparent 60%),
-  radial-gradient(ellipse 60% 40% at 50% -10%,rgba(30,90,140,.35),transparent 65%),var(--void);color:var(--fg);font:14px/1.45 var(--sans)}
+body{background:radial-gradient(ellipse 80% 60% at 50% 115%,rgba(255,92,0,.35),transparent 60%),
+  radial-gradient(ellipse 60% 40% at 50% -10%,rgba(255,92,0,.35),transparent 65%),var(--void);color:var(--fg);font:14px/1.45 var(--sans)}
 header.bar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:calc(10px + env(safe-area-inset-top)) 20px 10px;
  border-bottom:1px solid var(--faint);background:linear-gradient(180deg,rgba(1,4,9,.92),rgba(1,4,9,.6))}
 header.bar b{letter-spacing:inherit;color:var(--holo)}
@@ -9,18 +9,18 @@ header.bar form{margin-left:auto}
 header.bar button{color:var(--holo);background:var(--ghost);border:1px solid var(--faint);border-radius:0;padding:6px 12px;font:600 12px var(--mono)}
 .hud-stats{font:12px var(--mono);letter-spacing:.04em;color:var(--mut)}
 .hud-stats span{color:inherit}
-.card{border-radius:0;border:1px solid rgba(79,243,255,.08);background-color:transparent;box-shadow:none}
-.card h3,.card>b:first-child{color:var(--holo);font:600 11px var(--mono);letter-spacing:.24em;text-transform:uppercase;text-shadow:0 0 8px rgba(79,243,255,.55)}
-#scene,#stage{border:1px solid var(--faint);border-radius:0;background:radial-gradient(ellipse at 50% 90%,rgba(20,140,170,.35),#010409 70%)}
+.card{border-radius:0;border:1px solid rgba(255,92,0,.08);background-color:transparent;box-shadow:none}
+.card h3,.card>b:first-child{color:var(--holo);font:600 11px var(--mono);letter-spacing:.24em;text-transform:uppercase;text-shadow:0 0 8px rgba(255,92,0,.55)}
+#scene,#stage{border:1px solid var(--faint);border-radius:0;background:radial-gradient(ellipse at 50% 90%,rgba(255,92,0,.35),#000000 70%)}
 main{gap:14px;padding:14px 20px 28px}
 #shards,#hud{gap:12px;padding-left:20px;padding-right:20px}
 #log{padding:0 20px 20px;font:12px var(--mono);color:var(--holo2)}
-#log div{border-bottom:1px dashed rgba(79,243,255,.07)}
-.label{color:var(--holo2);font-family:var(--mono);text-shadow:0 0 6px rgba(79,243,255,.9),0 0 2px #000}
+#log div{border-bottom:1px dashed rgba(255,92,0,.07)}
+.label{color:var(--holo2);font-family:var(--mono);text-shadow:0 0 6px rgba(255,92,0,.9),0 0 2px #000}
 input,select{background:rgba(0,0,0,.5);color:var(--holo2);border:1px solid var(--faint);border-radius:0}
 .row{border-bottom:1px dashed var(--faint)}
 .msg{border-radius:0;border-color:var(--faint)}
-.her{background:linear-gradient(90deg,rgba(79,243,255,.1),transparent)}
+.her{background:linear-gradient(90deg,rgba(255,92,0,.1),transparent)}
 @media (max-width:720px){header.bar{padding-left:16px;padding-right:16px}main,#shards,#hud{padding-left:16px;padding-right:16px}}
 /* these pages rebuild their cards every tick: no boot animation, or it would restart forever */
 .card{animation:none}

@@ -11,7 +11,7 @@ function spark(v, w = 90, h = 24) {
   if (!v || v.length < 2) return "";
   const mn = Math.min(...v), mx = Math.max(...v), r = mx - mn || 1;
   const pts = v.map((x, i) => `${(i / (v.length - 1) * w).toFixed(1)},${(h - (x - mn) / r * h).toFixed(1)}`).join(" ");
-  return `<svg width="${w}" height="${h}" aria-hidden="true"><polyline fill="none" stroke="${v[v.length - 1] >= v[0] ? "#5dffc4" : "#ff5c8a"}" stroke-width="1.5" points="${pts}"/></svg>`;
+  return `<svg width="${w}" height="${h}" aria-hidden="true"><polyline fill="none" stroke="${v[v.length - 1] >= v[0] ? "#2fd37a" : "#ff4d4d"}" stroke-width="1.5" points="${pts}"/></svg>`;
 }
 const mini = rows => rows.map(r => `<tr><td><a href="/markets/${esc(r.symbol)}">${esc(r.name)}</a></td><td>${fmt(r.price)}</td><td>${pct(r.change_1d)}</td></tr>`).join("") || '<tr><td class="mut">No data yet</td></tr>';
 

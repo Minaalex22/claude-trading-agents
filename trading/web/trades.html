@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · Trades</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/pages.css">
+</head><body>
+<header class="ats-bar"><a class="ats-brand" href="/"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav"><a href="/news">News</a><a class="on" href="/trades">Trades</a><a href="/">Desk</a><a href="/markets">Markets</a><a href="/orderflow">Order flow</a><details class="ats-more"><summary>More</summary><div><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/jarvis">JARVIS</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<main class="pg">
+ <div class="pg-head">
+  <div><small>Every practice trade</small><h1>Trades: <b>won</b> and lost</h1>
+   <p>Each row is one finished trade by the desk: what it bought or sold, where it got in and out, and whether it made or lost money.</p></div>
+  <span class="pg-badge">PRACTICE MONEY · SIMULATED FILLS</span>
+ </div>
+ <section class="pg-grid">
+  <div class="pg-card c3 pg-kpi"><small>Finished trades</small><b id="k-n">–</b><em>since the app last started</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Win rate</small><b id="k-win">–</b><em id="k-wl">– won · – lost</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Money made or lost</small><b id="k-pnl">–</b><em>on closed trades</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Agents' own trades</small><b id="k-agents">–</b><em id="k-agents-sub">each agent's practice account</em></div>
+
+  <div class="pg-card c8"><h3>Profit over time <span>every closed trade added up</span></h3><canvas id="cum" class="pg-canvas"></canvas></div>
+  <div class="pg-card c4"><h3>Won vs lost</h3><canvas id="donut" class="pg-canvas"></canvas></div>
+
+  <div class="pg-card c12"><h3>By market <span>which markets make money and which don't</span></h3><canvas id="bysym" class="pg-canvas short"></canvas></div>
+
+  <div class="pg-card c12"><h3>All trades <span id="t-sub">newest first</span>
+    <span class="pg-tabs" id="filter"><button class="on" data-f="all">All</button><button data-f="win">Won</button><button data-f="loss">Lost</button></span></h3>
+   <div class="pg-scroll"><table class="pg-tbl"><thead><tr><th>Time</th><th>Market</th><th>Side</th><th class="r hide-s">Size</th><th class="r hide-s">In</th><th class="r hide-s">Out</th><th class="r">Move</th><th class="r">Profit</th><th>Result</th></tr></thead><tbody id="rows"></tbody></table></div>
+   <p class="pg-note" id="t-note"></p></div>
+ </section>
+</main>
+<script src="/trades.js"></script>
+</body></html>

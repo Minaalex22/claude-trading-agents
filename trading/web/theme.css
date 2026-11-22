@@ -1,0 +1,94 @@
+/* One look for every page: black, orange #FF5C00 and greys, like Galaxy.
+   Loaded last on every page so it wins over each page's older styles. */
+:root {
+  --ats-bg: #000; --ats-panel: #0a0a0a; --ats-line: #1f1f1f; --ats-o: #ff5c00; --ats-amber: #ffa040;
+  --ats-w: #f4f4f4; --ats-g: #8a8a8a; --ats-g2: #555; --ats-up: #2fd37a; --ats-dn: #ff4d4d;
+  --ats-sans: "Space Grotesk", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ats-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* repoint the older pages' own variables */
+  --void: #000; --holo: #ff5c00; --holo2: #ffa040; --dim: rgba(255, 92, 0, .55); --faint: rgba(255, 255, 255, .08); --ghost: rgba(255, 92, 0, .06);
+  --fg: #f4f4f4; --mut: #8a8a8a; --up: #2fd37a; --dn: #ff4d4d; --warn: #ffa040; --violet: #ffa040; --sans: var(--ats-sans);
+  --bg: #000; --panel: #0a0a0a; --ink: #f4f4f4; --mute: #8a8a8a; --buy: #2fd37a; --sell: #ff4d4d; --poc: #ff5c00; --line: #1f1f1f;
+  color-scheme: dark;
+}
+html, body { background: #000 !important; }
+body { color: var(--ats-w); font-family: var(--ats-sans); background-image: radial-gradient(ellipse 70% 45% at 50% -8%, rgba(255, 92, 0, .10), transparent 70%) !important; background-attachment: fixed !important; }
+body::after { display: none !important; } /* no scanlines */
+* { text-shadow: none !important; }
+a { color: var(--ats-o); }
+.mut, .mute { color: var(--ats-g) !important; }
+
+/* ---- the shared top bar ---- */
+.ats-bar { position: sticky; top: 0; z-index: 60; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; overflow: visible !important;
+  padding: calc(10px + env(safe-area-inset-top)) 20px 10px; background: rgba(0, 0, 0, .88) !important; backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--ats-line) !important; font-family: var(--ats-sans); }
+.ats-bar::after { display: none !important; }
+.ats-brand, .ats-bar .brand { display: flex; align-items: center; gap: 10px; color: var(--ats-w) !important; text-decoration: none; font: 700 15px var(--ats-sans) !important; letter-spacing: .14em !important; }
+.ats-brand b, .ats-bar .brand b { color: var(--ats-o); }
+.ats-brand em { font: 600 9px var(--ats-mono); font-style: normal; letter-spacing: .16em; color: var(--ats-o); border: 1px solid rgba(255, 92, 0, .5); padding: 3px 6px; }
+.ats-mark, .ats-bar .pulse-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ats-o) !important; box-shadow: 0 0 10px var(--ats-o), 0 0 22px rgba(255, 92, 0, .45) !important; animation: ats-pulse 1.8s ease-in-out infinite !important; }
+@keyframes ats-pulse { 50% { transform: scale(1.25); opacity: .75; } }
+.ats-bar .tag { color: var(--ats-g); border-color: var(--ats-line); }
+.ats-bar .tag.live { color: var(--ats-o); border-color: rgba(255, 92, 0, .5); }
+
+.ats-nav { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; }
+.ats-nav a, .ats-more summary { color: var(--ats-g) !important; padding: 6px 12px !important; font: 600 12px var(--ats-sans) !important; letter-spacing: .06em !important; text-transform: none !important;
+  border: 0 !important; border-radius: 8px; background: none !important; text-decoration: none; cursor: pointer; white-space: nowrap; transition: color .2s, background .2s; }
+.ats-nav a:hover, .ats-more summary:hover { color: var(--ats-w) !important; background: rgba(255, 255, 255, .05) !important; }
+.ats-nav a.on { color: #000 !important; background: var(--ats-o) !important; }
+.ats-more { position: relative; }
+.ats-more summary { list-style: none; }
+.ats-more summary::-webkit-details-marker { display: none; }
+.ats-more summary::after { content: " ▾"; font-size: 10px; }
+.ats-more.open-on summary { color: var(--ats-o) !important; }
+.ats-more > div { position: absolute; right: 0; top: calc(100% + 8px); min-width: 170px; display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  background: #0b0b0b; border: 1px solid #262626; border-radius: 10px; box-shadow: 0 16px 40px rgba(0, 0, 0, .7); z-index: 70; }
+.ats-more > div a { display: block; }
+.ats-bar form { margin-left: auto; }
+.ats-bar button { font: 600 12px var(--ats-sans) !important; letter-spacing: .04em !important; text-transform: none !important; color: var(--ats-g) !important; background: none !important;
+  border: 1px solid #2a2a2a !important; border-radius: 8px; padding: 6px 12px; clip-path: none !important; box-shadow: none !important; cursor: pointer; }
+.ats-bar button:hover { color: var(--ats-o) !important; border-color: var(--ats-o) !important; }
+.ats-bar .hud-stats { font: 12px var(--ats-mono); color: var(--ats-g); }
+
+/* ---- cards: flat black panels, thin border, orange heading mark ---- */
+.card, .kpi { background: var(--ats-panel) !important; background-image: none !important; border: 1px solid var(--ats-line) !important; border-radius: 12px !important; clip-path: none !important; box-shadow: 0 10px 30px rgba(0, 0, 0, .45); }
+.card h3 { color: var(--ats-w) !important; font-family: var(--ats-mono); letter-spacing: .16em !important; }
+.card h3::before { background: var(--ats-o) !important; box-shadow: 0 0 8px var(--ats-o) !important; border-radius: 50%; transform: none !important; }
+.kpi span { color: var(--ats-g) !important; }
+.kpi b { color: var(--ats-w) !important; font-family: var(--ats-mono); font-variant-numeric: tabular-nums; }
+.kpi.state b { color: var(--ats-o) !important; }
+button { clip-path: none !important; border-radius: 8px; }
+table { font-variant-numeric: tabular-nums; }
+th { color: var(--ats-g); }
+input, select { background: #0b0b0b !important; color: var(--ats-w) !important; border: 1px solid #2a2a2a !important; border-radius: 8px !important; }
+input:focus, select:focus { border-color: var(--ats-o) !important; outline: none; }
+
+/* ---- sign-in ---- */
+.login { border-top: 3px solid var(--ats-o) !important; }
+.login h1 { color: var(--ats-w); letter-spacing: .12em; }
+.login button { background: var(--ats-o) !important; color: #000 !important; border: 0 !important; font-weight: 700; }
+
+/* ---- order flow page ---- */
+body > main h1 { font-family: var(--ats-sans); letter-spacing: .04em; }
+body > main h2 { font: 600 11px var(--ats-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--ats-w); }
+
+/* ---- Galaxy and Night desk sit under the shared bar ---- */
+.gx-top { border-top: 0; }
+.dd-sim { top: 0; position: relative; }
+
+@media (max-width: 860px) {
+  .ats-bar { gap: 10px; padding: calc(8px + env(safe-area-inset-top)) 16px 8px; }
+  .ats-nav { order: 3; width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .ats-nav::-webkit-scrollbar { display: none; }
+  .ats-more > div { position: fixed; right: 16px; top: auto; }
+  .ats-bar .hud-stats { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .ats-mark, .ats-bar .pulse-dot { animation: none !important; } }
+
+/* Order flow: always dark (beats its old light-mode rule), volume bars in orange */
+html:root:not(#ats) { --bg: #000; --panel: #0a0a0a; --ink: #f4f4f4; --mute: #8a8a8a; --line: #1f1f1f; }
+svg .f-va { fill: #ff5c00 !important; }
+svg .f-out { fill: #3a3a3a !important; }
+
+/* Phone: the 3D brain's small captions pile up, keep only the names */
+@media (max-width: 560px) { .label3d .mut { display: none; } }

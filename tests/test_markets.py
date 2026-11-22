@@ -276,3 +276,83 @@ class GalaxyPage(Routes):
         for path in ("/", "/3d", "/jarvis", "/log", "/markets", "/markets/BTC", "/orderflow"):
             html = self.request("GET", path, cookie=self.cookie)[1].decode()
             self.assertIn('href="/galaxy"', html, path)
+
+
+class NightDeskPage(Routes):
+    """The Hunter vs Judge night desk (/duel): live paper data, clearly labelled as simulated."""
+
+    def test_duel_needs_sign_in(self):
+        resp, _ = self.request("GET", "/duel")
+        self.assertEqual((resp.status, resp.getheader("Location")), (303, "/login"))
+
+    def test_duel_page_and_assets(self):
+        for path in ("/duel", "/duel.js", "/duel.css"):
+            self.assertEqual(self.request("GET", path, cookie=self.cookie)[0].status, 200, path)
+        html = self.request("GET", "/duel", cookie=self.cookie)[1].decode()
+        self.assertIn('<script src="/duel.js">', html)
+        self.assertNotIn("<script>", html)
+        self.assertNotIn("style=", html)
+        self.assertIn("NOT LIVE TRADING", html)
+        self.assertIn("Real money stays locked", html)
+
+    def test_duel_uses_only_desk_data(self):
+        js = self.request("GET", "/duel.js", cookie=self.cookie)[1].decode()
+        for source in ("/api/report", "/api/org", "/events"):
+            self.assertIn(source, js)
+        self.assertNotIn("Math.random", js)
+
+    def test_every_page_links_to_duel(self):
+        for path in ("/", "/3d", "/jarvis", "/log", "/markets", "/markets/BTC", "/orderflow", "/galaxy"):
+            html = self.request("GET", path, cookie=self.cookie)[1].decode()
+            self.assertIn('href="/duel"', html, path)
+
+
+class NewsAndTradesPages(Routes):
+    """News is the first page after sign in; Trades lists every closed practice trade, won or lost."""
+
+    def test_pages_need_sign_in(self):
+        for path in ("/news", "/trades"):
+            resp, _ = self.request("GET", path)
+            self.assertEqual((resp.status, resp.getheader("Location")), (303, "/login"), path)
+
+    def test_pages_and_assets(self):
+        for path in ("/news", "/trades", "/news.js", "/trades.js", "/pages.css", "/theme.css", "/api/trades"):
+            self.assertEqual(self.request("GET", path, cookie=self.cookie)[0].status, 200, path)
+        for path in ("/news", "/trades"):
+            html = self.request("GET", path, cookie=self.cookie)[1].decode()
+            self.assertNotIn("<script>", html)
+            self.assertNotIn("style=", html)
+            self.assertIn("PRACTICE MONEY", html)
+
+    def test_every_page_has_the_same_menu(self):
+        for path in ("/", "/news", "/trades", "/3d", "/jarvis", "/log", "/markets", "/markets/BTC", "/orderflow", "/galaxy", "/duel"):
+            html = self.request("GET", path, cookie=self.cookie)[1].decode()
+            self.assertIn('class="ats-nav"', html, path)
+            for link in ("/news", "/trades", "/galaxy", "/duel", "/markets", "/orderflow"):
+                self.assertIn(f'href="{link}"', html, (path, link))
+            self.assertIn('href="/theme.css"', html, path)
+
+
+class ClosedTrades(unittest.TestCase):
+    """Closed round trips from the desk feed the Trades page totals."""
+
+    def test_hub_counts_wins_losses_and_money(self):
+        import tempfile
+        from pathlib import Path
+        from trading.dashboard import EventHub
+        hub = EventHub(Path(tempfile.mkdtemp()))
+        hub.add({"type": "closed", "shard": 0, "ts": 1.0, "symbol": "BTC", "side": "long", "qty": 1, "entry": 100, "exit": 110, "move": 0.1, "won": True, "pnl": 10.0})
+        hub.add({"type": "closed", "shard": 0, "ts": 2.0, "symbol": "ETH", "side": "short", "qty": 2, "entry": 50, "exit": 55, "move": -0.1, "won": False, "pnl": -10.0})
+        hub.add({"type": "closed", "shard": 1, "ts": 3.0, "symbol": "BTC", "side": "long", "qty": 1, "entry": 100, "exit": 105, "move": 0.05, "won": True, "pnl": 5.0})
+        t = hub.trades()
+        self.assertEqual(t["totals"], {"trades": 3, "won": 2, "lost": 1, "win_rate": 0.6667, "pnl": 5.0})
+        self.assertEqual([x["ts"] for x in t["trades"]], [3.0, 2.0, 1.0])  # newest first
+        self.assertEqual(t["by_symbol"]["BTC"], {"trades": 2, "won": 2, "pnl": 15.0, "win_rate": 1.0})
+        self.assertEqual(list(t["by_symbol"]), ["BTC", "ETH"])  # best market first
+
+    def test_desk_journal_reports_entry_exit_and_side(self):
+        from trading.hooks import DeskJournal
+        j = DeskJournal()
+        self.assertIsNone(j.fill("BTC", 0, 2, 100.0, 1))
+        closed = j.fill("BTC", 2, -2, 90.0, 2)
+        self.assertEqual((closed["side"], closed["qty"], closed["entry"], closed["exit"], closed["won"]), ("long", 2, 100.0, 90.0, False))

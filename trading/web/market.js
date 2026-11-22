@@ -7,23 +7,23 @@ const pct = x => x == null ? '<span class="mut">–</span>' : `<span class="${x 
 const SYM = location.pathname.split("/").pop().toUpperCase();
 let tf = new URLSearchParams(location.search).get("tf") || "1h";
 const LC = window.LightweightCharts;
-const opts = h => ({height: h, layout: {background: {color: "transparent"}, textColor: "#6fa9b6"},
-  grid: {vertLines: {color: "rgba(79,243,255,.06)"}, horzLines: {color: "rgba(79,243,255,.06)"}},
-  timeScale: {timeVisible: true, borderColor: "rgba(79,243,255,.14)"}, rightPriceScale: {borderColor: "rgba(79,243,255,.14)"}});
+const opts = h => ({height: h, layout: {background: {color: "transparent"}, textColor: "#8a8a8a"},
+  grid: {vertLines: {color: "rgba(255,92,0,.06)"}, horzLines: {color: "rgba(255,92,0,.06)"}},
+  timeScale: {timeVisible: true, borderColor: "rgba(255,92,0,.14)"}, rightPriceScale: {borderColor: "rgba(255,92,0,.14)"}});
 let ch = null, cdChart = null, cdSeries = null;
 
 function charts() {
   if (!LC || ch) return;
   const main = LC.createChart($("#chart"), opts($("#chart").clientHeight));
   ch = {main,
-    candles: main.addCandlestickSeries({upColor: "#5dffc4", downColor: "#ff5c8a", wickUpColor: "#5dffc4", wickDownColor: "#ff5c8a", borderVisible: false}),
+    candles: main.addCandlestickSeries({upColor: "#2fd37a", downColor: "#ff4d4d", wickUpColor: "#2fd37a", wickDownColor: "#ff4d4d", borderVisible: false}),
     vol: main.addHistogramSeries({priceScaleId: "v", priceFormat: {type: "volume"}}),
-    ma20: main.addLineSeries({color: "#4ff3ff", lineWidth: 1}), ma50: main.addLineSeries({color: "#ffc65c", lineWidth: 1}),
-    bu: main.addLineSeries({color: "#55707a", lineWidth: 1}), bl: main.addLineSeries({color: "#55707a", lineWidth: 1})};
+    ma20: main.addLineSeries({color: "#ff5c00", lineWidth: 1}), ma50: main.addLineSeries({color: "#ffc65c", lineWidth: 1}),
+    bu: main.addLineSeries({color: "#666666", lineWidth: 1}), bl: main.addLineSeries({color: "#666666", lineWidth: 1})};
   main.priceScale("v").applyOptions({scaleMargins: {top: .8, bottom: 0}});
-  ch.rsiChart = LC.createChart($("#rsi"), opts(120)); ch.rsi = ch.rsiChart.addLineSeries({color: "#c69bff", lineWidth: 1});
+  ch.rsiChart = LC.createChart($("#rsi"), opts(120)); ch.rsi = ch.rsiChart.addLineSeries({color: "#ffa040", lineWidth: 1});
   ch.macdChart = LC.createChart($("#macd"), opts(120));
-  ch.hist = ch.macdChart.addHistogramSeries({}); ch.macd = ch.macdChart.addLineSeries({color: "#4ff3ff", lineWidth: 1});
+  ch.hist = ch.macdChart.addHistogramSeries({}); ch.macd = ch.macdChart.addLineSeries({color: "#ff5c00", lineWidth: 1});
   ch.signal = ch.macdChart.addLineSeries({color: "#ffc65c", lineWidth: 1});
   new ResizeObserver(() => { const w = $("#chart").clientWidth; [main, ch.rsiChart, ch.macdChart].forEach(c => c.applyOptions({width: w})); }).observe($("#chart"));
 }
@@ -93,7 +93,7 @@ async function load() {
     ch.ma20.setData(line(c, I.ma20)); ch.ma50.setData(line(c, I.ma50));
     ch.bu.setData(line(c, I.bollinger.upper)); ch.bl.setData(line(c, I.bollinger.lower));
     ch.rsi.setData(line(c, I.rsi)); ch.macd.setData(line(c, I.macd.macd)); ch.signal.setData(line(c, I.macd.signal));
-    ch.hist.setData(line(c, I.macd.hist).map(p => ({...p, color: p.value >= 0 ? "#5dffc4" : "#ff5c8a"})));
+    ch.hist.setData(line(c, I.macd.hist).map(p => ({...p, color: p.value >= 0 ? "#2fd37a" : "#ff4d4d"})));
   }
   $("#outlooks").innerHTML = Object.entries(d.outlook).map(([h, o]) => outlookCard(h, o)).join("");
   $("#why").innerHTML = d.why.map(w => `<li>${esc(w)}</li>`).join("");

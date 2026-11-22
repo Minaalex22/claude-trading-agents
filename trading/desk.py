@@ -165,7 +165,13 @@ class Desk:
             if qty:
                 before = self.broker.position(symbol)
                 self.broker.fill(symbol, qty, prices[symbol])
-                self.journal.fill(symbol, before, qty, prices[symbol], self.ticks, self.now)
+                closed = self.journal.fill(symbol, before, qty, prices[symbol], self.ticks, self.now)
+                if closed:
+                    # One closed round trip, for the Trades page: what it was, and did it make or lose money.
+                    self.log.emit("closed", symbol=symbol, side=closed["side"], qty=round(closed["qty"], 4),
+                                  entry=round(closed["entry"], 4), exit=round(closed["exit"], 4),
+                                  move=round(closed["move"], 5), won=closed["won"],
+                                  pnl=round(closed["qty"] * closed["entry"] * closed["move"], 2))
                 orders += 1
                 why = hooks.why(votes[symbol], views.get(symbol), exposure)
                 self.log.emit("order", symbol=symbol, qty=round(qty, 4), price=round(prices[symbol], 4),

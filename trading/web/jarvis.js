@@ -100,7 +100,7 @@
     camera.lookAt(0, 0.85, 0);
 
     const uniforms = { uTime: { value: 0 }, uTalk: { value: 0 }, uListen: { value: 0 },
-                       uColor: { value: new THREE.Color(0x4ff3ff) } };
+                       uColor: { value: new THREE.Color(0xff5c00) } };
     const mat = new THREE.ShaderMaterial({ uniforms, vertexShader: vertex, fragmentShader: fragment,
                                            transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
     const figure = new THREE.Points(buildFigure(), mat);
@@ -108,7 +108,7 @@
     scene.add(figure);
 
     // Projector base: glowing rings and a faint light cone.
-    const ringMat = new THREE.LineBasicMaterial({ color: 0x4ff3ff, transparent: true, opacity: 0.6,
+    const ringMat = new THREE.LineBasicMaterial({ color: 0xff5c00, transparent: true, opacity: 0.6,
                                                   blending: THREE.AdditiveBlending });
     const rings = [];
     [0.9, 1.25, 1.6].forEach((r, i) => {
@@ -118,13 +118,13 @@
       ring.position.y = -1.05 - i * 0.02; scene.add(ring); rings.push(ring);
     });
     const cone = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.6, 3.4, 48, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0x4ff3ff, transparent: true, opacity: 0.05, side: THREE.DoubleSide,
+      new THREE.MeshBasicMaterial({ color: 0xff5c00, transparent: true, opacity: 0.05, side: THREE.DoubleSide,
                                     blending: THREE.AdditiveBlending, depthWrite: false }));
     cone.position.y = 0.65; scene.add(cone);
     const dust = new THREE.BufferGeometry(), dp = [];
     for (let i = 0; i < 600; i++) dp.push(rand(-2.5, 2.5), rand(-1, 3), rand(-2, 2));
     dust.setAttribute("position", new THREE.Float32BufferAttribute(dp, 3));
-    const dustPts = new THREE.Points(dust, new THREE.PointsMaterial({ color: 0x4ff3ff, size: 0.015, transparent: true, opacity: 0.5 }));
+    const dustPts = new THREE.Points(dust, new THREE.PointsMaterial({ color: 0xff5c00, size: 0.015, transparent: true, opacity: 0.5 }));
     scene.add(dustPts);
 
     let mx = 0, my = 0;

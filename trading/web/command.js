@@ -120,11 +120,11 @@ function holoScreen(symbol, i, n) {
 }
 function drawScreen(sc, symbol, pts) {
   const g = sc.c.getContext('2d'), w = sc.c.width, h = sc.c.height; g.clearRect(0, 0, w, h);
-  const up = pts.length > 1 && pts[pts.length - 1] >= pts[0], col = up ? '#5dffc4' : '#ff5c8a';
-  g.strokeStyle = 'rgba(79,243,255,.55)'; g.lineWidth = 2; g.strokeRect(3, 3, w - 6, h - 6);
-  g.fillStyle = 'rgba(79,243,255,.07)'; g.fillRect(3, 3, w - 6, h - 6);
-  for (let y = 8; y < h; y += 4) { g.fillStyle = 'rgba(79,243,255,.04)'; g.fillRect(4, y, w - 8, 1); }
-  g.font = '600 22px ui-monospace, Menlo, monospace'; g.fillStyle = '#9ffbff'; g.shadowColor = '#4ff3ff'; g.shadowBlur = 12; g.fillText(symbol, 14, 34);
+  const up = pts.length > 1 && pts[pts.length - 1] >= pts[0], col = up ? '#2fd37a' : '#ff4d4d';
+  g.strokeStyle = 'rgba(255,92,0,.55)'; g.lineWidth = 2; g.strokeRect(3, 3, w - 6, h - 6);
+  g.fillStyle = 'rgba(255,92,0,.07)'; g.fillRect(3, 3, w - 6, h - 6);
+  for (let y = 8; y < h; y += 4) { g.fillStyle = 'rgba(255,92,0,.04)'; g.fillRect(4, y, w - 8, 1); }
+  g.font = '600 22px ui-monospace, Menlo, monospace'; g.fillStyle = '#ffa040'; g.shadowColor = '#ff5c00'; g.shadowBlur = 12; g.fillText(symbol, 14, 34);
   if (pts.length) {
     const last = pts[pts.length - 1], chg = pts.length > 1 ? last / pts[0] - 1 : 0;
     g.textAlign = 'right'; g.fillStyle = col; g.shadowColor = col; g.fillText(last.toFixed(2), w - 14, 34);
@@ -153,19 +153,19 @@ function floatScreens(t) {
 function holoProjector() {
   // A projector on the floor under the brain, a cone of light rising from it, and a scan plane sweeping the projection.
   const c = [36, -30, 0];
-  holo.emitter = new THREE.Mesh(new THREE.RingGeometry(18, 26, 64), new THREE.MeshBasicMaterial({ color: 0x4ff3ff, transparent: true, opacity: 0.35,
+  holo.emitter = new THREE.Mesh(new THREE.RingGeometry(18, 26, 64), new THREE.MeshBasicMaterial({ color: 0xff5c00, transparent: true, opacity: 0.35,
     side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
   holo.emitter.rotation.x = -Math.PI / 2; holo.emitter.position.set(...c); scene.add(holo.emitter);
-  for (const r of [34, 48]) holo.rings.push(ring(r, c, 0, 0x4ff3ff, 0.35, r === 48));
-  const beam = new THREE.Mesh(new THREE.CylinderGeometry(110, 24, 90, 64, 1, true), new THREE.MeshBasicMaterial({ color: 0x4ff3ff, transparent: true,
+  for (const r of [34, 48]) holo.rings.push(ring(r, c, 0, 0xff5c00, 0.35, r === 48));
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(110, 24, 90, 64, 1, true), new THREE.MeshBasicMaterial({ color: 0xff5c00, transparent: true,
     opacity: 0.045, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
   beam.position.set(c[0], c[1] + 45, c[2]); scene.add(beam); holo.beam = beam;
-  holo.scan = new THREE.Mesh(new THREE.PlaneGeometry(300, 160), new THREE.MeshBasicMaterial({ color: 0x4ff3ff, transparent: true, opacity: 0.05,
+  holo.scan = new THREE.Mesh(new THREE.PlaneGeometry(300, 160), new THREE.MeshBasicMaterial({ color: 0xff5c00, transparent: true, opacity: 0.05,
     side: THREE.DoubleSide, blending: THREE.AdditiveBlending, depthWrite: false }));
   holo.scan.rotation.x = -Math.PI / 2; holo.scan.position.set(36, 0, 0); scene.add(holo.scan);
   // orbit rings around every department and the managers' level
-  for (const d of Object.values(DEPTS)) { holo.rings.push(ring(22, d.pos, 0.35, 0x4ff3ff, 0.4, true)); holo.rings.push(ring(28, d.pos, -0.5, 0x4ff3ff, 0.18, false)); }
-  holo.rings.push(ring(60, [0, 34, 0], 0, 0xc69bff, 0.22, true));
+  for (const d of Object.values(DEPTS)) { holo.rings.push(ring(22, d.pos, 0.35, 0xff5c00, 0.4, true)); holo.rings.push(ring(28, d.pos, -0.5, 0xff5c00, 0.18, false)); }
+  holo.rings.push(ring(60, [0, 34, 0], 0, 0xffa040, 0.22, true));
 }
 // ---- electricity and heartbeat ---------------------------------------------------------------------------
 // Arcs: jagged bolts that jump between two points for a moment, re-jittered every frame like real sparks.
@@ -204,16 +204,16 @@ function shockwave(pos, color, size) {
 const V = (p) => new THREE.Vector3(...p);
 function heartbeat(strong) {
   if (!scene || reduced) return;
-  for (const d of Object.values(DEPTS)) shockwave(V(d.pos), strong ? 0xffc65c : 0x4ff3ff, strong ? 46 : 30);
-  if (holo.emitter) shockwave(holo.emitter.position.clone(), 0x4ff3ff, 70);
+  for (const d of Object.values(DEPTS)) shockwave(V(d.pos), strong ? 0xffc65c : 0xff5c00, strong ? 46 : 30);
+  if (holo.emitter) shockwave(holo.emitter.position.clone(), 0xff5c00, 70);
   queueBeat(strong);
 }
 function sparks(dt) {
   if (!scene || reduced) return;
   // ambient electricity: inside clusters (agents talking), feed to departments, managers to their teams
-  if (Math.random() < 0.35) { const keys = Object.keys(clusters), k = keys[Math.floor(Math.random() * keys.length)], a = worldPoint(k), b = worldPoint(k); if (a && b) zap(a, b, 0x9ffbff, 0.12, 5); }
-  if (Math.random() < 0.06) { const d = Object.values(DEPTS)[Math.floor(Math.random() * 4)]; zap(V(STAGES.feed.slice(0, 3)), V(d.pos), 0x4ff3ff, 0.2, 12); }
-  if (Math.random() < 0.04) { const [name, m] = Object.entries(MANAGERS)[Math.floor(Math.random() * 3)]; zap(V(m.pos), V(DEPTS[m.depts[0]].pos), 0xc69bff, 0.2, 10); }
+  if (Math.random() < 0.35) { const keys = Object.keys(clusters), k = keys[Math.floor(Math.random() * keys.length)], a = worldPoint(k), b = worldPoint(k); if (a && b) zap(a, b, 0xffa040, 0.12, 5); }
+  if (Math.random() < 0.06) { const d = Object.values(DEPTS)[Math.floor(Math.random() * 4)]; zap(V(STAGES.feed.slice(0, 3)), V(d.pos), 0xff5c00, 0.2, 12); }
+  if (Math.random() < 0.04) { const [name, m] = Object.entries(MANAGERS)[Math.floor(Math.random() * 3)]; zap(V(m.pos), V(DEPTS[m.depts[0]].pos), 0xffa040, 0.2, 10); }
   for (let i = arcs.length - 1; i >= 0; i--) {
     const r = arcs[i]; r.age += dt; const f = r.age / r.life;
     if (f >= 1) { scene.remove(r.core, r.glowLine, r.flash); r.g.dispose(); r.core.material.dispose(); r.glowLine.material.dispose(); r.flash.material.dispose(); arcs.splice(i, 1); continue; }
@@ -235,7 +235,7 @@ function drawBeat() {
   const c = beat.canvas; if (!c) return; const g = c.getContext('2d'), w = c.width, h = c.height;
   beat.pts.push(beat.queue.length ? beat.queue.shift() : (Math.random() - 0.5) * 0.015);
   if (beat.pts.length > w / 2) beat.pts.shift();
-  g.clearRect(0, 0, w, h); g.lineWidth = 1.6; g.strokeStyle = '#4ff3ff'; g.shadowColor = '#4ff3ff'; g.shadowBlur = 8; g.beginPath();
+  g.clearRect(0, 0, w, h); g.lineWidth = 1.6; g.strokeStyle = '#ff5c00'; g.shadowColor = '#ff5c00'; g.shadowBlur = 8; g.beginPath();
   beat.pts.forEach((p, i) => { const x = w - (beat.pts.length - i) * 2, y = h * 0.62 - p * h * 0.55; i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke();
   const last = beat.pts[beat.pts.length - 1] || 0; g.shadowBlur = 14; g.fillStyle = '#fff'; g.beginPath(); g.arc(w - 2, h * 0.62 - last * h * 0.55, 2.6, 0, Math.PI * 2); g.fill();
 }
@@ -246,7 +246,7 @@ function animateHolo(t) {
   if (holo.emitter) holo.emitter.material.opacity = 0.28 + 0.12 * Math.sin(t * 2.4);
 }
 function init3d() {
-  scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0x010409, 0.0019);
+  scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0x000000, 0.0019);
   camera = new THREE.PerspectiveCamera(48, 1, 0.1, 3000);
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); renderer.setPixelRatio(Math.min(2, devicePixelRatio));
   host.appendChild(renderer.domElement); glow = glowTexture();
@@ -254,20 +254,20 @@ function init3d() {
   const N = 1400, sp = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) { sp[i * 3] = (Math.random() - 0.5) * 900; sp[i * 3 + 1] = (Math.random() - 0.5) * 500; sp[i * 3 + 2] = (Math.random() - 0.5) * 900; }
   const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
-  scene.add(new THREE.Points(sg, new THREE.PointsMaterial({ size: 1.2, map: glow, color: 0x6070a0, transparent: true, opacity: 0.5, depthWrite: false })));
+  scene.add(new THREE.Points(sg, new THREE.PointsMaterial({ size: 1.2, map: glow, color: 0x555555, transparent: true, opacity: 0.5, depthWrite: false })));
   // floor grid
-  const grid = new THREE.GridHelper(560, 56, 0x4ff3ff, 0x0d3a48); grid.position.set(36, -30, 0); grid.material.transparent = true; grid.material.opacity = 0.28;
+  const grid = new THREE.GridHelper(560, 56, 0xff5c00, 0x2a1204); grid.position.set(36, -30, 0); grid.material.transparent = true; grid.material.opacity = 0.28;
   grid.material.blending = THREE.AdditiveBlending; scene.add(grid);
   holoProjector();
   for (const [k, d] of Object.entries(DEPTS)) { buildCluster(k, 350); clusters[k].label = label(d.name, '', [d.pos[0], d.pos[1] - 19, d.pos[2]]); }
-  for (const [k, [x, y, z, name]] of Object.entries(STAGES)) { stageMesh[k] = sphere([x, y, z], k === 'riskgate' ? 0xffc65c : 0x4ff3ff, 2.6); label(name, '', [x, y - 8, z]); }
-  for (const d of Object.values(DEPTS)) { addStream(STAGES.feed.slice(0, 3), d.pos, 0x4ff3ff, 18, 26); addStream(d.pos, STAGES.desk.slice(0, 3), 0x4ff3ff, 18, 26); }
-  addStream(STAGES.desk.slice(0, 3), STAGES.riskgate.slice(0, 3), 0x4ff3ff, 4, 10);
-  addStream(STAGES.riskgate.slice(0, 3), STAGES.jev.slice(0, 3), 0x4ff3ff, 4, 10);
-  addStream(STAGES.jev.slice(0, 3), STAGES.broker.slice(0, 3), 0x4ff3ff, 4, 10);
+  for (const [k, [x, y, z, name]] of Object.entries(STAGES)) { stageMesh[k] = sphere([x, y, z], k === 'riskgate' ? 0xffc65c : 0xff5c00, 2.6); label(name, '', [x, y - 8, z]); }
+  for (const d of Object.values(DEPTS)) { addStream(STAGES.feed.slice(0, 3), d.pos, 0xff5c00, 18, 26); addStream(d.pos, STAGES.desk.slice(0, 3), 0xff5c00, 18, 26); }
+  addStream(STAGES.desk.slice(0, 3), STAGES.riskgate.slice(0, 3), 0xff5c00, 4, 10);
+  addStream(STAGES.riskgate.slice(0, 3), STAGES.jev.slice(0, 3), 0xff5c00, 4, 10);
+  addStream(STAGES.jev.slice(0, 3), STAGES.broker.slice(0, 3), 0xff5c00, 4, 10);
   for (const [name, m] of Object.entries(MANAGERS)) {
-    m.mesh = sphere(m.pos, 0xc69bff, 3.2); m.label = label(name, '', [m.pos[0], m.pos[1] + 9, m.pos[2]]);
-    for (const k of m.depts) addStream(m.pos, DEPTS[k].pos, 0xc69bff, 0, 8);
+    m.mesh = sphere(m.pos, 0xffa040, 3.2); m.label = label(name, '', [m.pos[0], m.pos[1] + 9, m.pos[2]]);
+    for (const k of m.depts) addStream(m.pos, DEPTS[k].pos, 0xffa040, 0, 8);
   }
   beat.canvas = $('beat');
   resize(); addEventListener('resize', resize); controls(); requestAnimationFrame(frame);
@@ -334,15 +334,15 @@ function paintClusters(org) {
 let priceSeries, pnlSeries, history = [], sym = null;
 function initCharts() {
   if (!window.LightweightCharts) return;
-  const opts = { layout: { background: { color: 'transparent' }, textColor: '#6fa9b6', fontFamily: 'ui-monospace, Menlo, monospace' }, autoSize: true,
-    grid: { vertLines: { color: 'rgba(79,243,255,.06)' }, horzLines: { color: 'rgba(79,243,255,.06)' } },
-    rightPriceScale: { borderColor: 'rgba(79,243,255,.18)' }, timeScale: { borderColor: 'rgba(79,243,255,.18)', timeVisible: true },
-    crosshair: { mode: 1, vertLine: { color: 'rgba(79,243,255,.5)' }, horzLine: { color: 'rgba(79,243,255,.5)' } } };
-  priceSeries = LightweightCharts.createChart($('priceChart'), opts).addAreaSeries({ lineColor: '#4ff3ff', lineWidth: 2,
-    topColor: 'rgba(79,243,255,.32)', bottomColor: 'rgba(79,243,255,0)' });
+  const opts = { layout: { background: { color: 'transparent' }, textColor: '#8a8a8a', fontFamily: 'ui-monospace, Menlo, monospace' }, autoSize: true,
+    grid: { vertLines: { color: 'rgba(255,92,0,.06)' }, horzLines: { color: 'rgba(255,92,0,.06)' } },
+    rightPriceScale: { borderColor: 'rgba(255,92,0,.18)' }, timeScale: { borderColor: 'rgba(255,92,0,.18)', timeVisible: true },
+    crosshair: { mode: 1, vertLine: { color: 'rgba(255,92,0,.5)' }, horzLine: { color: 'rgba(255,92,0,.5)' } } };
+  priceSeries = LightweightCharts.createChart($('priceChart'), opts).addAreaSeries({ lineColor: '#ff5c00', lineWidth: 2,
+    topColor: 'rgba(255,92,0,.32)', bottomColor: 'rgba(255,92,0,0)' });
   pnlSeries = LightweightCharts.createChart($('pnlChart'), opts).addBaselineSeries({ baseValue: { type: 'price', price: 0 },
-    topLineColor: '#5dffc4', topFillColor1: 'rgba(93,255,196,.28)', topFillColor2: 'rgba(93,255,196,0)',
-    bottomLineColor: '#ff5c8a', bottomFillColor1: 'rgba(255,92,138,0)', bottomFillColor2: 'rgba(255,92,138,.28)' });
+    topLineColor: '#2fd37a', topFillColor1: 'rgba(93,255,196,.28)', topFillColor2: 'rgba(93,255,196,0)',
+    bottomLineColor: '#ff4d4d', bottomFillColor1: 'rgba(255,92,138,0)', bottomFillColor2: 'rgba(255,92,138,.28)' });
 }
 function drawPrice() {
   if (!priceSeries || !sym) return; let last = 0;
@@ -436,8 +436,8 @@ function renderLeader(rows, provenTotal) {
 function renderHeat(heat) {
   $('heat').replaceChildren(...Object.entries(heat).map(([bot, v]) => {
     const c = el('div'); const a = Math.min(1, Math.abs(v));
-    c.style.background = v >= 0 ? `rgba(79,243,255,${0.06 + a * 0.3})` : `rgba(255,92,138,${0.08 + a * 0.35})`;
-    c.style.boxShadow = `inset 0 0 ${6 + 14 * a}px ${v >= 0 ? 'rgba(79,243,255,.5)' : 'rgba(255,92,138,.5)'}`;
+    c.style.background = v >= 0 ? `rgba(255,92,0,${0.06 + a * 0.3})` : `rgba(255,92,138,${0.08 + a * 0.35})`;
+    c.style.boxShadow = `inset 0 0 ${6 + 14 * a}px ${v >= 0 ? 'rgba(255,92,0,.5)' : 'rgba(255,92,138,.5)'}`;
     c.append(el('span', '', bot.replace('_', ' ')), el('b', '', v.toFixed(2))); return c;
   }));
 }
@@ -517,7 +517,7 @@ function countEvent(type) {
   if (!last || last.t !== sec) { last = { t: sec, order: 0, risk: 0, jev: 0, check: 0 }; act.secs.push(last); if (act.secs.length > 120) act.secs.shift(); }
   last[type]++;
 }
-const ACT_COLORS = { order: '#ffc65c', risk: '#ff5c8a', jev: '#c69bff', check: '#4ff3ff' };
+const ACT_COLORS = { order: '#ffc65c', risk: '#ff4d4d', jev: '#ffa040', check: '#ff5c00' };
 function drawActivity() {
   const c = $('activity'); if (!c) return; const r = c.getBoundingClientRect(); const dpr = Math.min(2, devicePixelRatio);
   if (c.width !== Math.round(r.width * dpr)) { c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr); }
@@ -545,10 +545,10 @@ function connect() {
       const S = (k) => STAGES[k].slice(0, 3);
       if (e.type === 'order') { orderHeat = Math.min(1, orderHeat + 0.25); burst([S('desk'), S('riskgate'), S('jev'), S('broker')], 0xffc65c, 11);
         zap(V(S('desk')), V(S('riskgate')), 0xffc65c, 0.25, 16); zap(V(S('riskgate')), V(S('jev')), 0xffc65c, 0.3, 16); zap(V(S('jev')), V(S('broker')), 0xffc65c, 0.35, 20); heartbeat(true); }
-      if (e.type === 'risk') { burst([S('desk'), S('riskgate')], 0xff5c8a, 8); zap(V(S('desk')), V(S('riskgate')), 0xff5c8a, 0.3, 14); }
-      if (e.type === 'live_proposal') { burst([S('broker'), [S('broker')[0], 40, 0]], 0x5dffc4, 16); loadLive(); }
+      if (e.type === 'risk') { burst([S('desk'), S('riskgate')], 0xff4d4d, 8); zap(V(S('desk')), V(S('riskgate')), 0xff4d4d, 0.3, 14); }
+      if (e.type === 'live_proposal') { burst([S('broker'), [S('broker')[0], 40, 0]], 0x2fd37a, 16); loadLive(); }
       if (e.type === 'tick' && e.shard === 0 && e.tick % 2 === 0) heartbeat(false);
-      if (e.type === 'tick' && e.shard === 0 && e.tick % 3 === 0) { const keys = Object.keys(DEPTS); burst([S('feed'), DEPTS[keys[e.tick % 4]].pos, S('desk')], 0x4ff3ff, 6); }
+      if (e.type === 'tick' && e.shard === 0 && e.tick % 3 === 0) { const keys = Object.keys(DEPTS); burst([S('feed'), DEPTS[keys[e.tick % 4]].pos, S('desk')], 0xff5c00, 6); }
     }
     if (!['order', 'risk', 'check', 'jev', 'live_proposal', 'coach', 'brain'].includes(e.type)) return;
     let text = '';
