@@ -44,7 +44,7 @@ from .atlas_sources import AtlasSources
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
 from .news_pipeline import NewsPipeline
 from .polymarket_desk import PolymarketDesk
-from .conductor import Conductor
+from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
 from .org import DEPARTMENTS, finish_school, manager_reports
 from .webauth import COOKIE, WebAuth
@@ -558,7 +558,9 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 with floor_lock:
                     if "c" not in floor:
                         floor["c"] = Conductor()
-                self._send(200, json.dumps(floor["c"].snapshot()).encode(), "application/json", {"Cache-Control": "no-store"})
+                snap = floor["c"].snapshot()
+                snap["org"] = conductor_departments(hub.org(), snap, control.read(hub.events_dir) or control.MIN_DEPARTMENT_SIZE)
+                self._send(200, json.dumps(snap).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/pairs":
                 self._send(200, pairs_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/pairs":

@@ -556,3 +556,71 @@ class Conductor:
                 "benched": {STRATEGY_NAMES[k]: v - self.bar for k, v in self.benched.items() if v > self.bar}, "pulse": self.approved_pulse,
                 "equity_curve": list(self.equity_curve),
             }
+
+
+# ---------- our real agents, arranged as six departments ----------
+# We keep our own structure: the desk's ~1,400 agents in four departments (trend, reversion, research,
+# risk) under Atlas, Sage and Sentinel. The six floor roles are filled from those agents, by what each
+# kind of agent already does. Research and Risk are each split in half by agent number.
+FLOOR_DEPARTMENTS = [
+    # key, name, source department, half (None = all of it), manager, agent kinds, job
+    ("entry", "Entry", "trend", None, "Atlas", "Momentum, moving-average cross and breakout traders",
+     "Find setups and propose entries"),
+    ("scalper", "Scalper", "reversion", None, "Atlas", "Mean-reversion traders",
+     "Fade stretched moves for small, fast targets"),
+    ("news", "News", "research", 0, "Sage", "Regime analysts (even numbers) with the news and macro view",
+     "Read headlines and the calendar; call a pause before big news"),
+    ("exit", "Exit", "research", 1, "Sage", "Regime analysts (odd numbers) who call trending or choppy",
+     "Say when a trend is over, so open trades get out in time"),
+    ("risk", "Risk", "risk", 0, "Sentinel", "Volatility monitors (even numbers)",
+     "Size every trade and veto anything over the limits"),
+    ("hedge", "Hedge", "risk", 1, "Sentinel", "Volatility monitors (odd numbers)",
+     "Vote to shrink or offset exposure when markets get wild"),
+]
+FLOOR_TO_ENGINE_AGENT = {"entry": "entry", "scalper": "scalper", "news": "news", "exit": "exit", "risk": "risk", "hedge": "hedge"}
+
+
+def departments(org: dict | None, floor: dict | None = None, per_department: int = 350) -> dict:
+    """Our desk's departments regrouped into the six floor departments, with managers and performance.
+
+    `org` is the dashboard's merged org chart (/api/org). When the desk has not reported yet, sizes come
+    from the configured per-department count and performance is left empty.
+    """
+    src = (org or {}).get("departments") or {}
+    floor = floor or {}
+    by_agent = {}
+    for r in floor.get("closed", []):
+        s = by_agent.setdefault(r["agent"], {"n": 0, "wins": 0, "pnl": 0.0})
+        s["n"] += 1
+        s["wins"] += r["won"]
+        s["pnl"] = round(s["pnl"] + r["pnl"], 2)
+    out = []
+    for key, name, source, half, manager, kinds, job in FLOOR_DEPARTMENTS:
+        d = src.get(source) or {}
+        total = d.get("agents") or per_department
+        size = total if half is None else (total + 1 - half) // 2
+        votes = d.get("votes") or []
+        mine = votes if half is None else votes[half::2]
+        live = [v for v in mine if v is not None]
+        closed = (d.get("trade_wins") or 0) + (d.get("trade_losses") or 0)
+        out.append({
+            "key": key, "name": name, "manager": manager, "kinds": kinds, "job": job, "agents": size,
+            "source": source, "shares_with": None if half is None else next(
+                f[1] for f in FLOOR_DEPARTMENTS if f[2] == source and f[0] != key),
+            "active": len(live), "avg_vote": round(sum(live) / len(live), 4) if live else None,
+            "buy": sum(1 for v in live if v > 0.1), "sell": sum(1 for v in live if v < -0.1),
+            "desk": {"pnl": d.get("pnl"), "win_rate": round(d["trade_wins"] / closed, 4) if closed else None,
+                     "skill": d.get("skill"), "trades": d.get("trades_total"), "graduates": (d.get("school") or {}).get("graduates")}
+            if d else None,
+            "floor": by_agent.get(FLOOR_TO_ENGINE_AGENT[key]),
+            "messages": (floor.get("agent_counts") or {}).get(FLOOR_TO_ENGINE_AGENT[key], 0),
+        })
+    managers = []
+    reports = {m.get("manager", "").lower(): m for m in (org or {}).get("managers", [])}
+    for mkey, mname, title in (("atlas", "Atlas", "Head of Trading"), ("sage", "Sage", "Head of Research"),
+                               ("sentinel", "Sentinel", "Head of Risk")):
+        own = [d for d in out if d["manager"] == mname]
+        managers.append({"key": mkey, "name": mname, "title": title, "departments": [d["name"] for d in own],
+                         "agents": sum(d["agents"] for d in own), "call": (reports.get(mkey) or {}).get("call")})
+    return {"total": sum(d["agents"] for d in out), "departments": out, "managers": managers,
+            "live": bool(src), "tick": (org or {}).get("tick")}
