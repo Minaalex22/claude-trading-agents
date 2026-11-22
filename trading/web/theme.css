@@ -92,3 +92,4 @@ svg .f-out { fill: #3a3a3a !important; }
 
 /* Phone: the 3D brain's small captions pile up, keep only the names */
 @media (max-width: 560px) { .label3d .mut { display: none; } }
+.ats-nav details:first-of-type > div { left: 0; right: auto; }
