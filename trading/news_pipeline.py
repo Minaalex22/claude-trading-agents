@@ -164,7 +164,8 @@ class NewsPipeline:
             self._audit(t, deep)
 
         rec = {"symbol": h.get("symbol"), "text": h.get("text"), "kind": h.get("kind"), "live": h.get("kind") == "live",
-               "triage": {"lean": t["lean"], "confidence": conf, "why": t["reason"] or ", ".join(fails), "evidence": t["evidence"]},
+               "triage": {"job": f"{h.get('symbol') or '?'} {topic(h)} headline, leans {'BUY' if t['lean'] > 0.15 else 'SELL' if t['lean'] < -0.15 else 'WAIT'}",
+                          "lean": t["lean"], "confidence": conf, "why": t["reason"] or ", ".join(fails), "evidence": t["evidence"]},
                "gate": round(self.gate, 2), "route": route, "overrule": overrule, "audit": audit, "human": human,
                "deep": deep if route == "deep" or audit else None, "final_lean": final["lean"],
                "call": "BUY" if final["lean"] > 0.15 else "SELL" if final["lean"] < -0.15 else "WAIT",

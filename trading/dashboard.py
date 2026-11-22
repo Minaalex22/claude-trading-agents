@@ -43,6 +43,7 @@ from .alerts import Alerts
 from .atlas_sources import AtlasSources
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
 from .news_pipeline import NewsPipeline
+from .polymarket_desk import PolymarketDesk
 from .org import DEPARTMENTS, finish_school, manager_reports
 from .webauth import COOKIE, WebAuth
 
@@ -74,6 +75,7 @@ STATIC = {
     "/footprint.js": ("footprint.js", "text/javascript; charset=utf-8"),
     "/kind.js": ("kind.js", "text/javascript; charset=utf-8"),
     "/kind.css": ("kind.css", "text/css; charset=utf-8"),
+    "/polymarket.js": ("polymarket.js", "text/javascript; charset=utf-8"),
     "/pipeline.css": ("pipeline.css", "text/css; charset=utf-8"),
     "/duel.js": ("duel.js", "text/javascript; charset=utf-8"),
     "/markets.js": ("markets.js", "text/javascript; charset=utf-8"),
@@ -373,6 +375,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     trades_page = _read("trades.html")
     pipeline_page = _read("pipeline.html")
     kind_page = _read("kind.html")  # one page per market type: /crypto /forex /commodities /indices /shares
+    polymarket_page = _read("polymarket.html")
+    poly = {}  # the Polymarket practice desk, started on first use
     market_page = _read("market.html")
     login_page = _read("login.html").decode()
 
@@ -479,7 +483,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline") or path in KIND_PAGES or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket") or path in KIND_PAGES or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -532,6 +536,12 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._send(200, news_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/trades":
                 self._send(200, trades_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/polymarket":
+                self._send(200, polymarket_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/polymarket":
+                if "desk" not in poly:
+                    poly["desk"] = PolymarketDesk(env=env)
+                self._send(200, json.dumps(poly["desk"].snapshot()).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path in KIND_PAGES:
                 self._send(200, kind_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/pipeline":
