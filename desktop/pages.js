@@ -5,6 +5,7 @@ const PAGES = [
   { label: "News", path: "/news", key: "1" },
   { label: "News Pipeline", path: "/pipeline", key: "2" },
   { label: "Trades", path: "/trades", key: "3" },
+  { label: "Decision", path: "/decision" },
   { label: "Desk", path: "/", key: "4" },
   { label: "Markets", path: "/markets", key: "5" },
   { label: "Crypto", path: "/crypto" },
