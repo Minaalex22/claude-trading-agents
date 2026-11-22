@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · Agents</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/pages.css">
+<link rel="stylesheet" href="/conductor.css">
+</head><body>
+<header class="ats-bar"><a class="ats-brand" href="/"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a class="on" href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/">Desk</a><details class="ats-more"><summary>More</summary><div><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/jarvis">JARVIS</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<main class="pg cd">
+ <div class="pg-head">
+  <div><small>6 agents · 6 live charts · 1 conductor</small><h1><b>Agents</b> trading floor</h1>
+   <p>Six specialist agents send proposals. The Conductor asks the Risk agent, settles fights (Risk, then Hedge, then Exit, then Entry) and only then places a paper order. No agent can trade on its own. Fees and slippage are charged on every fill.</p></div>
+  <span class="pg-badge">SIMULATED · NOT LIVE TRADING · PRACTICE ACCOUNT</span>
+ </div>
+ <section class="pg-grid">
+  <div class="pg-card c3 pg-kpi"><small>Equity</small><b id="k-eq">–</b><em id="k-eq-sub">–</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Today</small><b id="k-day">–</b><em id="k-day-sub">–</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Win rate</small><b id="k-wr">–</b><em id="k-wr-sub">–</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Risk desk</small><b id="k-risk">–</b><em id="k-risk-sub">–</em></div>
+
+  <div class="pg-card c9 cd-wall"><h3>Six charts <span>entry (orange), stop (red), target (green), EMA 9 and 21, signals</span></h3><div id="wall" class="cd-grid"></div></div>
+  <div class="pg-card c3 cd-term"><h3>Agent terminal <span id="clock">–</span></h3><div class="cd-legend" id="legend"></div><div id="term" class="cd-lines"></div></div>
+
+  <div class="pg-card c4"><h3>Conductor <span>pulses when it approves a trade</span></h3><canvas id="orb" class="pg-canvas tall"></canvas></div>
+  <div class="pg-card c8"><h3>Trade life <span>every idea moves through these steps, and only the Conductor can move it on</span></h3><div id="states" class="cd-states"></div>
+   <h3 class="pg-gap">Why ideas were stopped <span>Risk agent vetoes</span></h3><div id="rejects" class="pg-list"></div></div>
+
+  <div class="pg-card c8"><h3>Equity <span>balance plus open profit, every 5 minutes</span></h3><canvas id="curve" class="pg-canvas"></canvas></div>
+  <div class="pg-card c4"><h3>Risk rules <span>deterministic, no AI</span></h3><ul id="rules" class="cd-rules"></ul></div>
+
+  <div class="pg-card c6"><h3>Strategies <span>the daily review benches a strategy that keeps losing</span></h3>
+   <table class="pg-tbl"><thead><tr><th>Strategy</th><th class="r">Trades</th><th class="r">Win</th><th class="r">Total R</th><th class="r">Profit</th></tr></thead><tbody id="strats"></tbody></table>
+   <p class="pg-note" id="stat-note"></p></div>
+  <div class="pg-card c6"><h3>The six agents</h3><div id="agents" class="pg-list"></div></div>
+
+  <div class="pg-card c12"><h3>Closed trades <span>newest first · with R multiple, time held and why it closed</span></h3>
+   <div class="pg-scroll"><table class="pg-tbl"><thead><tr><th>Asset</th><th>Side</th><th class="hide-s">Strategy</th><th class="r">Profit</th><th class="r">R</th><th class="r hide-s">Mins</th><th>Why closed</th></tr></thead><tbody id="closed"></tbody></table></div></div>
+ </section>
+ <p class="pg-note">Prices here are simulated with trending stretches, so setups can look better than they will live. The reel this copies was a promo; this page shows the real plumbing, costs and losses included. Real money stays locked.</p>
+</main>
+<div id="toasts" class="cd-toasts"></div>
+<footer class="cd-bar" id="bar"></footer>
+<script src="/vendor/lightweight-charts.js"></script>
+<script src="/conductor.js"></script>
+</body></html>

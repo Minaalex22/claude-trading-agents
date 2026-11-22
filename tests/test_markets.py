@@ -416,3 +416,23 @@ class PolymarketDeskTest(unittest.TestCase):
         self.assertGreaterEqual(s["tick"], 41)  # snapshot() may add one live update
         self.assertAlmostEqual(s["total"], round(sum(s["pnl"].values()), 2), places=1)
         self.assertGreater(sum(s["count"].values()), 0)
+
+
+class ConductorAndPairsPages(Routes):
+    def test_pages_and_apis(self):
+        for path in ("/conductor", "/pairs"):
+            self.assertEqual(self.request("GET", path)[0].status, 303, path)
+        for path in ("/conductor", "/conductor.js", "/conductor.css", "/api/conductor", "/pairs", "/pairs.js", "/pairs.css", "/api/pairs"):
+            self.assertEqual(self.request("GET", path, cookie=self.cookie)[0].status, 200, path)
+        for path in ("/conductor", "/pairs"):
+            html = self.request("GET", path, cookie=self.cookie)[1].decode()
+            self.assertIn("NOT LIVE TRADING", html)
+            self.assertNotIn("style=", html)
+            self.assertNotIn("<script>", html)
+        d = json.loads(self.request("GET", "/api/conductor", cookie=self.cookie)[1])
+        self.assertEqual(len(d["charts"]), 6)
+        self.assertEqual(set(d["agents"]), {"conductor", "entry", "scalper", "hedge", "risk", "exit", "news"})
+        p = json.loads(self.request("GET", "/api/pairs?pair=sim", cookie=self.cookie)[1])
+        self.assertIn("eg", p)
+        self.assertEqual(self.request("GET", "/api/pairs?pair=nope-nope", cookie=self.cookie)[0].status, 404)
+        self.assertIn('href="/conductor"', self.request("GET", "/news", cookie=self.cookie)[1].decode())
