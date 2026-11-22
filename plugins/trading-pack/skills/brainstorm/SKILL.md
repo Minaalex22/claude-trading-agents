@@ -14,12 +14,17 @@ Never write code on the first message of a new feature. Think first, then build.
    and the module in `trading/` that fits). Don't ask what the code already answers.
 3. **Ask up to 3 short questions**, only ones that change what you build. Good ones:
    - Who sees it: the paper desk, JARVIS, a page, or an agent?
-   - What does "done" look like: a number, a page, a passing test?
+   - What does "done" look like: a number, a page, a passing test? What is **out of scope**?
    - Does it touch money, orders, or a broker? (If yes, load the `trading-safety` skill.)
-4. **Offer 2 approaches** in a few lines each: what it is, what it costs, what could go wrong.
-   Say which one you'd pick and why.
-5. **Wait for a yes.** Then make a short plan: small steps, each one testable.
-6. **Build in that order**, test first where you can (`python -m unittest discover -s tests -t .`).
+4. **Offer 2 approaches**, each in this shape, and say which one you'd pick and why:
+   - **Approach:** a short name
+   - **Pros / cons**
+   - **Effort:** S, M or L
+   - **Risk:** what could go wrong (money, data, breaking a page)
+5. **Wait for a pick.** Then write a short plan, one line per task:
+   `[ ] task - file(s) to touch - how to check it (test or command)`
+6. **Build test-first:** write a failing test, make it pass, then the next task
+   (`python -m unittest discover -s tests -t .`).
 7. **Finish with review**: run the `reviewer` agent on the diff before you call it done.
 
 ## When to skip

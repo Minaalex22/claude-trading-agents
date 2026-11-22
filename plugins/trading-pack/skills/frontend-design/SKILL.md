@@ -35,6 +35,8 @@ why, and wait for a pick before building.
   a live node (`box-shadow: 0 0 12px var(--o)`).
 - Layout like the reel: header with metrics on top, ranked list on the left, the visual (galaxy,
   chart, order flow) in the centre, a terminal-style log at the bottom.
+- Spacing on an 8px grid (4, 8, 16, 24, 32). One primary action per screen.
+- Design all 4 states: **loading, empty, error, success**. A blank panel is a bug.
 - Gains in orange, losses in grey (`.gx-up` / `.gx-down`). No red and green.
 - Works at phone width: the side list stacks above the visual below 720px.
 - Plain JS and CSS files in `trading/web/`, served by `trading/dashboard.py`. No build step, no
@@ -48,5 +50,5 @@ why, and wait for a pick before building.
 
 ## Check your work
 
-Open the page in a browser (Playwright is fine), screenshot it at desktop and phone width, click every
+Open the page in a browser (Playwright is fine), screenshot it at desktop and phone width (375px, no sideways scroll), click every
 button, and read the console for errors before saying it's done.

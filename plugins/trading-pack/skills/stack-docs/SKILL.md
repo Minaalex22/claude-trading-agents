@@ -18,4 +18,7 @@ points to. Don't invent function names: check them with a quick search in `tradi
 If the Context7 MCP server is connected, use it for outside libraries (`resolve-library-id`, then
 `query-docs`). For our own code, these local docs and the source win.
 
+Write code only against the versions this repo actually uses: `requirements.txt` and the Python versions
+CI runs (3.10 to 3.14). Don't use a newer API than those allow.
+
 When you change how one of these parts works, update its reference file in the same PR.

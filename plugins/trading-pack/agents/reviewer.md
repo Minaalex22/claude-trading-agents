@@ -27,6 +27,11 @@ run with real money one day.
 
 ## How to report
 
-List findings most serious first. For each: `file:line`, what is wrong, a concrete case that breaks,
-and the fix. Mark each **blocker**, **should fix**, or **nit**. If nothing is wrong, say so in one line.
+Review the diff, not the intention. Start with one line:
+
+**Verdict: APPROVE** or **Verdict: REQUEST CHANGES** (any blocker means request changes).
+
+Then **top issues**, most serious first, at most 3 unless there are more blockers. For each: `file:line`,
+what is wrong, a concrete case that breaks, and the fix. Mark each **blocker** or **should fix**.
+Put **nits** in a separate short list at the end, marked optional. If nothing is wrong, say so in one line.
 Don't pad the review with praise or style opinions. Don't edit files; report only.
