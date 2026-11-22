@@ -232,6 +232,28 @@ drawdown limit that halts new risk.
 **Paper mode only.** Prices are simulated, or real with `MARKET=live`, but fills are always paper. No real
 orders are ever sent.
 
+## Markets: 25 products with their own pages
+
+Open **Markets** in the top bar (`/markets`). It covers 5 crypto, 5 forex, 5 commodities,
+5 indices and 5 shares, with favourites (tap ★), top risers and fallers, live prices and
+the change over 5 minutes, 1 day and 40 days.
+
+Each product has its own page (`/markets/BTC`, `/markets/GOLD`, ...):
+- Live candles on 1m, 5m, 15m, 1h, 4h and 1d, with MA20/MA50, Bollinger bands, RSI and MACD.
+- An outlook for the next 1 minute, 1 hour, 4 hours and 24 hours: direction, confidence,
+  the reasons, a stop loss and take profit, and a "not worth the risk" warning when the
+  signals are weak or the reward is under 1.5x the risk.
+- Why it's moving (24h change, volume against normal, 20-day breakouts, order flow).
+- Volume profile with the busiest price (POC) and the value area.
+- Crypto only: Smart DOM (order book with walls and imbalance), Smart Tape (big prints
+  highlighted), footprint (sell × buy volume per price per minute) and cumulative delta,
+  from Coinbase's public trades and order book.
+
+Prices come from Coinbase (crypto) and Yahoo Finance (the rest). If a source can't be
+reached the page falls back to simulated prices and says so. `MARKETS_FEED=sim` forces
+the simulated feed. The section is read-only analysis: it never places orders.
+Code: `trading/markets/`, pages `trading/web/markets.*` and `market.*`, tests `tests/test_markets.py`.
+
 ## Run it on your own Mac (one double-click)
 
 Double-click `start-jarvis.command`. On the first run it creates its own Python environment, installs the moomoo

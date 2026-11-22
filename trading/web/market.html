@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · Market</title>
+<meta name="theme-color" content="#05070d">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/command.css">
+<link rel="stylesheet" href="/markets.css">
+</head><body>
+<header class="bar">
+ <div class="brand"><span class="pulse-dot on"></span><b>ATS MATRIX</b><span class="tag">practice only · real money locked</span></div>
+ <nav><a href="/">Command</a><a href="/3d">3D lab</a><a class="on" href="/markets">Markets</a><a href="/jarvis">JARVIS</a><a href="/log">Event log</a><a href="/orderflow">Order flow</a></nav>
+ <form method="post" action="/logout"><button type="submit">Sign out</button></form>
+</header>
+<main class="mk">
+ <section class="mk-card mk-head">
+  <span class="mk-star" id="star" role="button" tabindex="0" title="Favourite">★</span>
+  <h2 id="title">Loading…</h2><span id="price" class="mk-price"></span><span id="chg"></span><span class="tag" id="src"></span>
+ </section>
+ <section class="mk-card">
+  <div class="mk-tabs" id="tfs"></div>
+  <div id="chart" class="mk-chart"></div>
+  <div class="mut mk-small">MA20 (cyan) · MA50 (amber) · Bollinger 20,2 (grey) · RSI 14 · MACD 12,26,9</div>
+  <div id="rsi" class="mk-sub"></div><div id="macd" class="mk-sub"></div>
+ </section>
+ <div class="mk-grid2" id="outlooks"></div>
+ <div class="mk-grid2">
+  <section class="mk-card"><h3>Why it's moving</h3><ul id="why"></ul></section>
+  <section class="mk-card"><h3>Volume profile</h3><p class="mut mk-small" id="vpinfo"></p><div id="vp"></div></section>
+ </div>
+ <div id="flow" class="mk-hidden">
+  <div class="mk-grid2">
+   <section class="mk-card"><h3>Smart DOM</h3><p class="mut mk-small" id="dominfo"></p><table id="dom" class="mk-mono"></table></section>
+   <section class="mk-card"><h3>Smart Tape</h3><p class="mut mk-small" id="tapeinfo"></p><div class="mk-tape"><table id="tape" class="mk-mono"></table></div></section>
+  </div>
+  <section class="mk-card"><h3>Cumulative delta</h3><div id="cd" class="mk-cd"></div></section>
+  <section class="mk-card"><h3>Footprint · 1 min bars · sell × buy</h3><div id="fp" class="mk-fp"></div></section>
+ </div>
+ <p class="mut mk-small">Analysis for practice trading. Not financial advice. Real money stays locked.</p>
+</main>
+<script src="/vendor/lightweight-charts.js"></script>
+<script src="/market.js"></script>
+</body></html>

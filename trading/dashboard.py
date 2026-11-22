@@ -17,6 +17,11 @@ Endpoints:
   /health       200 once at least one shard is reporting
   /api/report   read-only trade report (signed-in session, or bearer REPORT_TOKEN)
   /login        password sign-in when the dashboard is reachable from the internet
+  /markets      Markets: 25 products with favourites, top risers/fallers and 5m/1d/40d change
+  /markets/BTC  one product: candles on 6 timeframes, indicators, 1m/1h/4h/24h outlook,
+                why it's moving, volume profile, and crypto order flow (trading/markets/)
+  /api/markets  the board as JSON; /api/markets/<SYM>?tf=1h one product;
+                POST /api/markets/<SYM>/favourite toggles a favourite
 
 When auth is on (see trading/webauth.py), /, /3d, /events and the /api/
 endpoints need a signed session cookie; /health then reports only {"ok": ...}.
@@ -25,6 +30,7 @@ endpoints need a signed session cookie; /health then reports only {"ok": ...}.
 import hmac
 import json
 import os
+import re
 import urllib.parse
 import threading
 import time
@@ -32,7 +38,7 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import control, live_orders, platforms
+from . import control, live_orders, markets, platforms
 from .alerts import Alerts
 from .atlas_sources import AtlasSources
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
@@ -55,6 +61,9 @@ STATIC = {
     "/jarvis.js": ("jarvis.js", "text/javascript; charset=utf-8"),
     "/orderflow.css": ("orderflow.css", "text/css; charset=utf-8"),
     "/orderflow.js": ("orderflow.js", "text/javascript; charset=utf-8"),
+    "/markets.css": ("markets.css", "text/css; charset=utf-8"),
+    "/markets.js": ("markets.js", "text/javascript; charset=utf-8"),
+    "/market.js": ("market.js", "text/javascript; charset=utf-8"),
     # Vendored so the strict CSP (scripts only from this site) holds and the cloud app needs no CDN.
     "/vendor/three.min.js": ("vendor/three.min.js", "text/javascript; charset=utf-8"),
     "/vendor/lightweight-charts.js": ("vendor/lightweight-charts.js", "text/javascript; charset=utf-8"),
@@ -71,6 +80,9 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self';
        "manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 MAX_FORM_BYTES = 4096
 MAX_TRADES_BYTES = 262144  # a batch of real trades for the order flow feed
+MARKET_PAGE = re.compile(r"/markets/[A-Za-z0-9]{1,10}")
+MARKET_API = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}")
+MARKET_FAV = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}/favourite")
 # Only JARVIS's page may use the microphone; nothing may use the camera, location or payment APIs.
 PERMISSIONS = "microphone=(self), camera=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
 
@@ -306,6 +318,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     log_page = _read("log.html")
     jarvis_page = _read("jarvis.html")
     orderflow_page = _read("orderflow.html")
+    markets_page = _read("markets.html")
+    market_page = _read("market.html")
     login_page = _read("login.html").decode()
 
     class Handler(BaseHTTPRequestHandler):
@@ -411,7 +425,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow"):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets") or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -450,6 +464,21 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             elif path == "/api/agents":
                 body = {"per_department": control.read(hub.events_dir)}
                 self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/markets":
+                self._send(200, markets_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif MARKET_PAGE.fullmatch(path):
+                if path.split("/")[-1].upper() not in markets.catalog.BY_SYMBOL:
+                    return self._send(404, b"not found", "text/plain")
+                self._send(200, market_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/markets":
+                self._json(200, markets.board())
+            elif MARKET_API.fullmatch(path):
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                try:
+                    body = markets.product(path.split("/")[-1], query.get("tf", ["1h"])[0])
+                except (KeyError, ValueError) as e:
+                    return self._json(404, {"error": str(e).strip("'\"")})
+                self._json(200, body)
             elif path == "/events":
                 self.stream()
             else:
@@ -484,6 +513,13 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._street_note(raw)
             if path in ("/api/jarvis/unlock", "/api/jarvis/ask", "/api/jarvis/lock", "/api/jarvis/setup"):
                 return self._jarvis_post(path, raw)
+            if MARKET_FAV.fullmatch(path):
+                if not self._authed():
+                    return self._json(401, {"error": "sign in required"})
+                try:
+                    return self._json(200, {"favourites": markets.toggle_favourite(path.split("/")[-2])})
+                except KeyError:
+                    return self._json(404, {"error": "unknown product"})
             if path != "/login" or not auth.enabled:
                 return self._send(404, b"not found", "text/plain")
             client = self._client()
