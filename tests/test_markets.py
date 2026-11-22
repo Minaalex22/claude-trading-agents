@@ -356,3 +356,17 @@ class ClosedTrades(unittest.TestCase):
         self.assertIsNone(j.fill("BTC", 0, 2, 100.0, 1))
         closed = j.fill("BTC", 2, -2, 90.0, 2)
         self.assertEqual((closed["side"], closed["qty"], closed["entry"], closed["exit"], closed["won"]), ("long", 2, 100.0, 90.0, False))
+
+
+class PipelinePage(Routes):
+    def test_pipeline_page_assets_and_api(self):
+        self.assertEqual(self.request("GET", "/pipeline")[0].status, 303)
+        for path in ("/pipeline", "/pipeline.js", "/pipeline.css", "/api/pipeline"):
+            self.assertEqual(self.request("GET", path, cookie=self.cookie)[0].status, 200, path)
+        html = self.request("GET", "/pipeline", cookie=self.cookie)[1].decode()
+        self.assertNotIn("<script>", html)
+        self.assertNotIn("style=", html)
+        self.assertIn("GATE", html)
+        data = json.loads(self.request("GET", "/api/pipeline", cookie=self.cookie)[1])
+        self.assertEqual(data["mode"], "demo")
+        self.assertIn("savings", data)

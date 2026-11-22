@@ -42,6 +42,7 @@ from . import control, live_orders, markets, platforms
 from .alerts import Alerts
 from .atlas_sources import AtlasSources
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
+from .news_pipeline import NewsPipeline
 from .org import DEPARTMENTS, finish_school, manager_reports
 from .webauth import COOKIE, WebAuth
 
@@ -69,6 +70,8 @@ STATIC = {
     "/pages.css": ("pages.css", "text/css; charset=utf-8"),
     "/news.js": ("news.js", "text/javascript; charset=utf-8"),
     "/trades.js": ("trades.js", "text/javascript; charset=utf-8"),
+    "/pipeline.js": ("pipeline.js", "text/javascript; charset=utf-8"),
+    "/pipeline.css": ("pipeline.css", "text/css; charset=utf-8"),
     "/duel.js": ("duel.js", "text/javascript; charset=utf-8"),
     "/markets.js": ("markets.js", "text/javascript; charset=utf-8"),
     "/market.js": ("market.js", "text/javascript; charset=utf-8"),
@@ -111,6 +114,7 @@ class EventHub:
         self.equity: dict[int, dict[str, float]] = {}
         # Closed round trips for the Trades page: the latest ones plus running totals since the app started.
         self.closed: deque[dict] = deque(maxlen=CLOSED_KEEP)
+        self.pipeline = NewsPipeline()  # every headline: triage -> gate -> deep read -> tags -> bill
         self.closed_totals = {"trades": 0, "won": 0, "lost": 0, "pnl": 0.0, "by_symbol": {}}
 
     def poll_files(self) -> None:
@@ -162,6 +166,9 @@ class EventHub:
                 shard["start"] = {**shard["start"], "agents": event["agents"], "total_agents": event["total_agents"]}
             if kind == "closed":
                 self._record_closed(event)
+            if kind == "org" and event.get("news"):
+                views = (event.get("reading_room") or {}).get("views") or {}
+                self.pipeline.feed(event["news"], views)
             if kind == "tick" and "prices" in event and isinstance(event.get("shard"), int):
                 self._record_tick(event)  # engine shards only; the ring and matrix trade other books
             self.cond.notify_all()
@@ -360,6 +367,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     duel_page = _read("duel.html")
     news_page = _read("news.html")
     trades_page = _read("trades.html")
+    pipeline_page = _read("pipeline.html")
     market_page = _read("market.html")
     login_page = _read("login.html").decode()
 
@@ -466,7 +474,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades") or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline") or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -498,6 +506,10 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._json(200, {"platforms": platforms.status(), "live_trading": "locked"})
             elif path == "/api/state":
                 self._send(200, json.dumps(hub.state()).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/api/pipeline":
+                with hub.cond:
+                    snap = hub.pipeline.snapshot()
+                self._send(200, json.dumps(snap).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/api/trades":
                 self._send(200, json.dumps(hub.trades()).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/api/org":
@@ -515,6 +527,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._send(200, news_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/trades":
                 self._send(200, trades_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/pipeline":
+                self._send(200, pipeline_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/markets":
                 self._send(200, markets_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif MARKET_PAGE.fullmatch(path):
