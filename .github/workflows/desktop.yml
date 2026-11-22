@@ -1,0 +1,83 @@
+name: desktop app
+
+# Builds the JARVIS Trading desktop app (Mac .dmg, Windows .exe) and puts the installers on the
+# GitHub Releases page, so it can be downloaded and double-clicked. Runs when desktop/ changes on main,
+# or by hand from the Actions tab.
+on:
+  push:
+    branches: [main]
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  pull_request:
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - name: Build installer
+        run: npx electron-builder --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.os }}
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.exe
+          if-no-files-found: error
+
+  release:
+    name: publish download page
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - run: ls -la out
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-latest
+          name: JARVIS Trading desktop app
+          make_latest: true
+          files: out/*
+          body: |
+            **Download and double-click. No browser needed.**
+
+            - **Mac (Apple chip, M1/M2/M3/M4):** JARVIS-Trading-mac-arm64.dmg
+            - **Mac (older Intel):** JARVIS-Trading-mac-x64.dmg
+            - **Windows:** JARVIS-Trading-win-x64.exe
+
+            **Mac, first time only:** open the .dmg, drag JARVIS Trading into Applications, then open it.
+            If the Mac says it can't check the app, open System Settings > Privacy & Security, scroll down,
+            press **Open Anyway** next to JARVIS Trading. After that it opens normally every time.
+
+            **Windows, first time only:** if a blue "Windows protected your PC" box appears, press
+            **More info**, then **Run anyway**.
+
+            Sign in once with your dashboard password. The app remembers it.
