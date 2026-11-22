@@ -51,7 +51,7 @@ class CloudTests(unittest.TestCase):
 
     def login(self) -> str:
         resp, _ = self.request("POST", "/login", urllib.parse.urlencode({"password": PASSWORD}))
-        self.assertEqual(resp.getheader("Location"), "/")
+        self.assertEqual(resp.getheader("Location"), "/news")
         return resp.getheader("Set-Cookie").split(";")[0].split("=", 1)[1]
 
     def test_locked_until_signed_in(self):

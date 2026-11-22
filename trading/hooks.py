@@ -135,7 +135,8 @@ class DeskJournal:
         if before and (not after or (after > 0) != (before > 0)):
             entry = self.entry.get(symbol, price)
             move = (price / entry - 1) * (1 if before > 0 else -1)
-            closed = {"tick": tick, "at": at, "won": move > 0, "move": move}
+            closed = {"tick": tick, "at": at, "won": move > 0, "move": move,
+                      "side": "long" if before > 0 else "short", "qty": abs(before), "entry": entry, "exit": price}
             self.trades.setdefault(symbol, deque(maxlen=RECENT)).append(closed)
             self.closed += 1
         if after and (not before or (after > 0) != (before > 0)):

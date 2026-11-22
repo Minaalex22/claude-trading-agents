@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · Night desk</title>
+<meta name="theme-color" content="#0b0f14">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/duel.css">
+<link rel="stylesheet" href="/theme.css">
+</head><body class="dd">
+<header class="ats-bar"><a class="ats-brand" href="/"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav"><a href="/news">News</a><a href="/trades">Trades</a><a href="/">Desk</a><a href="/markets">Markets</a><a href="/orderflow">Order flow</a><details class="ats-more open-on"><summary>More</summary><div><a href="/galaxy">Galaxy</a><a class="on" href="/duel">Hunter vs Judge</a><a href="/jarvis">JARVIS</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<div class="dd-sim">PRACTICE MONEY · SIMULATED FILLS · NOT LIVE TRADING · NOT FINANCIAL ADVICE</div>
+<header class="dd-head">
+ <div class="dd-title"><small>ATS MATRIX</small><b>HUNTER <i>vs</i> JUDGE</b><span>the night desk, live</span></div>
+</header>
+<main class="dd-main">
+ <section class="dd-score">
+  <div class="dd-side hunter">
+   <small>HUNTER · traders find trades</small>
+   <b id="h-n">–</b><span>orders sent</span>
+   <em id="h-last">waiting for the first order…</em>
+  </div>
+  <div class="dd-vs">VS</div>
+  <div class="dd-side judge">
+   <small>JUDGE · risk desk checks them</small>
+   <b id="j-n">–</b><span>orders cut down or vetoed</span>
+   <em id="j-last">no cuts yet</em>
+  </div>
+ </section>
+
+ <section class="dd-card dd-hero">
+  <div class="dd-live"><span class="dd-dot"></span>PRACTICE BALANCE</div>
+  <div class="dd-bal" id="bal">–</div>
+  <div class="dd-sub"><span id="pnl">–</span> this session · started <span id="start">–</span></div>
+ </section>
+
+ <section class="dd-card dd-chart">
+  <h3>Equity curve <span class="dd-dim">· with the drawdowns shown, not hidden</span></h3>
+  <canvas id="curve"></canvas>
+  <p class="dd-dim dd-small" id="curve-note">Collecting points…</p>
+ </section>
+
+ <section class="dd-stats">
+  <div class="dd-card dd-stat"><canvas id="donut" width="120" height="120"></canvas><div><b id="s-win">–</b><small>agent win rate</small></div></div>
+  <div class="dd-card dd-stat"><div><b id="s-trades">–</b><small>agent trades (won / lost)</small></div></div>
+  <div class="dd-card dd-stat"><div><b id="s-dd">–</b><small>max drawdown since you opened this page</small></div></div>
+  <div class="dd-card dd-stat"><div><b id="s-proven">–</b><small>proven agents</small></div></div>
+ </section>
+
+ <section class="dd-card dd-who">
+  <h3>Who made the money <span class="dd-dim">· profit by team</span></h3>
+  <div id="bars"></div>
+ </section>
+
+ <section class="dd-card dd-log">
+  <h3>Trade log <span class="dd-dim">· live paper orders and risk cuts</span></h3>
+  <table><thead><tr><th>Time</th><th>Asset</th><th>Side</th><th class="r">Size</th><th class="r">Price</th><th class="r">Score</th></tr></thead><tbody id="log"></tbody></table>
+ </section>
+
+ <section class="dd-card dd-honest">
+  <h3>Read this before trusting any balance</h3>
+  <ul>
+   <li>Every number here is practice money on <span id="mkt">simulated</span> prices. Fills, fees and slippage are simulated too.</li>
+   <li>Real proof needs 100+ trades, losing streaks shown, fees, slippage, a drawdown chart and a broker statement.</li>
+   <li>Order of steps: backtest, then paper trade on live prices, then a small live test. Real money stays locked until you're happy with the win rate.</li>
+  </ul>
+ </section>
+</main>
+<script src="/duel.js"></script>
+</body></html>
