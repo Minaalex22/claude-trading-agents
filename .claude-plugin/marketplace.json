@@ -1,0 +1,16 @@
+{
+  "name": "jarvis-plugins",
+  "owner": { "name": "Minaalex22" },
+  "metadata": {
+    "description": "Our own Claude Code plugins for the JARVIS trading desk."
+  },
+  "plugins": [
+    {
+      "name": "trading-pack",
+      "source": "./plugins/trading-pack",
+      "description": "Brainstorm before building, black and orange galaxy UI, senior reviewer, real-money safety guard, and the desk's own docs.",
+      "version": "1.0.0",
+      "category": "development"
+    }
+  ]
+}

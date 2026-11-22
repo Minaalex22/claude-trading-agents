@@ -1,0 +1,9 @@
+{
+  "name": "trading-pack",
+  "description": "Our own top plugins rolled into one: brainstorm first, galaxy-style UI, code simplifier, senior reviewer, commit command, real-money safety guard, and the desk's own docs.",
+  "version": "1.0.0",
+  "author": { "name": "Minaalex22" },
+  "repository": "https://github.com/Minaalex22/claude-trading-agents",
+  "license": "MIT",
+  "keywords": ["trading", "paper-trading", "safety", "review", "design"]
+}
