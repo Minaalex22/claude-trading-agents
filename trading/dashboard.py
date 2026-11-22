@@ -47,6 +47,7 @@ from .polymarket_desk import PolymarketDesk
 from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
 from . import decision_desk
+from .smart_money import SmartMoney
 from .org import DEPARTMENTS, finish_school, manager_reports
 from .webauth import COOKIE, WebAuth
 
@@ -84,6 +85,7 @@ STATIC = {
     "/pairs.js": ("pairs.js", "text/javascript; charset=utf-8"),
     "/decision.js": ("decision.js", "text/javascript; charset=utf-8"),
     "/decision.css": ("decision.css", "text/css; charset=utf-8"),
+    "/smart.js": ("smart.js", "text/javascript; charset=utf-8"),
     "/pairs.css": ("pairs.css", "text/css; charset=utf-8"),
     "/pipeline.css": ("pipeline.css", "text/css; charset=utf-8"),
     "/duel.js": ("duel.js", "text/javascript; charset=utf-8"),
@@ -386,9 +388,11 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     kind_page = _read("kind.html")  # one page per market type: /crypto /forex /commodities /indices /shares
     polymarket_page = _read("polymarket.html")
     poly = {}  # the Polymarket practice desk, started on first use
+    smart = SmartMoney(env.get("SEC_USER_AGENT"))  # insiders from SEC EDGAR, fetched in the background
     conductor_page = _read("conductor.html")
     pairs_page = _read("pairs.html")
     decision_page = _read("decision.html")
+    smart_page = _read("smart.html")
     floor = {}  # the six-agent practice floor, started on first use
     floor_lock = threading.Lock()
     market_page = _read("market.html")
@@ -568,7 +572,13 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             elif path == "/decision":
                 self._send(200, decision_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/decision":
-                body = decision_desk.build(hub.org(), hub.trades(), hub.prices(), getattr(hub, "sources", None))
+                body = decision_desk.build(hub.org(), hub.trades(), hub.prices(), getattr(hub, "sources", None), smart)
+                self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/smart":
+                self._send(200, smart_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/smart":
+                body = smart.snapshot()
+                body["street"] = hub.sources.street.board() if getattr(hub, "sources", None) else []
                 self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/pairs":
                 self._send(200, pairs_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})

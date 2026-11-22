@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from . import fast_gate as fg
 from . import money_rules
+from . import smart_money
 from .atlas_sources import SYMBOL_TO_MARKET
 
 PER_TRADE_CAP = 10.0  # $ risk per trade until the owner raises it (money rules)
@@ -27,7 +28,7 @@ def _risk_checks(org: dict, pnls: list[float]) -> list[tuple[str, bool, str]]:
     return checks
 
 
-def build(org: dict, trades: dict, prices: dict, sources) -> dict:
+def build(org: dict, trades: dict, prices: dict, sources, smart=None) -> dict:
     deps = org.get("departments", {})
     closed = list(reversed(trades.get("trades", [])))  # oldest first
     pnls = [float(t.get("pnl") or 0.0) for t in closed]
@@ -62,6 +63,8 @@ def build(org: dict, trades: dict, prices: dict, sources) -> dict:
         heads.append(fg.head_from_value("street", sv["direction"] * max(sv["confidence"], 0.2) if sv.get("ready") else None,
                                         1.0, why=f"{sv.get('houses', 0)} analyst houses"))
         heads.append(fg.history_head(by_symbol.get(sym)))
+        v, sc, why = smart_money.vote(smart.summary(sym) if smart else None)
+        heads.append(fg.Head("insiders", v, sc, why))
         out.append(fg.decide(sym, heads, risk, calib, sizing, drift))
     out.sort(key=lambda d: -d["confidence"])
     counts = {v: sum(1 for d in out if d["verdict"] == v) for v in ("ACT", "ESCALATE", "HOLD")}

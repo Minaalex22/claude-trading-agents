@@ -27,3 +27,4 @@
 .sym{display:flex;justify-content:space-between;gap:6px;padding:3px 6px;cursor:pointer;border:1px solid transparent;font-family:var(--ats-mono)}
 .sym:hover,.sym.on{border-color:var(--ats-o)}
 .small{font-size:11px;color:var(--ats-g);line-height:1.5}
+#street{grid-template-columns:minmax(0,1fr)}#street .kv span{max-width:60%}
