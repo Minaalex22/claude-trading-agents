@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · News pipeline</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/pages.css">
+<link rel="stylesheet" href="/pipeline.css">
+</head><body>
+<header class="ats-bar"><a class="ats-brand" href="/"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav"><a href="/news">News</a><a class="on" href="/pipeline">Pipeline</a><a href="/trades">Trades</a><a href="/">Desk</a><a href="/markets">Markets</a><a href="/orderflow">Order flow</a><details class="ats-more"><summary>More</summary><div><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/jarvis">JARVIS</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<main class="pg pl">
+ <div class="pg-head">
+  <div><small id="pl-path">pipeline / news triage · gate 0.80</small><h1>News <b>pipeline</b></h1>
+   <p>Every headline goes through the same steps. A cheap, fast read scores how sure it is. Sure ones are kept. Unsure or high-impact ones go to a deeper read. Everything is logged with what it cost.</p></div>
+  <span class="pg-badge" id="pl-mode">DEMO MODE · ESTIMATED COSTS</span>
+ </div>
+ <section class="pl-hero">
+  <div class="pl-count pg-card">
+   <div><small>Headlines read</small><b id="k-read">0</b></div>
+   <div><small>Kept at the gate</small><b id="k-kept" class="pl-cheap">0</b></div>
+   <div><small>Sent to the deep read</small><b id="k-esc" class="o">0</b></div>
+   <div><small>Overruled (high impact)</small><b id="k-over">0</b></div>
+   <div><small>Flagged for a human</small><b id="k-human" class="dn">0</b></div>
+   <div><small>Audits agreeing</small><b id="k-audit">–</b></div>
+  </div>
+  <div class="pl-core"><div id="core"></div><div class="pl-core-label"><b id="k-save">–</b><small>cost saved vs deep-only</small></div></div>
+  <ol class="pl-stages pg-card" id="stages">
+   <li data-s="dec"><b>DECOMPILE</b><span>tidy each headline, skip repeats (cache)</span></li>
+   <li data-s="tri"><b>TRIAGE</b><span>cheap read: lean, confidence, why, evidence</span></li>
+   <li data-s="gate"><b>GATE</b><span id="s-gate">0.80 · audits move it up or down</span></li>
+   <li data-s="deep"><b>DEEP READ</b><span>observation / inference / unknown</span></li>
+   <li data-s="tags"><b>TAGS</b><span>topic, call, human queue</span></li>
+   <li data-s="bill"><b>BILL</b><span>cheap-only vs deep-only vs hybrid</span></li>
+  </ol>
+ </section>
+
+ <section class="pg-card pl-flowcard"><svg class="pl-flow" id="flow" viewBox="0 0 1200 430" role="img" aria-label="News pipeline: decompile, triage, gate, deep read or cheap only, tags, bill">
+ <defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path class="pl-grid" d="M40 0H0V40"/></pattern></defs>
+ <rect width="1200" height="430" fill="url(#grid)"/>
+ <path class="pl-pipe" id="p1" d="M170 215H220"/>
+ <path class="pl-pipe" id="p2" d="M370 215H430"/>
+ <path class="pl-pipe deep" id="p3" d="M530 215C590 215 590 95 650 95H700"/>
+ <path class="pl-pipe" id="p4" d="M530 215C590 215 590 335 650 335H700"/>
+ <path class="pl-pipe deep" id="p5" d="M850 95H880C920 95 920 215 960 215"/>
+ <path class="pl-pipe" id="p6" d="M850 335H880C920 335 920 215 960 215"/>
+ <path class="pl-pipe" id="p7" d="M1060 215H1080"/>
+ <g class="pl-node " id="n-dec" transform="translate(20,140)"><rect class="pl-box" width="150" height="150" rx="16"/><g class="pl-ico" transform="translate(63.0,16)"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 0v4M12 0v4M16 0v4M8 20v4M12 20v4M16 20v4M0 8h4M0 12h4M0 16h4M20 8h4M20 12h4M20 16h4"/></g><text class="pl-t" x="75.0" y="87.0">DECOMPILE</text><rect class="pl-chip" x="12" y="116" width="126" height="22" rx="6"/><text class="pl-c" id="c-dec" x="75.0" y="131">read 0</text></g>
+ <g class="pl-node " id="n-tri" transform="translate(220,140)"><rect class="pl-box" width="150" height="150" rx="16"/><g class="pl-ico" transform="translate(63.0,16)"><circle cx="10" cy="10" r="7"/><path d="M15 15l7 7"/></g><text class="pl-t" x="75.0" y="87.0">TRIAGE</text><rect class="pl-chip" x="12" y="116" width="126" height="22" rx="6"/><text class="pl-c" id="c-tri" x="75.0" y="131">cheap model</text></g>
+ <g class="pl-node gate" id="n-gate" transform="translate(480,215)"><path class="pl-box" d="M0 -78L78 0L0 78L-78 0Z" transform="translate(0,0)"/><g class="pl-ico" transform="translate(-12,-50)"><path d="M12 1l9 4v6c0 6-4 10-9 12C7 21 3 17 3 11V5z"/><rect x="8" y="10" width="8" height="6" rx="1"/><path d="M10 10V8a2 2 0 014 0v2"/></g><text class="pl-t" x="0" y="10" id="gate-t">GATE 0.80</text><text class="pl-c" x="0" y="34" id="c-gate">thresh 0.80</text></g>
+ <g class="pl-node deep" id="n-deep" transform="translate(700,20)"><rect class="pl-box" width="150" height="150" rx="16"/><g class="pl-ico" transform="translate(63.0,16)"><path d="M9 3a4 4 0 00-4 4 4 4 0 00-2 7 4 4 0 004 5h2zM15 3a4 4 0 014 4 4 4 0 012 7 4 4 0 01-4 5h-2zM12 3v18"/></g><text class="pl-t" x="75.0" y="87.0">DEEP READ</text><rect class="pl-chip" x="12" y="116" width="126" height="22" rx="6"/><text class="pl-c" id="c-deep" x="75.0" y="131">deep model</text></g>
+ <g class="pl-node " id="n-cheap" transform="translate(700,260)"><rect class="pl-box" width="150" height="150" rx="16"/><g class="pl-ico" transform="translate(63.0,16)"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></g><text class="pl-t" x="75.0" y="87.0">CHEAP ONLY</text><rect class="pl-chip" x="12" y="116" width="126" height="22" rx="6"/><text class="pl-c" id="c-cheap" x="75.0" y="131">kept 0</text></g>
+ <g class="pl-node " id="n-tags" transform="translate(960,140)"><rect class="pl-box" width="100" height="150" rx="16"/><g class="pl-ico" transform="translate(38.0,16)"><path d="M2 12V3h9l11 11-9 9z"/><circle cx="7" cy="8" r="1.5"/></g><text class="pl-t" x="50.0" y="87.0">TAGS</text><rect class="pl-chip" x="12" y="116" width="76" height="22" rx="6"/><text class="pl-c" id="c-tags" x="50.0" y="131">index 0</text></g>
+ <g class="pl-node " id="n-bill" transform="translate(1080,140)"><rect class="pl-box" width="110" height="150" rx="16"/><g class="pl-ico" transform="translate(43.0,16)"><rect x="1" y="5" width="22" height="15" rx="2"/><path d="M1 10h22M5 15h6"/></g><text class="pl-t" x="55.0" y="87.0">BILL</text><rect class="pl-chip" x="12" y="116" width="86" height="22" rx="6"/><text class="pl-c" id="c-bill" x="55.0" y="131">$0.00</text></g>
+ <g id="dots"></g>
+</svg>
+  <div class="pl-save"><b id="badge-save">–</b><small>COST SAVINGS</small></div>
+ </section>
+
+ <section class="pg-grid">
+  <div class="pg-card c6"><h3>Bill <span>same headlines, three ways to run them</span></h3><div id="bill"></div>
+   <p class="pg-note" id="bill-note"></p></div>
+  <div class="pg-card c6"><h3>Try a different gate <span>replays the logged headlines</span></h3>
+   <input type="range" id="whatif" min="0.5" max="0.95" step="0.01" value="0.8" aria-label="Gate">
+   <div class="pl-whatif"><div><small>Gate</small><b id="w-gate">0.80</b></div><div><small>Sent deep</small><b id="w-esc">–</b></div><div><small>Cost</small><b id="w-cost">–</b></div><div><small>Saving</small><b id="w-save">–</b></div></div>
+   <canvas id="curve" class="pg-canvas short"></canvas>
+   <p class="pg-note">Line: share sent to the deep read at each gate. Orange dot: where the gate sits now. Pick where cost keeps climbing but accuracy stops improving, usually 0.75 to 0.85.</p></div>
+
+  <div class="pg-card c8"><h3>Every decision <span>newest first</span></h3>
+   <div class="pg-scroll"><table class="pg-tbl"><thead><tr><th>Market</th><th>Headline</th><th class="r">Sure</th><th>Route</th><th>Call</th><th class="hide-s">Tags</th></tr></thead><tbody id="log"></tbody></table></div></div>
+  <div class="pg-card c4"><h3>Human queue <span>still unsure after the deep read</span></h3><div class="pg-list" id="human"></div></div>
+
+  <div class="pg-card c12 pl-term"><h3>Live log</h3><pre id="term">&gt; waiting for headlines…</pre></div>
+ </section>
+ <footer class="pl-status" id="status">SYSTEM: ONLINE · FLOW: – · MODE: DEMO · UPTIME: 00:00:00 · STREAM: STABLE</footer>
+</main>
+<script src="/vendor/three.min.js"></script>
+<script src="/pipeline.js"></script>
+</body></html>
