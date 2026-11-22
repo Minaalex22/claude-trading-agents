@@ -8,6 +8,7 @@ const leanWord = v => v > 0.1 ? "BUY" : v < -0.1 ? "SELL" : "WAIT";
 const C = {o: "#ff5c00", up: "#2fd37a", dn: "#ff4d4d", g: "#8a8a8a", line: "#1f1f1f", w: "#f4f4f4"};
 
 let ORG = {}, FLOW = {books: {}, houses: []}, PRICES = {history: []}, picked = null;
+const fpRedraw = window.Footprint ? Footprint.attach($("#fp"), () => FLOW.books[picked]) : () => {};
 
 function canvas(id) {
   const c = $(id), dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
@@ -87,29 +88,10 @@ $("#board").addEventListener("click", e => { const t = e.target.closest(".pg-til
 function renderFootprint() {
   const b = FLOW.books[picked];
   $("#fp-sym").textContent = picked ? `${picked}${b && b.feed ? " · " + b.feed : ""} · last bars` : "–";
-  let [g, w, h] = canvas("#fp");
-  if (!b || !b.bars.length) { g.fillStyle = C.g; g.fillText("No order flow for this market yet", 10, 20); [g] = canvas("#vp"); [g] = canvas("#cvd"); return; }
-  const bars = b.bars.slice(-8);
-  const levels = new Set(); bars.forEach(x => Object.keys(x.levels).forEach(k => levels.add(+k)));
-  let ps = [...levels].sort((a, c) => c - a);
-  if (ps.length > 22) { const poc = b.profile.poc, i = Math.max(0, ps.findIndex(p => p <= poc)); ps = ps.slice(Math.max(0, i - 11), Math.max(0, i - 11) + 22); }
-  const left = 56, rh = Math.min(22, (h - 20) / ps.length), cw = (w - left) / bars.length;
-  const maxCell = Math.max(1, ...bars.flatMap(x => Object.values(x.levels).map(l => Math.max(l.bid, l.ask))));
-  ps.forEach((p, i) => { g.fillStyle = p === b.profile.poc ? C.o : C.g; g.fillText(num(p, p >= 1000 ? 0 : 2), 4, i * rh + rh * .7); });
-  bars.forEach((x, j) => {
-    const x0 = left + j * cw;
-    ps.forEach((p, i) => {
-      const l = x.levels[p] || x.levels[String(p)]; if (!l) return;
-      const d = l.ask - l.bid, a = Math.min(1, Math.abs(d) / maxCell) * .75 + .12;
-      g.fillStyle = d >= 0 ? `rgba(47,211,122,${a})` : `rgba(255,77,77,${a})`;
-      g.fillRect(x0 + 2, i * rh + 1, cw - 4, rh - 2);
-      if (p === x.poc) { g.strokeStyle = C.o; g.lineWidth = 1.5; g.strokeRect(x0 + 2, i * rh + 1, cw - 4, rh - 2); }
-      if (rh >= 12 && cw > 54) { g.fillStyle = C.w; g.fillText(`${Math.round(l.bid)} x ${Math.round(l.ask)}`, x0 + 6, i * rh + rh * .7); }
-    });
-    g.fillStyle = x.delta >= 0 ? C.up : C.dn; g.fillText(`Δ ${x.delta >= 0 ? "+" : ""}${Math.round(x.delta)}`, x0 + 6, h - 4);
-  });
+  fpRedraw();
+  if (!b || !b.bars.length) { canvas("#vp"); canvas("#cvd"); return; }
   // volume profile
-  [g, w, h] = canvas("#vp");
+  let [g, w, h] = canvas("#vp");
   const sess = Object.entries(b.session_levels).map(([k, v]) => [+k, v]).sort((a, c) => c[0] - a[0]);
   const mx = Math.max(1, ...sess.map(s => s[1])), sh = (h - 10) / Math.max(1, sess.length), pr = b.profile;
   sess.forEach(([p, v], i) => { g.fillStyle = p === pr.poc ? C.o : (p >= pr.val && p <= pr.vah) ? "rgba(255,92,0,.45)" : "#2a2a2a"; g.fillRect(60, i * sh + 5, (w - 64) * v / mx, Math.max(1, sh - 1)); });

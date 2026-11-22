@@ -28,15 +28,16 @@
 
   <div class="pg-card c12"><h3>Every market at a glance <span>price, news lean, chart lean, order flow · tap one to see its footprint</span></h3><div class="pg-board" id="board"></div></div>
 
-  <div class="pg-card c8"><h3>Footprint <span id="fp-sym">–</span></h3><canvas id="fp" class="pg-canvas tall"></canvas>
-   <p class="pg-note">Each box: sellers x buyers at that price. Green = more buyers, red = more sellers. Orange outline = the busiest price (POC).</p></div>
-  <div class="pg-card c4"><h3>Volume profile <span id="vp-sub">–</span></h3><canvas id="vp" class="pg-canvas tall"></canvas></div>
-  <div class="pg-card c6"><h3>Cumulative delta <span>are buyers or sellers in control</span></h3><canvas id="cvd" class="pg-canvas short"></canvas></div>
-  <div class="pg-card c6"><h3>News vs chart <span>how each market leans, −1 sell to +1 buy</span></h3><canvas id="lean" class="pg-canvas short"></canvas></div>
+  <div class="pg-card c12"><h3>Footprint <span id="fp-sym">–</span></h3><canvas id="fp" class="pg-canvas fp"></canvas>
+   <p class="pg-note">Footprint, 1-minute bars. Each box: sellers x buyers at that price. Green = buyers won, red = sellers won, bold = imbalance (3x). Orange box = busiest price of the bar, dashed line = busiest price of the session, right = volume profile, bottom = volume, delta and trades per bar. Hover for exact numbers.</p></div>
+  <div class="pg-card c4"><h3>Volume profile <span id="vp-sub">–</span></h3><canvas id="vp" class="pg-canvas short"></canvas></div>
+  <div class="pg-card c4"><h3>Cumulative delta <span>are buyers or sellers in control</span></h3><canvas id="cvd" class="pg-canvas short"></canvas></div>
+  <div class="pg-card c4"><h3>News vs chart <span>how each market leans, −1 sell to +1 buy</span></h3><canvas id="lean" class="pg-canvas short"></canvas></div>
 
   <div class="pg-card c12"><h3>Analyst houses around the world <span>their latest public call and how often they've been right</span></h3>
    <div class="pg-scroll"><table class="pg-tbl"><thead><tr><th>City</th><th>House</th><th class="r">Hit rate</th><th>Latest call</th></tr></thead><tbody id="houses"></tbody></table></div></div>
  </section>
 </main>
+<script src="/footprint.js"></script>
 <script src="/news.js"></script>
 </body></html>

@@ -1,6 +1,9 @@
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let DATA = {books:{}, houses:[]};
 const pick = document.getElementById('pick');
+let CUR = null;
+const fpDraw = window.Footprint ? Footprint.attach(document.getElementById('fpc'), () => DATA.books[CUR]) : () => {};
+addEventListener('resize', () => fpDraw());
 pick.onchange = () => draw(pick.value);
 function fmt(n){return Math.abs(n)>=1000?n.toFixed(0):(+n.toPrecision(3)).toString()}
 function draw(sym){
@@ -14,36 +17,8 @@ function draw(sym){
   const p = s.profile;
   document.getElementById('prof').innerHTML = p.poc==null ? 'No volume yet' :
     `POC <b>${fmt(p.poc)}</b><br>Value area ${fmt(p.val)} – ${fmt(p.vah)}<br>Volume ${fmt(p.volume)}`;
-  // footprint
-  const bars = s.bars; bars.forEach(b=>{b.lv={};Object.entries(b.levels).forEach(([k,v])=>b.lv[+k]=v);}); if(!bars.length){document.getElementById('fp').textContent='No bars yet';return;}
-  const prices = new Set(); bars.forEach(b=>Object.keys(b.levels).forEach(k=>prices.add(+k)));
-  const ps = [...prices].sort((a,b)=>b-a); const rowH=16, colW=96, left=70, profW=120;
-  const H = ps.length*rowH+30, W = left+bars.length*colW+profW+10;
-  const maxCell = Math.max(1,...bars.flatMap(b=>Object.values(b.levels).map(l=>Math.max(l.bid,l.ask))));
-  const sess = {}; Object.entries(s.session_levels).forEach(([k,v])=>sess[+k]=v); const maxS = Math.max(1,...Object.values(sess));
-  let g = `<svg width="${W}" height="${H}">`;
-  ps.forEach((pr,i)=>{ g+=`<text x="4" y="${i*rowH+12}" class="${pr==p.poc?'t-poc':'t-mute'}">${fmt(pr)}</text>`; });
-  bars.forEach((b,j)=>{
-    const x = left + j*colW;
-    ps.forEach((pr,i)=>{
-      const l = b.lv[pr]; if(!l) return;
-      const y=i*rowH, dl=l.ask-l.bid, a=Math.min(1,Math.abs(dl)/maxCell)*0.8+0.08;
-      const col = dl>=0?'38,162,105':'229,83,75';
-      const isPoc = pr==b.poc;
-      g+=`<rect x="${x}" y="${y}" width="${colW-6}" height="${rowH-2}" rx="2" fill="rgba(${col},${a})" ${isPoc?'class="s-poc"':''}/>`;
-      g+=`<text x="${x+4}" y="${y+11}">${fmt(l.bid)} x ${fmt(l.ask)}</text>`;
-    });
-    (b.stacked_buy||[]).forEach(r=>{const i=ps.indexOf(r[1]),k=ps.indexOf(r[0]); if(i>=0&&k>=0) g+=`<rect x="${x+colW-5}" y="${i*rowH}" width="3" height="${(k-i+1)*rowH-2}" class="f-buy"/>`;});
-    (b.stacked_sell||[]).forEach(r=>{const i=ps.indexOf(r[1]),k=ps.indexOf(r[0]); if(i>=0&&k>=0) g+=`<rect x="${x-3}" y="${i*rowH}" width="3" height="${(k-i+1)*rowH-2}" class="f-sell"/>`;});
-    const dc = b.delta>=0?'f-buy':'f-sell';
-    g+=`<text x="${x+4}" y="${ps.length*rowH+14}" class="${dc}">Δ ${b.delta>=0?'+':''}${fmt(b.delta)}</text>`;
-    if(b.big_trades.length) g+=`<text x="${x+4}" y="${ps.length*rowH+26}" class="t-mute">● ${b.big_trades.length} big</text>`;
-  });
-  const px = left + bars.length*colW + 4;
-  ps.forEach((pr,i)=>{ const v=sess[pr]||0, w=v/maxS*(profW-10);
-    const inVA = p.val!=null && pr>=p.val && pr<=p.vah;
-    g+=`<rect x="${px}" y="${i*rowH+2}" width="${w}" height="${rowH-5}" class="${pr==p.poc?'f-poc':inVA?'f-va':'f-out'}"/>`; });
-  g+='</svg>'; document.getElementById('fp').innerHTML = g;
+  // footprint: the shared pro chart (footprint.js)
+  CUR = sym; fpDraw();
   // CVD
   const c = s.cvd; const cw = Math.max(300, c.length*24), ch = 120;
   const lo = Math.min(0,...c), hi = Math.max(0,...c), sp = (hi-lo)||1;

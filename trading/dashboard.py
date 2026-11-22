@@ -71,6 +71,7 @@ STATIC = {
     "/news.js": ("news.js", "text/javascript; charset=utf-8"),
     "/trades.js": ("trades.js", "text/javascript; charset=utf-8"),
     "/pipeline.js": ("pipeline.js", "text/javascript; charset=utf-8"),
+    "/footprint.js": ("footprint.js", "text/javascript; charset=utf-8"),
     "/pipeline.css": ("pipeline.css", "text/css; charset=utf-8"),
     "/duel.js": ("duel.js", "text/javascript; charset=utf-8"),
     "/markets.js": ("markets.js", "text/javascript; charset=utf-8"),
