@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · Polymarket</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/pages.css">
+<link rel="stylesheet" href="/kind.css">
+</head><body>
+<header class="ats-bar"><a class="ats-brand" href="/"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><details class="ats-more open-on"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a class="on" href="/polymarket">Polymarket</a></div></details><a href="/orderflow">Order flow</a><a href="/">Desk</a><details class="ats-more"><summary>More</summary><div><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/jarvis">JARVIS</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<main class="pg">
+ <div class="pg-head">
+  <div><small>Prediction markets · practice</small><h1><b>Polymarket</b> desk</h1>
+   <p>Prediction markets pay $1 if something happens and $0 if not, so prices are odds. Our bot hunts three safe-ish edges: buying every outcome of an event for under $1, buying YES and NO across two books for under $1, and earning fee rebates by quoting near 50c.</p></div>
+  <span class="pg-badge">SIMULATED BOOKS · NOTHING SENT · NOT LEGAL IN AUSTRALIA</span>
+ </div>
+ <section class="pg-grid">
+  <div class="pg-card c3 pg-kpi"><small>Paper profit</small><b id="k-pnl">–</b><em>locked in when every leg fills</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Edges taken</small><b id="k-n">–</b><em id="k-n-sub">–</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Books scanned</small><b id="k-scan">–</b><em id="k-tick">–</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Safety rules</small><b id="k-depth">–</b><em id="k-rules">–</em></div>
+
+  <div class="pg-card c8"><h3>Profit by strategy <span>paper, since the page started the desk</span></h3><canvas id="curve" class="pg-canvas"></canvas></div>
+  <div class="pg-card c4"><h3>Where profit came from</h3><canvas id="split" class="pg-canvas"></canvas></div>
+
+  <div class="pg-card c6"><h3>Neg-risk events <span>all YES prices of one event added up · under $1 = free money</span></h3><canvas id="events" class="pg-canvas tall"></canvas></div>
+  <div class="pg-card c6"><h3>Cross-book pairs <span>YES on book A + NO on book B · under $1 = arbitrage</span></h3><canvas id="pairs" class="pg-canvas tall"></canvas></div>
+
+  <div class="pg-card c12"><h3>Maker band <span>each dot is a market's price · inside the orange band (40c to 60c) the fee is biggest, so quoting there earns the most rebate</span></h3><canvas id="band" class="pg-canvas short"></canvas></div>
+
+  <div class="pg-card c12"><h3>Paper trades <span>newest first · every leg must pass the risk desk or none go</span></h3>
+   <div class="pg-scroll"><table class="pg-tbl"><thead><tr><th>Time</th><th>Strategy</th><th>Legs</th><th class="r">Locked profit</th></tr></thead><tbody id="trades"></tbody></table></div></div>
+ </section>
+</main>
+<script src="/polymarket.js"></script>
+</body></html>

@@ -119,7 +119,7 @@ const lines = [];
 function term(r) {
   const t = new Date().toLocaleTimeString([], {hour12: false});
   const route = r.route === "deep" ? `<b>&lt; ${r.gate.toFixed(2)} -&gt; deep read</b>` : `&gt;= ${r.gate.toFixed(2)} kept`;
-  lines.push(`[${t}] TRIAGE · ${esc(r.symbol)} · "${esc(String(r.text || "").replace(/^[A-Z]+:\s*/, "").slice(0, 60))}" · sure ${r.triage.confidence.toFixed(2)}${r.triage.why ? " · " + esc(r.triage.why) : ""}`);
+  lines.push(`[${t}] TRIAGE · ${esc(r.symbol)} · "${esc(String(r.text || "").replace(/^[A-Z]+:\s*/, "").slice(0, 60))}" · job: ${esc(r.triage.job || "")} · sure ${r.triage.confidence.toFixed(2)}${r.triage.why ? " · " + esc(r.triage.why) : ""}`);
   lines.push(`[${t}] ROUTE · ${route}${r.overrule ? ` · <b>overrule: ${esc(r.overrule)}</b>` : ""}${r.audit ? " · audit sample" : ""}${r.human ? " · <b>human queue</b>" : ""} · ${r.call}`);
   while (lines.length > 9) lines.shift();
   $("#term").innerHTML = lines.join("\n");

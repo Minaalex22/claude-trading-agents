@@ -388,3 +388,31 @@ class MarketTypePages(Routes):
         js = self.request("GET", "/kind.js", cookie=self.cookie)[1].decode()
         for kind in ("crypto", "forex", "commodity", "index", "share"):
             self.assertIn(f"{kind}()", js)  # every type has its own panels
+
+
+class PolymarketPage(Routes):
+    def test_polymarket_page_and_api(self):
+        self.assertEqual(self.request("GET", "/polymarket")[0].status, 303)
+        for path in ("/polymarket", "/polymarket.js", "/api/polymarket"):
+            self.assertEqual(self.request("GET", path, cookie=self.cookie)[0].status, 200, path)
+        html = self.request("GET", "/polymarket", cookie=self.cookie)[1].decode()
+        self.assertIn("SIMULATED BOOKS", html)
+        self.assertNotIn("style=", html)
+        d = json.loads(self.request("GET", "/api/polymarket", cookie=self.cookie)[1])
+        self.assertEqual(d["mode"], "simulated")
+        self.assertEqual(set(d["pnl"]), {"neg_risk_squeeze", "cross_book_arb", "maker_rebate"})
+        self.assertTrue(d["events"] and d["pairs"] and d["binaries"])
+
+
+class PolymarketDeskTest(unittest.TestCase):
+    def test_desk_books_paper_profit_and_throttles_updates(self):
+        from trading.polymarket_desk import PolymarketDesk
+        d = PolymarketDesk(seed=3)
+        d.step(now=0.0); d.step(now=1.0)  # second call inside 2 seconds: no new book
+        self.assertEqual(d.market.ticks, 1)
+        for i in range(40):
+            d.step(now=10.0 + i * 3)
+        s = d.snapshot()
+        self.assertGreaterEqual(s["tick"], 41)  # snapshot() may add one live update
+        self.assertAlmostEqual(s["total"], round(sum(s["pnl"].values()), 2), places=1)
+        self.assertGreater(sum(s["count"].values()), 0)
