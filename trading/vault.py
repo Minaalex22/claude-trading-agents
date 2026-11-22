@@ -8,7 +8,7 @@ Paper mode never releases a secret.
 import os
 
 SECRET_NAMES = ("POLYMARKET_API_KEY", "POLYMARKET_API_SECRET", "SOLANA_PRIVATE_KEY", "BROKER_API_KEY",
-                "ETORO_API_KEY", "ETORO_USER_KEY", "MT5_PASSWORD", "MOOMOO_TRADE_PASSWORD")
+                "ETORO_API_KEY", "ETORO_USER_KEY", "MT5_PASSWORD", "METAAPI_TOKEN", "MOOMOO_TRADE_PASSWORD")
 
 
 class VaultLocked(PermissionError):
