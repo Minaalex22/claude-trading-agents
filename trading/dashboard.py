@@ -47,6 +47,7 @@ from .polymarket_desk import PolymarketDesk
 from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
 from .org import DEPARTMENTS, finish_school, manager_reports
+from .wallet import Wallet, WalletError
 from .webauth import COOKIE, WebAuth
 
 HISTORY = 500
@@ -86,6 +87,8 @@ STATIC = {
     "/duel.js": ("duel.js", "text/javascript; charset=utf-8"),
     "/markets.js": ("markets.js", "text/javascript; charset=utf-8"),
     "/market.js": ("market.js", "text/javascript; charset=utf-8"),
+    "/wallet.js": ("wallet.js", "text/javascript; charset=utf-8"),
+    "/wallet.css": ("wallet.css", "text/css; charset=utf-8"),
     # Vendored so the strict CSP (scripts only from this site) holds and the cloud app needs no CDN.
     "/vendor/three.min.js": ("vendor/three.min.js", "text/javascript; charset=utf-8"),
     "/vendor/lightweight-charts.js": ("vendor/lightweight-charts.js", "text/javascript; charset=utf-8"),
@@ -388,6 +391,16 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     floor = {}  # the six-agent practice floor, started on first use
     floor_lock = threading.Lock()
     market_page = _read("market.html")
+    wallet_page = _read("wallet.html")
+    wallet = {}  # the practice wallet, loaded on first use
+    wallet_lock = threading.Lock()
+
+    def get_wallet() -> Wallet:
+        with wallet_lock:
+            if "w" not in wallet:
+                wallet["w"] = Wallet(hub.events_dir, env=env)
+            return wallet["w"]
+
     login_page = _read("login.html").decode()
 
     class Handler(BaseHTTPRequestHandler):
@@ -493,7 +506,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs") or path in KIND_PAGES or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/wallet") or path in KIND_PAGES or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -552,6 +565,13 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 if "desk" not in poly:
                     poly["desk"] = PolymarketDesk(env=env)
                 self._send(200, json.dumps(poly["desk"].snapshot()).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/wallet":
+                self._send(200, wallet_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/wallet":
+                latest = hub.price_history[-1]["prices"] if hub.price_history else {}
+                snap = get_wallet().snapshot(desk=hub.trades(), polymarket=poly["desk"].snapshot() if "desk" in poly else None,
+                                             platforms=platforms.status(env), prices=latest)
+                self._send(200, json.dumps(snap).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/conductor":
                 self._send(200, conductor_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/conductor":
@@ -620,6 +640,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._orderflow_trades(raw)
             if path == "/api/street/note":
                 return self._street_note(raw)
+            if path in ("/api/wallet/move", "/api/wallet/watch", "/api/wallet/unwatch"):
+                return self._wallet_post(path, raw)
             if path in ("/api/jarvis/unlock", "/api/jarvis/ask", "/api/jarvis/lock", "/api/jarvis/setup"):
                 return self._jarvis_post(path, raw)
             if MARKET_FAV.fullmatch(path):
@@ -658,6 +680,24 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             except (ValueError, KeyError, TypeError, AssertionError):
                 return self._json(400, {"error": "need {symbol, trades: [...]}"})
             self._json(200, {"used": hub.sources.on_trades(symbol, trades)})
+
+        def _wallet_post(self, path: str, raw: bytes):
+            """Practice money in or out, or add/remove a public crypto address. JSON body. Signed in only."""
+            if not self._authed():
+                return self._json(401, {"error": "sign in required"})
+            try:
+                body = json.loads(raw or b"{}")
+                assert isinstance(body, dict)
+                w = get_wallet()
+                if path == "/api/wallet/move":
+                    return self._json(200, {"entry": w.move(str(body.get("kind", "")), body.get("amount"),
+                                                            str(body.get("note", "")))})
+                if path == "/api/wallet/watch":
+                    return self._json(200, {"watch": w.watch(str(body.get("address", "")), str(body.get("label", "")))})
+                return self._json(200, {"removed": w.unwatch(str(body.get("address", "")))})
+            except (ValueError, AssertionError) as e:  # WalletError is a ValueError
+                msg = str(e) if isinstance(e, WalletError) else "send a JSON object"
+                return self._json(400, {"error": msg})
 
         def _street_note(self, raw: bytes):
             """File one public analyst note: {"house": "dbs", "text": "...", "source": "url"}."""
