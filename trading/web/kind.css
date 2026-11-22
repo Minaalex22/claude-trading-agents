@@ -1,0 +1,23 @@
+.kd-board { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.kd-board .pg-tile .nm { font: 12px var(--ats-sans); color: var(--ats-g); }
+.kd-board .pg-tile .px { font: 700 18px var(--ats-mono); color: var(--ats-w); margin-top: 2px; }
+.kd-chart { height: 380px; margin-top: 10px; }
+.kd-tf { margin-bottom: 4px; }
+.kd-ol { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.kd-ol div { background: #0d0d0d; border: 1px solid #1c1c1c; border-radius: 8px; padding: 8px 10px; }
+.kd-ol small { display: block; font: 10px var(--ats-mono); letter-spacing: .12em; color: var(--ats-g); text-transform: uppercase; }
+.kd-ol b { font: 700 16px var(--ats-mono); color: var(--ats-w); }
+.kd-dir { font: 700 30px var(--ats-sans); margin: 2px 0 10px; }
+.kd-why { margin: 0; padding-left: 16px; color: var(--ats-g); font-size: 13px; line-height: 1.55; }
+.kd-strength { display: grid; grid-template-columns: 54px 1fr 64px; gap: 10px; align-items: center; margin: 9px 0; font: 13px var(--ats-mono); }
+.kd-strength .r { text-align: right; }
+.kd-sessions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
+.kd-sessions div { border: 1px solid #1c1c1c; border-radius: 8px; padding: 8px; text-align: center; font: 11px var(--ats-mono); color: var(--ats-g); }
+.kd-sessions div.open { border-color: var(--ats-o); color: var(--ats-o); box-shadow: 0 0 12px rgba(255, 92, 0, .25); }
+.kd-sessions b { display: block; font: 600 13px var(--ats-sans); color: inherit; }
+.kd-matrix { width: 100%; border-collapse: collapse; font: 12px var(--ats-mono); text-align: center; }
+.kd-matrix td, .kd-matrix th { padding: 7px 4px; border: 1px solid #111; }
+.kd-matrix th { color: var(--ats-o); font-weight: 600; }
+.kd-big { font: 700 34px var(--ats-mono); color: var(--ats-o); }
+@media (max-width: 960px) { .kd-board { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .kd-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kd-chart { height: 300px; } .kd-sessions { grid-template-columns: repeat(2, 1fr); } }

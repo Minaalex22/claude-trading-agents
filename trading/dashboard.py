@@ -72,6 +72,8 @@ STATIC = {
     "/trades.js": ("trades.js", "text/javascript; charset=utf-8"),
     "/pipeline.js": ("pipeline.js", "text/javascript; charset=utf-8"),
     "/footprint.js": ("footprint.js", "text/javascript; charset=utf-8"),
+    "/kind.js": ("kind.js", "text/javascript; charset=utf-8"),
+    "/kind.css": ("kind.css", "text/css; charset=utf-8"),
     "/pipeline.css": ("pipeline.css", "text/css; charset=utf-8"),
     "/duel.js": ("duel.js", "text/javascript; charset=utf-8"),
     "/markets.js": ("markets.js", "text/javascript; charset=utf-8"),
@@ -92,6 +94,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self';
        "manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 MAX_FORM_BYTES = 4096
 MAX_TRADES_BYTES = 262144  # a batch of real trades for the order flow feed
+KIND_PAGES = ("/crypto", "/forex", "/commodities", "/indices", "/shares")
 CLOSED_KEEP = 500  # closed trades the Trades page can list
 MARKET_PAGE = re.compile(r"/markets/[A-Za-z0-9]{1,10}")
 MARKET_API = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}")
@@ -369,6 +372,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     news_page = _read("news.html")
     trades_page = _read("trades.html")
     pipeline_page = _read("pipeline.html")
+    kind_page = _read("kind.html")  # one page per market type: /crypto /forex /commodities /indices /shares
     market_page = _read("market.html")
     login_page = _read("login.html").decode()
 
@@ -475,7 +479,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline") or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline") or path in KIND_PAGES or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -528,6 +532,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._send(200, news_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/trades":
                 self._send(200, trades_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path in KIND_PAGES:
+                self._send(200, kind_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/pipeline":
                 self._send(200, pipeline_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/markets":

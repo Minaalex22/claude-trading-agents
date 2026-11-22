@@ -370,3 +370,21 @@ class PipelinePage(Routes):
         data = json.loads(self.request("GET", "/api/pipeline", cookie=self.cookie)[1])
         self.assertEqual(data["mode"], "demo")
         self.assertIn("savings", data)
+
+
+class MarketTypePages(Routes):
+    """One page per market type, each with its own panels, all linked from the Markets menu."""
+
+    def test_each_type_page_is_served_and_linked(self):
+        for path in ("/crypto", "/forex", "/commodities", "/indices", "/shares"):
+            self.assertEqual(self.request("GET", path)[0].status, 303, path)
+            resp, body = self.request("GET", path, cookie=self.cookie)
+            self.assertEqual(resp.status, 200, path)
+            self.assertNotIn("style=", body.decode())
+            news = self.request("GET", "/news", cookie=self.cookie)[1].decode()
+            self.assertIn(f'href="{path}"', news)
+        for path in ("/kind.js", "/kind.css"):
+            self.assertEqual(self.request("GET", path, cookie=self.cookie)[0].status, 200, path)
+        js = self.request("GET", "/kind.js", cookie=self.cookie)[1].decode()
+        for kind in ("crypto", "forex", "commodity", "index", "share"):
+            self.assertIn(f"{kind}()", js)  # every type has its own panels
