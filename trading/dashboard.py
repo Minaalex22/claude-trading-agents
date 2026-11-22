@@ -46,6 +46,8 @@ from .news_pipeline import NewsPipeline
 from .polymarket_desk import PolymarketDesk
 from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
+from . import decision_desk
+from .smart_money import SmartMoney
 from . import session_desks
 from .org import DEPARTMENTS, finish_school, manager_reports
 from .webauth import COOKIE, WebAuth
@@ -82,6 +84,9 @@ STATIC = {
     "/conductor.js": ("conductor.js", "text/javascript; charset=utf-8"),
     "/conductor.css": ("conductor.css", "text/css; charset=utf-8"),
     "/pairs.js": ("pairs.js", "text/javascript; charset=utf-8"),
+    "/decision.js": ("decision.js", "text/javascript; charset=utf-8"),
+    "/decision.css": ("decision.css", "text/css; charset=utf-8"),
+    "/smart.js": ("smart.js", "text/javascript; charset=utf-8"),
     "/pairs.css": ("pairs.css", "text/css; charset=utf-8"),
     "/desks.js": ("desks.js", "text/javascript; charset=utf-8"),
     "/desks.css": ("desks.css", "text/css; charset=utf-8"),
@@ -388,8 +393,11 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     kind_page = _read("kind.html")  # one page per market type: /crypto /forex /commodities /indices /shares
     polymarket_page = _read("polymarket.html")
     poly = {}  # the Polymarket practice desk, started on first use
+    smart = SmartMoney(env.get("SEC_USER_AGENT"))  # insiders from SEC EDGAR, fetched in the background
     conductor_page = _read("conductor.html")
     pairs_page = _read("pairs.html")
+    decision_page = _read("decision.html")
+    smart_page = _read("smart.html")
     desks_page = _read("desks.html")  # the four session desks: /desks and /desks/<sydney|asia|london|newyork>
     floor = {}  # the six-agent practice floor, started on first use
     floor_lock = threading.Lock()
@@ -567,6 +575,21 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 snap = floor["c"].snapshot()
                 snap["org"] = conductor_departments(hub.org(), snap, control.read(hub.events_dir) or control.MIN_DEPARTMENT_SIZE)
                 self._send(200, json.dumps(snap).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/decision":
+                self._send(200, decision_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/decision":
+                prices_now = hub.prices()
+                hist = prices_now.get("history") or []
+                with hub.cond:
+                    leans = {sym: hub.pipeline.lean(sym) for sym in (hist[-1]["prices"] if hist else {})}
+                body = decision_desk.build(hub.org(), hub.trades(), prices_now, getattr(hub, "sources", None), smart, leans)
+                self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/smart":
+                self._send(200, smart_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/smart":
+                body = smart.snapshot()
+                body["street"] = hub.sources.street.board() if getattr(hub, "sources", None) else []
+                self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/pairs":
                 self._send(200, pairs_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/pairs":
