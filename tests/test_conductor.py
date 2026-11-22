@@ -65,3 +65,30 @@ class ConductorTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DepartmentsTest(unittest.TestCase):
+    def test_our_agents_fill_six_departments(self):
+        org = {"tick": 9, "departments": {
+            "trend": {"agents": 350, "votes": [0.5] * 300 + [None] * 50, "pnl": 10.0, "trade_wins": 6, "trade_losses": 4, "trades_total": 10},
+            "reversion": {"agents": 350, "votes": [-0.5] * 350, "pnl": -2.0, "trade_wins": 1, "trade_losses": 1, "trades_total": 2},
+            "research": {"agents": 351, "votes": [0.2] * 351, "pnl": 0.0, "trade_wins": 0, "trade_losses": 0},
+            "risk": {"agents": 350, "votes": [0.7] * 350, "pnl": 0.0, "trade_wins": 0, "trade_losses": 0}},
+            "managers": [{"manager": "Atlas", "call": "favour trend"}]}
+        d = C.departments(org)
+        self.assertEqual(d["total"], 1401)  # every agent counted once, none invented
+        names = [x["name"] for x in d["departments"]]
+        self.assertEqual(names, ["Entry", "Scalper", "News", "Exit", "Risk", "Hedge"])
+        by = {x["key"]: x for x in d["departments"]}
+        self.assertEqual(by["entry"]["agents"], 350)
+        self.assertEqual(by["news"]["agents"] + by["exit"]["agents"], 351)
+        self.assertEqual(by["entry"]["active"], 300)
+        self.assertEqual(by["entry"]["desk"]["win_rate"], 0.6)
+        self.assertEqual(by["hedge"]["shares_with"], "Risk")
+        self.assertEqual([m["name"] for m in d["managers"]], ["Atlas", "Sage", "Sentinel"])
+        self.assertEqual(d["managers"][0]["call"], "favour trend")
+
+    def test_before_the_desk_reports(self):
+        d = C.departments(None, per_department=350)
+        self.assertEqual(d["total"], 1400)
+        self.assertFalse(d["live"])

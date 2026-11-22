@@ -13,8 +13,8 @@
 <header class="ats-bar"><a class="ats-brand" href="/"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a class="on" href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/">Desk</a><details class="ats-more"><summary>More</summary><div><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/jarvis">JARVIS</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
 <main class="pg cd">
  <div class="pg-head">
-  <div><small>6 agents · 6 live charts · 1 conductor</small><h1><b>Agents</b> trading floor</h1>
-   <p>Six specialist agents send proposals. The Conductor asks the Risk agent, settles fights (Risk, then Hedge, then Exit, then Entry) and only then places a paper order. No agent can trade on its own. Fees and slippage are charged on every fill.</p></div>
+  <div><small id="sub">our agents · 6 departments · 3 managers · 1 conductor</small><h1><b>Agents</b> trading floor</h1>
+   <p>Our agents work in six departments under Atlas, Sage and Sentinel. Each department sends proposals. The Conductor asks Risk, settles fights (Risk, then Hedge, then Exit, then Entry) and only then places a paper order. No department can trade on its own. Fees and slippage are charged on every fill.</p></div>
   <span class="pg-badge">SIMULATED · NOT LIVE TRADING · PRACTICE ACCOUNT</span>
  </div>
  <section class="pg-grid">
@@ -22,6 +22,10 @@
   <div class="pg-card c3 pg-kpi"><small>Today</small><b id="k-day">–</b><em id="k-day-sub">–</em></div>
   <div class="pg-card c3 pg-kpi"><small>Win rate</small><b id="k-wr">–</b><em id="k-wr-sub">–</em></div>
   <div class="pg-card c3 pg-kpi"><small>Risk desk</small><b id="k-risk">–</b><em id="k-risk-sub">–</em></div>
+
+  <div class="pg-card c12"><h3>Our departments <span id="org-sub">–</span></h3>
+   <div class="cd-org"><div class="cd-boss"><b>CONDUCTOR</b><small>runs the floor · Risk &gt; Hedge &gt; Exit &gt; Entry</small></div>
+    <div class="cd-mgrs" id="mgrs"></div><div class="cd-depts" id="depts"></div></div></div>
 
   <div class="pg-card c9 cd-wall"><h3>Six charts <span>entry (orange), stop (red), target (green), EMA 9 and 21, signals</span></h3><div id="wall" class="cd-grid"></div></div>
   <div class="pg-card c3 cd-term"><h3>Agent terminal <span id="clock">–</span></h3><div class="cd-legend" id="legend"></div><div id="term" class="cd-lines"></div></div>
@@ -36,7 +40,7 @@
   <div class="pg-card c6"><h3>Strategies <span>the daily review benches a strategy that keeps losing</span></h3>
    <table class="pg-tbl"><thead><tr><th>Strategy</th><th class="r">Trades</th><th class="r">Win</th><th class="r">Total R</th><th class="r">Profit</th></tr></thead><tbody id="strats"></tbody></table>
    <p class="pg-note" id="stat-note"></p></div>
-  <div class="pg-card c6"><h3>The six agents</h3><div id="agents" class="pg-list"></div></div>
+  <div class="pg-card c6"><h3>Department leads on the floor <span>one lead per department speaks for it in the terminal</span></h3><div id="agents" class="pg-list"></div></div>
 
   <div class="pg-card c12"><h3>Closed trades <span>newest first · with R multiple, time held and why it closed</span></h3>
    <div class="pg-scroll"><table class="pg-tbl"><thead><tr><th>Asset</th><th>Side</th><th class="hide-s">Strategy</th><th class="r">Profit</th><th class="r">R</th><th class="r hide-s">Mins</th><th>Why closed</th></tr></thead><tbody id="closed"></tbody></table></div></div>

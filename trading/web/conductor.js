@@ -205,6 +205,27 @@ function orb(now) {
   requestAnimationFrame(orb);
 }
 
+function org() {
+  const O = D.org; if (!O) return;
+  const n = O.total.toLocaleString();
+  $("#sub").textContent = `${n} agents · 6 departments · 3 managers · 1 conductor`;
+  $("#org-sub").textContent = O.live ? `${n} agents from the desk, live at tick ${O.tick}` : `${n} agents · the desk has not reported yet, so performance is blank`;
+  $("#mgrs").innerHTML = O.managers.map(m => `<div class="cd-mgr"><b>${esc(m.name)}</b><small>${esc(m.title)} · ${m.agents.toLocaleString()} agents · ${m.departments.join(" + ")}</small>${m.call ? `<em>${esc(m.call)}</em>` : ""}</div>`).join("");
+  const pc = v => v == null ? "–" : Math.round(v * 100) + "%";
+  $("#depts").innerHTML = O.departments.map(d => {
+    const tot = Math.max(1, d.active), b = d.buy / tot * 100, s = d.sell / tot * 100, dk = d.desk || {};
+    return `<div class="cd-dept" data-a="${d.key}"><header><b>${esc(d.name.toUpperCase())}</b><span>${d.agents.toLocaleString()}</span></header>
+      <div class="k">${esc(d.kinds)}</div>
+      <div class="bar" title="buy / sell votes"><i class="b" data-w="${b}"></i><i class="s" data-w="${s}"></i></div>
+      <dl><dt>voting now</dt><dd>${d.active}</dd><dt>buy · sell</dt><dd><span class="up">${d.buy}</span> · <span class="dn">${d.sell}</span></dd>
+      <dt>desk win rate</dt><dd>${pc(dk.win_rate)}</dd><dt>desk P&amp;L</dt><dd class="${(dk.pnl || 0) >= 0 ? "up" : "dn"}">${dk.pnl == null || !dk.trades ? "–" : usd(dk.pnl, 0)}</dd>
+      <dt>floor trades</dt><dd>${d.floor ? `${d.floor.n} · ${Math.round(d.floor.wins / d.floor.n * 100)}% won` : "–"}</dd></dl>
+      <div class="mg">MANAGER ${esc(d.manager.toUpperCase())}${d.shares_with ? ` · desk figures shared with ${esc(d.shares_with)}` : ""}</div></div>`;
+  }).join("");
+  document.querySelectorAll(".cd-dept").forEach(el => el.style.setProperty("--c", COL[el.dataset.a]));
+  document.querySelectorAll(".cd-dept .bar i").forEach(el => el.style.width = el.dataset.w + "%");
+}
+
 async function load() {
   let next;
   try { const r = await fetch("/api/conductor", {cache: "no-store"}); if (r.status === 401) { location.href = "/login"; return; } next = await r.json(); } catch (e) { return; }
@@ -212,7 +233,7 @@ async function load() {
   if (lastPulse != null && D.pulse > lastPulse) pulseAt = performance.now();
   lastPulse = D.pulse;
   D.charts.forEach(drawChart);
-  terminal(); toasts(); kpis(); states(); rules(); strategies(); closed(); curve();
+  org(); terminal(); toasts(); kpis(); states(); rules(); strategies(); closed(); curve();
 }
 legend(); load(); setInterval(load, 1600); requestAnimationFrame(orb);
 addEventListener("resize", () => D && curve());
