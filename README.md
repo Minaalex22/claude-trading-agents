@@ -627,3 +627,19 @@ python -m unittest discover -s tests -t .
 
 CI runs this as a matrix build (`.github/workflows/tests.yml`) on Linux, macOS and Windows with
 Python 3.10–3.14, for every pull request and every push to `main`.
+
+## Order flow and analysts for Atlas (/orderflow)
+
+ATAS has no cloud API, so the app has its own ATAS-style order flow: footprint (sellers x buyers at each
+price), delta and cumulative delta, volume profile (POC and value area), big trades, stacked imbalances
+and absorption (`trading/orderflow.py`). With no trade feed it estimates from price ticks; a real feed can
+push trades to `POST /api/orderflow/trades` (`{"symbol", "trades": [{"ts", "price", "size", "side"}]}`,
+signed in or bridge token).
+
+Atlas also follows a "street view" from the top 5 analysis houses in New York, London, China and
+Singapore (`trading/street_view.py`), from their public notes only (`POST /api/street/note`
+`{"house": "dbs", "text": "..."}`). Notes are read by Claude when `ANTHROPIC_API_KEY` is set, otherwise a word list,
+and each house is scored on how often its calls come true.
+
+`GET /api/atlas/check?symbol=BTC-USD&side=buy` combines both: approve or veto, a confidence multiplier and
+plain reasons. It never places orders. Real money stays locked.
