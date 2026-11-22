@@ -20,7 +20,7 @@ function render() {
   let rows = data.products;
   if (tab === "favourites") rows = rows.filter(r => data.favourites.includes(r.symbol));
   else if (tab !== "all") rows = rows.filter(r => r.kind === tab);
-  $("#board").innerHTML = "<tr><th></th><th class="l">Product</th><th>Price</th><th>5 min</th><th>1 day</th><th>40 days</th><th>48 h</th></tr>" +
+  $("#board").innerHTML = "<tr><th></th><th class='l'>Product</th><th>Price</th><th>5 min</th><th>1 day</th><th>40 days</th><th>48 h</th></tr>" +
     (rows.map(r => `<tr><td><span class="mk-star ${data.favourites.includes(r.symbol) ? "on" : ""}" data-fav="${esc(r.symbol)}" role="button" tabindex="0">★</span></td>
      <td class="l"><a href="/markets/${esc(r.symbol)}">${esc(r.name)}</a> <span class="mut">${esc(r.symbol)}</span></td>
      <td>${fmt(r.price)}</td><td>${pct(r.change_5m)}</td><td>${pct(r.change_1d)}</td><td>${pct(r.change_40d)}</td><td>${spark(r.spark)}</td></tr>`).join("")
