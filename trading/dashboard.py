@@ -62,6 +62,8 @@ STATIC = {
     "/orderflow.css": ("orderflow.css", "text/css; charset=utf-8"),
     "/orderflow.js": ("orderflow.js", "text/javascript; charset=utf-8"),
     "/markets.css": ("markets.css", "text/css; charset=utf-8"),
+    "/galaxy.css": ("galaxy.css", "text/css; charset=utf-8"),
+    "/galaxy.js": ("galaxy.js", "text/javascript; charset=utf-8"),
     "/markets.js": ("markets.js", "text/javascript; charset=utf-8"),
     "/market.js": ("market.js", "text/javascript; charset=utf-8"),
     # Vendored so the strict CSP (scripts only from this site) holds and the cloud app needs no CDN.
@@ -319,6 +321,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     jarvis_page = _read("jarvis.html")
     orderflow_page = _read("orderflow.html")
     markets_page = _read("markets.html")
+    galaxy_page = _read("galaxy.html")
     market_page = _read("market.html")
     login_page = _read("login.html").decode()
 
@@ -425,7 +428,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets") or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy") or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -464,6 +467,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             elif path == "/api/agents":
                 body = {"per_department": control.read(hub.events_dir)}
                 self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/galaxy":
+                self._send(200, galaxy_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/markets":
                 self._send(200, markets_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif MARKET_PAGE.fullmatch(path):

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · Galaxy</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/galaxy.css">
+</head><body class="gx">
+<header class="gx-top">
+ <div class="gx-title"><span class="gx-mark"></span><b>ATS MATRIX</b><i>/</i><span>AGENT GALAXY</span></div>
+ <div class="gx-metrics">
+  <div><small>Agents</small><b id="m-agents">–</b></div>
+  <div><small>Equity</small><b id="m-equity">–</b></div>
+  <div><small>Session P&amp;L</small><b id="m-pnl">–</b></div>
+  <div><small>Win rate</small><b id="m-win">–</b></div>
+  <div><small>Orders</small><b id="m-orders">–</b></div>
+  <div><small>Proven</small><b id="m-proven">–</b></div>
+  <div><small>Mode</small><b class="gx-o">PRACTICE</b></div>
+ </div>
+</header>
+<nav class="gx-nav"><a href="/">Command</a><a class="on" href="/galaxy">Galaxy</a><a href="/3d">3D lab</a><a href="/markets">Markets</a><a href="/jarvis">JARVIS</a><a href="/log">Event log</a><a href="/orderflow">Order flow</a><form method="post" action="/logout"><button type="submit">Sign out</button></form></nav>
+<main class="gx-main">
+ <aside class="gx-list">
+  <h3>Top agents <span class="gx-dim">· by profit</span></h3>
+  <ol id="rank"></ol>
+  <p class="gx-legend"><span class="gx-dot o"></span>picked <span class="gx-dot g"></span>scanned</p>
+ </aside>
+ <section class="gx-stage">
+  <div class="gx-cats" id="cats"></div>
+  <canvas id="sky"></canvas>
+  <div class="gx-term">
+   <div class="gx-term-bar"><span></span><span></span><span></span><em>atlas / live desk</em></div>
+   <pre id="term">&gt; connecting to the desk…</pre>
+  </div>
+ </section>
+</main>
+<footer class="gx-foot">
+ <div class="gx-prog-text"><b id="p-rank">#01 / 20</b> <span id="p-name">loading</span> <span class="gx-dim" id="p-state">scanning</span></div>
+ <div class="gx-prog"><i id="p-bar"></i></div>
+ <div class="gx-dim gx-src" id="p-src">practice money only · real money locked</div>
+</footer>
+<script src="/galaxy.js"></script>
+</body></html>
