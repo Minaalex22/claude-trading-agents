@@ -254,3 +254,25 @@ class Routes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GalaxyPage(Routes):
+    """The agent galaxy page (/galaxy) shares the Markets test server setup."""
+
+    def test_galaxy_needs_sign_in(self):
+        resp, _ = self.request("GET", "/galaxy")
+        self.assertEqual((resp.status, resp.getheader("Location")), (303, "/login"))
+
+    def test_galaxy_page_and_assets(self):
+        for path in ("/galaxy", "/galaxy.js", "/galaxy.css"):
+            self.assertEqual(self.request("GET", path, cookie=self.cookie)[0].status, 200, path)
+        html = self.request("GET", "/galaxy", cookie=self.cookie)[1].decode()
+        self.assertIn('<script src="/galaxy.js">', html)
+        self.assertNotIn("<script>", html)
+        self.assertNotIn("style=", html)
+        self.assertIn("real money locked", html)
+
+    def test_every_page_links_to_galaxy(self):
+        for path in ("/", "/3d", "/jarvis", "/log", "/markets", "/markets/BTC", "/orderflow"):
+            html = self.request("GET", path, cookie=self.cookie)[1].decode()
+            self.assertIn('href="/galaxy"', html, path)

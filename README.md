@@ -232,6 +232,14 @@ drawdown limit that halts new risk.
 **Paper mode only.** Prices are simulated, or real with `MARKET=live`, but fills are always paper. No real
 orders are ever sent.
 
+## Galaxy: the whole desk on one screen
+
+Open **Galaxy** in the top bar (`/galaxy`). Black and orange HUD: every agent is a dot clustered around its
+department, the top agents by profit are the big orange nodes wired to the markets they trade, and the
+camera eases to each one in turn (click a row to jump). The top bar shows agents, equity, session P&L,
+win rate, orders and proven agents; the terminal shows the desk's live orders and risk caps. Practice
+money only, real money stays locked.
+
 ## Markets: 25 products with their own pages
 
 Open **Markets** in the top bar (`/markets`). It covers 5 crypto, 5 forex, 5 commodities,
