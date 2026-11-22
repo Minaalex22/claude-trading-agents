@@ -316,7 +316,7 @@ class NewsAndTradesPages(Routes):
             self.assertEqual((resp.status, resp.getheader("Location")), (303, "/login"), path)
 
     def test_pages_and_assets(self):
-        for path in ("/news", "/trades", "/news.js", "/trades.js", "/pages.css", "/theme.css", "/api/trades"):
+        for path in ("/news", "/trades", "/news.js", "/trades.js", "/pages.css", "/theme.css", "/api/trades", "/footprint.js"):
             self.assertEqual(self.request("GET", path, cookie=self.cookie)[0].status, 200, path)
         for path in ("/news", "/trades"):
             html = self.request("GET", path, cookie=self.cookie)[1].decode()

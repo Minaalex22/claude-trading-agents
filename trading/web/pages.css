@@ -60,3 +60,5 @@
   .pg-tbl { font-size: 12px; } .pg-tbl .hide-s { display: none; }
 }
 .pg-gap { margin-top: 18px !important; }
+.pg-canvas.fp { height: 520px; cursor: crosshair; border-radius: 8px; }
+@media (max-width: 560px) { .pg-canvas.fp { height: 420px; } }
