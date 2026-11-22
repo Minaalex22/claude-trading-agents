@@ -19,6 +19,12 @@ Copy the tokens from `trading/web/galaxy.css` rather than inventing new ones.
 }
 ```
 
+## Start with 2 directions
+
+For a new page (not a small tweak), first describe **2 short design directions** inside the galaxy look,
+for example "dense trading terminal" vs "big hero numbers with a galaxy behind". Say which you'd pick and
+why, and wait for a pick before building.
+
 ## Do
 
 - Black background, white text, **orange only for what matters**: the live value, the selected item,

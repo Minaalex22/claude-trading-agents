@@ -9,7 +9,7 @@
       "name": "trading-pack",
       "source": "./plugins/trading-pack",
       "description": "Brainstorm before building, black and orange galaxy UI, senior reviewer, real-money safety guard, and the desk's own docs.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "category": "development"
     }
   ]

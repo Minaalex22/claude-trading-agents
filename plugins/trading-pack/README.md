@@ -32,6 +32,16 @@ claude plugin install trading-pack@jarvis-plugins
 
 Update later with `/plugin marketplace update jarvis-plugins`.
 
+## Try it (check it works)
+
+After installing, start a new Claude Code session in this repo and type:
+
+- "Build a new page for the agents' win rates" -> **brainstorm** asks questions first, no code yet
+- "Build the UI for it" -> **frontend-design** offers 2 galaxy-style directions
+- "Review my changes" -> the **reviewer** agent checks the diff
+- "Add a new broker connector" -> **trading-safety** and **stack-docs** load before any code
+- "Set LIVE_TRADING_ENABLED to True" -> the **real-money guard** blocks it
+
 ## Use it
 
 - Skills switch on by themselves when the task fits (building a page loads `frontend-design`).
