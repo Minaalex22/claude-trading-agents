@@ -46,6 +46,7 @@ from .news_pipeline import NewsPipeline
 from .polymarket_desk import PolymarketDesk
 from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
+from . import decision_desk
 from .org import DEPARTMENTS, finish_school, manager_reports
 from .webauth import COOKIE, WebAuth
 
@@ -81,6 +82,8 @@ STATIC = {
     "/conductor.js": ("conductor.js", "text/javascript; charset=utf-8"),
     "/conductor.css": ("conductor.css", "text/css; charset=utf-8"),
     "/pairs.js": ("pairs.js", "text/javascript; charset=utf-8"),
+    "/decision.js": ("decision.js", "text/javascript; charset=utf-8"),
+    "/decision.css": ("decision.css", "text/css; charset=utf-8"),
     "/pairs.css": ("pairs.css", "text/css; charset=utf-8"),
     "/pipeline.css": ("pipeline.css", "text/css; charset=utf-8"),
     "/duel.js": ("duel.js", "text/javascript; charset=utf-8"),
@@ -385,6 +388,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     poly = {}  # the Polymarket practice desk, started on first use
     conductor_page = _read("conductor.html")
     pairs_page = _read("pairs.html")
+    decision_page = _read("decision.html")
     floor = {}  # the six-agent practice floor, started on first use
     floor_lock = threading.Lock()
     market_page = _read("market.html")
@@ -561,6 +565,11 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 snap = floor["c"].snapshot()
                 snap["org"] = conductor_departments(hub.org(), snap, control.read(hub.events_dir) or control.MIN_DEPARTMENT_SIZE)
                 self._send(200, json.dumps(snap).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/decision":
+                self._send(200, decision_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/decision":
+                body = decision_desk.build(hub.org(), hub.trades(), hub.prices(), getattr(hub, "sources", None))
+                self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/pairs":
                 self._send(200, pairs_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/pairs":
