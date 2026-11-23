@@ -94,6 +94,10 @@ class MetaApi:
         if missing:
             raise PermissionError(f"Set {', '.join(missing)} on the server to connect MetaTrader 5.")
         self._token = env["METAAPI_TOKEN"].strip()
+        if not self._token.isascii() or any(c.isspace() for c in self._token):
+            raise PermissionError("METAAPI_TOKEN looks like hidden dots or has odd characters, not the real token. "
+                                  "In app.metaapi.cloud copy the token itself (use its copy button), then paste "
+                                  "it into METAAPI_TOKEN on Render and save.")
         acc_id, region = (env.get("METAAPI_ACCOUNT_ID") or "").strip(), env.get("METAAPI_REGION")
         if not acc_id:
             acc_id, found_region = discover(self._token, http)
