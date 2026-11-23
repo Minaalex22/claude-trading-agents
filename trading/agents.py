@@ -315,6 +315,48 @@ class MeanReversion(Trader):
         return max(-1.0, min(1.0, -z / 2 * self.reversion_trust()))
 
 
+class RSI2(Trader):
+    """Larry Connors' RSI(2) (added at mina's request): buy a sharp 2-bar pullback in an uptrend, sell a sharp 2-bar pop in a downtrend.
+
+    - Trend: price above (long) or below (short) its long moving average (the agent's long look back, standing
+      in for Connors' 200-day average).
+    - Entry: RSI over the last 2 moves below `RSI2_LOW` (long) or above `RSI2_HIGH` (short); deeper means
+      stronger.
+    - Exit: RSI(2) back above `RSI2_EXIT` (long) / below 100 - `RSI2_EXIT` (short), or price back across its
+      5-bar average. The desk's exit discipline (trading/exits.py) still applies on top.
+    """
+
+    kind = "rsi2"
+    style = REVERSION
+
+    def rsi2(self) -> float:
+        p = list(self.prices)[-3:]
+        gains = sum(max(0.0, b - a) for a, b in zip(p, p[1:]))
+        losses = sum(max(0.0, a - b) for a, b in zip(p, p[1:]))
+        if gains + losses == 0:
+            return 50.0
+        return 100.0 * gains / (gains + losses)
+
+    def decide(self):
+        prices = list(self.prices)
+        if len(prices) < 6:
+            return 0.0
+        rsi = self.rsi2()
+        trend = statistics.fmean(self.history) if self.history else statistics.fmean(prices)
+        ma5 = statistics.fmean(prices[-5:])
+        now = prices[-1]
+        trust = self.reversion_trust()
+        if self.position > 0:  # in a long: hold until the bounce is done
+            return 0.0 if rsi > RSI2_EXIT or now > ma5 else self.position
+        if self.position < 0:
+            return 0.0 if rsi < 100 - RSI2_EXIT or now < ma5 else self.position
+        if now > trend and rsi < RSI2_LOW:
+            return min(1.0, (RSI2_LOW - rsi) / RSI2_LOW + 0.5) * trust
+        if now < trend and rsi > RSI2_HIGH:
+            return -min(1.0, (rsi - RSI2_HIGH) / (100 - RSI2_HIGH) + 0.5) * trust
+        return 0.0
+
+
 class RegimeAnalyst(Agent):
     """Efficiency ratio: net move / total path. Near 1 = trending, near 0 = choppy."""
 
@@ -361,7 +403,14 @@ class VolatilityMonitor(Agent):
 
 
 TREND_TYPES = (Momentum, MovingAverageCross, Breakout)
-TRADER_TYPES = TREND_TYPES + (MeanReversion,)
+REVERSION_TYPES = (MeanReversion, RSI2)
+TRADER_TYPES = TREND_TYPES + REVERSION_TYPES
+RSI2_LOW, RSI2_HIGH, RSI2_EXIT = 10.0, 90.0, 70.0
+# Share of the Reversion department that trades RSI(2); the rest trade the z-score fade. Off by default (env
+# RSI2_SHARE): on unseen practice runs half RSI(2) cut Reversion's win rate from 60.2% to 59.1%, and on real
+# BTC, ETH and SOL bars from 50.4% to 47.6% (15m) and 56.0% to 53.2% (5m). It did cut Reversion's loss on the
+# 5m bars (-41.7k to -7.5k). Stricter entries (RSI below 5 or 2) didn't help.
+RSI2_SHARE = 0.0
 
 
 def build_team(count: int, symbols: list[str], seed: int = 0) -> list[Agent]:
@@ -385,9 +434,15 @@ def build_team(count: int, symbols: list[str], seed: int = 0) -> list[Agent]:
         cls = TREND_TYPES[i % len(TREND_TYPES)]
         return cls(f"trend-{i:04d}-{cls.kind}", symbol, rng.randint(5, 60))
 
+    def reversion(i, symbol):
+        window = rng.randint(5, 60)
+        if RSI2_SHARE and (i * RSI2_SHARE) % 1 + RSI2_SHARE >= 1:  # every 1/RSI2_SHARE-th agent
+            return RSI2(f"reversion-{i:04d}-rsi2", symbol, window)
+        return MeanReversion(f"reversion-{i:04d}", symbol, window)
+
     return (
         staff("trend", trend)
-        + staff("reversion", lambda i, s: MeanReversion(f"reversion-{i:04d}", s, rng.randint(5, 60)))
+        + staff("reversion", reversion)
         + staff("research", lambda i, s: RegimeAnalyst(f"research-{i:04d}", s, rng.randint(10, 80)))
         + staff("risk", lambda i, s: VolatilityMonitor(f"risk-{i:04d}", s, rng.randint(10, 40),
                                                        rng.uniform(0.008, 0.02)))
