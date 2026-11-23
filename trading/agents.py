@@ -39,6 +39,7 @@ class Vote:
     role: str  # "trader" | "analyst" | "risk"
     symbol: str | None
     value: float  # trader: -1..1 direction, analyst: -1 (ranging) .. 1 (trending), risk: 0..1 exposure
+    practice: bool = False  # a practice-quota trade: scored for the agent, never sent to the desk
 
 
 class Agent:
@@ -132,7 +133,7 @@ class Agent:
         self.workspace["votes_cast"] += 1
         if self.role == "trader":
             self._trade(value)
-        return Vote(self.agent_id, self.role, self.symbol, value)
+        return Vote(self.agent_id, self.role, self.symbol, value, practice=self.role == "trader" and self.must_practice)
 
     def _agreement(self, direction: float) -> float:
         """How much the reading room's view (news + chart) agrees with a trade in `direction`, -1..1."""
@@ -206,7 +207,9 @@ class Agent:
                                             "sure": self.workspace.get("sureness", abs(signal)),
                                             **entry_filters.features(self, position)}
         if self.account is not None and self.prices:
-            self.account.rebalance(position, self.prices[-1])
+            # The practice account (proven board, real-money proposals) follows chosen trades only: during a
+            # practice-quota trade it stays flat, so homework never builds or breaks an agent's record.
+            self.account.rebalance(0.0 if self.must_practice else position, self.prices[-1])
         self.position = position
 
     def _close_trade(self) -> None:
