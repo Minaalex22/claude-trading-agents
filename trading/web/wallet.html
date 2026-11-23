@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · Wallet</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/pages.css">
+<link rel="stylesheet" href="/wallet.css">
+</head><body>
+<header class="ats-bar"><a class="ats-brand" href="/"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><a class="on" href="/wallet">Wallet</a><a href="/desks">24/7 desks</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/">Desk</a><details class="ats-more"><summary>More</summary><div><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/decision">Decision</a><a href="/smart">Smart money</a><a href="/jarvis">JARVIS</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<main class="pg">
+ <div class="pg-head">
+  <div><small>All your money in one place</small><h1>Wallet: <b>balances</b> and history</h1>
+   <p>Every account the app knows about, money in and out, and profit or loss. Practice money only: nothing real is sent or received.</p></div>
+  <span class="pg-badge">PRACTICE MONEY · REAL MONEY LOCKED</span>
+ </div>
+ <section class="pg-grid">
+  <div class="pg-card c3 pg-kpi"><small>Total practice balance</small><b id="k-total">–</b><em>wallet cash + desk profit</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Profit or loss</small><b id="k-profit">–</b><em>all trading, after money in and out</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Money in / out</small><b id="k-inout">–</b><em>practice deposits and withdrawals</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Crypto watched</small><b id="k-crypto">–</b><em id="k-crypto-sub">public addresses, read only</em></div>
+
+  <div class="pg-card c8"><h3>Accounts <span>where each balance comes from</span></h3>
+   <div class="pg-scroll"><table class="pg-tbl"><thead><tr><th>Account</th><th>Status</th><th class="r">Balance</th><th class="hide-s">Notes</th></tr></thead><tbody id="accounts"></tbody></table></div></div>
+
+  <div class="pg-card c4"><h3>Move practice money</h3>
+   <form id="move" class="wl-form" autocomplete="off">
+    <div class="pg-tabs" id="kind"><button type="button" class="on" data-k="deposit">Add</button><button type="button" data-k="withdraw">Take out</button></div>
+    <label>Amount (USD)<input name="amount" type="number" min="1" max="1000000" step="0.01" placeholder="1000" required></label>
+    <label>Note<input name="note" maxlength="80" placeholder="optional"></label>
+    <button type="submit" class="wl-go">Confirm</button>
+    <p class="wl-msg" id="move-msg"></p>
+   </form></div>
+
+  <div class="pg-card c8"><h3>Crypto watch list <span>public Bitcoin and Ethereum addresses</span></h3>
+   <div class="pg-scroll"><table class="pg-tbl"><thead><tr><th>Name</th><th>Coin</th><th class="hide-s">Address</th><th class="r">Balance</th><th class="r">Value</th><th></th></tr></thead><tbody id="crypto"></tbody></table></div></div>
+
+  <div class="pg-card c4"><h3>Watch an address</h3>
+   <form id="watch" class="wl-form" autocomplete="off">
+    <label>Public address<input name="address" maxlength="100" placeholder="bc1… or 0x…" required spellcheck="false"></label>
+    <label>Name<input name="label" maxlength="30" placeholder="e.g. Ledger"></label>
+    <button type="submit" class="wl-go">Add</button>
+    <p class="wl-warn">Only ever paste a <b>public</b> address. Never a private key or recovery phrase.</p>
+    <p class="wl-msg" id="watch-msg"></p>
+   </form></div>
+
+  <div class="pg-card c12"><h3>History <span>money in, money out</span></h3>
+   <div class="pg-scroll"><table class="pg-tbl"><thead><tr><th>Time</th><th>What</th><th class="r">Amount</th><th class="r">Balance after</th><th class="hide-s">Note</th></tr></thead><tbody id="ledger"></tbody></table></div>
+   <ul class="wl-rules" id="rules"></ul></div>
+ </section>
+</main>
+<script src="/wallet.js"></script>
+</body></html>

@@ -1,0 +1,20 @@
+/* Wallet page: forms and small extras on top of pages.css. */
+.wl-form { display: flex; flex-direction: column; gap: 10px; }
+.wl-form label { display: flex; flex-direction: column; gap: 4px; font: 600 11px var(--ats-mono); color: var(--ats-g); letter-spacing: .06em; text-transform: uppercase; }
+.wl-form input { background: #0a0a0a; color: #f4f4f4; border: 1px solid #262626; border-radius: 7px; padding: 9px 10px; font: 14px var(--ats-mono); min-width: 0; }
+.wl-form input:focus { outline: none; border-color: var(--ats-o); }
+.wl-go { background: var(--ats-o); color: #000; border: 0; border-radius: 7px; padding: 10px; font: 700 12px var(--ats-mono); letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+.wl-go:disabled { opacity: .5; cursor: wait; }
+.wl-msg { min-height: 1.2em; margin: 0; font: 12px var(--ats-mono); color: var(--ats-g); }
+.wl-msg.err { color: #ff4d4d; }
+.wl-msg.ok { color: #2fd37a; }
+.wl-warn { margin: 0; font-size: 12px; color: #ffb27a; }
+.wl-addr { font: 12px var(--ats-mono); color: var(--ats-g); word-break: break-all; }
+.wl-x { background: none; border: 1px solid #262626; color: var(--ats-g); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+.wl-x:hover { border-color: #ff4d4d; color: #ff4d4d; }
+.wl-state { font: 600 10px var(--ats-mono); letter-spacing: .06em; padding: 2px 7px; border-radius: 99px; border: 1px solid #333; color: var(--ats-g); white-space: nowrap; }
+.wl-state.connected { border-color: #2fd37a; color: #2fd37a; }
+.wl-state.keys_set { border-color: var(--ats-o); color: var(--ats-o); }
+.wl-state.error { border-color: #ff4d4d; color: #ff4d4d; }
+.wl-rules { margin: 12px 0 0; padding-left: 18px; color: var(--ats-g); font-size: 12px; line-height: 1.7; }
+.wl-rules li::marker { color: var(--ats-o); }
