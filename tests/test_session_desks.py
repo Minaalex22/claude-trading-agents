@@ -56,6 +56,8 @@ class SessionDeskTests(unittest.TestCase):
         env = {"METAAPI_TOKEN": "x", "METAAPI_ACCOUNT_ID": "y", "MT5_MODE": "demo"}
         self.assertEqual(sd.route(env), {"orders_to": "paper", "mt5_demo": "ready", "real_money": "locked"})
         self.assertEqual(sd.route({"METAAPI_TOKEN": "x", "METAAPI_ACCOUNT_ID": "y", "MT5_MODE": "live"})["mt5_demo"], "not set up")
+        self.assertEqual(sd.route({"METAAPI_TOKEN": "x"})["mt5_demo"], "ready")
+        self.assertEqual(sd.route({})["mt5_demo"], "not set up")
 
 
 class DeskPageTests(unittest.TestCase):

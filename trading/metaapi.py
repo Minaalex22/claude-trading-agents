@@ -12,8 +12,9 @@ Safety:
 
 Environment (set them on Render, never in the repo):
   METAAPI_TOKEN        API token from app.metaapi.cloud (Settings > API tokens)
-  METAAPI_ACCOUNT_ID   the id MetaApi shows after you add your MT5 login there
-  METAAPI_REGION       optional, default new-york (london, singapore ... if MetaApi put the account there)
+  METAAPI_ACCOUNT_ID   optional: the id MetaApi shows for your MT5 account. Left empty, the app finds it
+                       with the token (the demo account first) and deploys it if it is switched off.
+  METAAPI_REGION       optional: taken from the account when it is found automatically, else new-york
 """
 
 import json
@@ -27,7 +28,9 @@ HTTP_TIMEOUT = 20
 DEMO = "ACCOUNT_TRADE_MODE_DEMO"
 CLOSING = ("DEAL_ENTRY_OUT", "DEAL_ENTRY_INOUT", "DEAL_ENTRY_OUT_BY")
 TRADE_TYPES = ("DEAL_TYPE_BUY", "DEAL_TYPE_SELL")
-ENV_KEYS = ("METAAPI_TOKEN", "METAAPI_ACCOUNT_ID")
+ENV_KEYS = ("METAAPI_TOKEN",)
+PROVISIONING = "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts"
+_found: dict = {}  # token fingerprint -> (account id, region), so discovery runs once per process
 
 
 class NotDemo(PermissionError):
@@ -46,14 +49,44 @@ def configured(env=os.environ) -> bool:
     return all(env.get(k) for k in ENV_KEYS)
 
 
+def _pick(accounts: list[dict]) -> dict:
+    """Prefer an MT5 demo account, then any MT5 account, then anything."""
+    def score(a):
+        server = str(a.get("server", "")).lower()
+        return (str(a.get("platform", "mt5")).lower() == "mt5", "demo" in server or a.get("type") == "demo",
+                a.get("state") == "DEPLOYED")
+    return max(accounts, key=score)
+
+
+def discover(token: str, http=http_json) -> tuple[str, str]:
+    """Find the MetaApi account for this token (and deploy it if it is off). Returns (id, region)."""
+    key = hash(token)
+    if key in _found:
+        return _found[key]
+    accounts = http("GET", PROVISIONING, {"auth-token": token}) or []
+    if not accounts:
+        raise PermissionError("No MetaTrader account is added in MetaApi yet. Add your MT5 demo login at "
+                              "app.metaapi.cloud.")
+    acc = _pick(accounts)
+    acc_id = str(acc.get("_id") or acc.get("id"))
+    if acc.get("state") not in ("DEPLOYED", "DEPLOYING"):
+        http("POST", f"{PROVISIONING}/{urllib.parse.quote(acc_id, safe='')}/deploy", {"auth-token": token}, {})
+    _found[key] = (acc_id, str(acc.get("region") or "new-york"))
+    return _found[key]
+
+
 class MetaApi:
     def __init__(self, env=os.environ, http=http_json):
         missing = [k for k in ENV_KEYS if not env.get(k)]
         if missing:
             raise PermissionError(f"Set {', '.join(missing)} on the server to connect MetaTrader 5.")
-        self._token = env["METAAPI_TOKEN"]
-        self.account_id = urllib.parse.quote(env["METAAPI_ACCOUNT_ID"].strip(), safe="")
-        region = (env.get("METAAPI_REGION") or "new-york").strip().lower()
+        self._token = env["METAAPI_TOKEN"].strip()
+        acc_id, region = (env.get("METAAPI_ACCOUNT_ID") or "").strip(), env.get("METAAPI_REGION")
+        if not acc_id:
+            acc_id, found_region = discover(self._token, http)
+            region = region or found_region
+        self.account_id = urllib.parse.quote(acc_id, safe="")
+        region = (region or "new-york").strip().lower()
         if not region.replace("-", "").isalnum():
             raise ValueError("METAAPI_REGION looks wrong")
         self.base = f"https://mt-client-api-v1.{region}.agiliumtrade.ai/users/current/accounts/{self.account_id}"

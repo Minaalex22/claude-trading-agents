@@ -38,7 +38,7 @@ class ReadTests(unittest.TestCase):
     def test_needs_both_keys(self):
         self.assertFalse(M.configured({}))
         with self.assertRaises(PermissionError):
-            M.MetaApi({"METAAPI_TOKEN": "x"})
+            M.MetaApi({"METAAPI_ACCOUNT_ID": "x"})
 
     def test_reads_use_token_header_and_region(self):
         http, calls = fake()
@@ -99,6 +99,39 @@ class OrderTests(unittest.TestCase):
         self.assertNotIn("sekrit", repr(P.status(ENV)))
         self.assertIn("METAAPI_TOKEN", P.SECRET_NAMES)
         self.assertNotIn("METAAPI_ACCOUNT_ID", P.SECRET_NAMES)
+
+
+class DiscoverTests(unittest.TestCase):
+    def setUp(self):
+        M._found.clear()
+
+    def test_finds_demo_account_and_deploys_it(self):
+        calls = []
+
+        def http(method, url, headers, body=None):
+            calls.append((method, url))
+            if url == M.PROVISIONING:
+                return [{"_id": "live-1", "server": "GoMarkets-Live", "state": "DEPLOYED", "region": "london"},
+                        {"_id": "demo-9", "server": "GoMarkets-Demo", "state": "UNDEPLOYED", "region": "london"}]
+            return {}
+        api = M.MetaApi({"METAAPI_TOKEN": "tok"}, http)
+        self.assertEqual(api.account_id, "demo-9")
+        self.assertIn("london", api.base)
+        self.assertIn(("POST", M.PROVISIONING + "/demo-9/deploy"), calls)
+        M.MetaApi({"METAAPI_TOKEN": "tok"}, http)  # cached: no second lookup
+        self.assertEqual(sum(1 for c in calls if c[1] == M.PROVISIONING), 1)
+
+    def test_no_accounts_says_what_to_do(self):
+        with self.assertRaises(PermissionError):
+            M.MetaApi({"METAAPI_TOKEN": "tok2"}, lambda *a, **k: [])
+
+    def test_token_alone_means_demo_mode(self):
+        self.assertTrue(M.configured({"METAAPI_TOKEN": "x"}))
+        row = next(r for r in P.status({"METAAPI_TOKEN": "x"}) if r["key"] == "mt5")
+        self.assertEqual(row["mode"], "demo")
+        row = next(r for r in P.status({"METAAPI_TOKEN": "x", "MT5_MODE": "live"}) if r["key"] == "mt5")
+        self.assertEqual(row["mode"], "paper")
+        self.assertEqual(next(r for r in P.status({}) if r["key"] == "mt5")["mode"], "paper")
 
 
 class ReportTests(unittest.TestCase):

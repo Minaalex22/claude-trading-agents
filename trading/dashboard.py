@@ -774,7 +774,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
         def _mt5_get(self, path: str):
             if not metaapi.configured(env):
                 return self._json(200, {"connected": False, "needs": list(metaapi.ENV_KEYS),
-                                        "help": "Add METAAPI_TOKEN and METAAPI_ACCOUNT_ID on Render (Environment)."})
+                                        "help": "Add METAAPI_TOKEN on Render (Environment). The account is found from it."})
             try:
                 api = metaapi.MetaApi(env)
                 if path == "/api/mt5":

@@ -5,7 +5,7 @@ What it shows:
   nothing real moves. Saved in $EVENTS_DIR/wallet.json.
 - Paper desk: money the agents' desk made or lost on closed practice trades.
 - Polymarket practice desk: locked-in paper profit of the simulated Polymarket bot.
-- MetaTrader 5 demo (MetaApi): live balance and equity when METAAPI_TOKEN and METAAPI_ACCOUNT_ID are set
+- MetaTrader 5 demo (MetaApi): live balance and equity when METAAPI_TOKEN is set
   and the MT5 bridge (trading/metaapi.py) is installed. Read only here.
 - eToro, moomoo and the other platforms: connected or not (key names only, never values).
 - Crypto watch list: public Bitcoin and Ethereum addresses, balances read from public block explorers.
@@ -206,7 +206,7 @@ class Wallet:
         accounts.append({"key": "mt5", "name": "MetaTrader 5 demo", "kind": "broker", "currency": mt5.get("currency") or "USD",
                          "balance": mt5.get("balance"), "equity": mt5.get("equity"), "state": mt5["state"],
                          "note": {"connected": f"{mt5.get('broker') or 'MT5'} · {'demo' if mt5.get('demo') else 'NOT demo: read only'}",
-                                  "not_connected": "add METAAPI_TOKEN and METAAPI_ACCOUNT_ID in Render settings",
+                                  "not_connected": "add METAAPI_TOKEN in Render settings",
                                   "not_installed": "turns on when the MT5 bridge is merged",
                                   "error": f"MetaApi did not answer ({mt5.get('error')})"}[mt5["state"]]})
         for p in platforms or []:
