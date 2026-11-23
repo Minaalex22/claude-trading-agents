@@ -18,6 +18,7 @@ Endpoints:
   /api/mt5/report?days=30  where the money went: win rate, losers by symbol, costs, drawdown, notes
                 POST /api/mt5/order {"symbol","side","volume"} sends a DEMO order; real accounts are refused
   /health       200 once at least one shard is reporting
+  /api/training training report: win rate, exams, weakest departments, exits, confidence-gate test
   /api/report   read-only trade report (signed-in session, or bearer REPORT_TOKEN)
   /login        password sign-in when the dashboard is reachable from the internet
   /markets      Markets: 25 products with favourites, top risers/fallers and 5m/1d/40d change
@@ -41,7 +42,7 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import btcc, control, live_orders, markets, metaapi, platforms
+from . import btcc, control, live_orders, markets, metaapi, platforms, training_report
 from .alerts import Alerts
 from .atlas_sources import AtlasSources
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
@@ -254,7 +255,7 @@ class EventHub:
                           "votes": [], "vote_sum": 0.0, "weight_sum": 0.0, "wins": 0, "experience": 0, "held": 0,
                           "macro_sum": 0.0, "macro_count": 0, "traders": 0, "trades_hour_sum": 0,
                           "trades_hour_min": None, "trades_total": 0, "masters_used": {},
-                          "trade_wins": 0, "trade_losses": 0, "reviews_learned": 0,
+                          "trade_wins": 0, "trade_losses": 0, "reviews_learned": 0, "exits": {}, "by_sure": {},
                           "school": {"trained": 0, "graduates": 0, "exam_sum": 0.0, "course_sums": {}}}
                   for d in DEPARTMENTS}
         for report in reports:
@@ -276,6 +277,12 @@ class EventHub:
                 if dept.get("trades_hour_min") is not None:
                     m["trades_hour_min"] = (dept["trades_hour_min"] if m["trades_hour_min"] is None
                                             else min(m["trades_hour_min"], dept["trades_hour_min"]))
+                for reason, n in dept.get("exits", {}).items():
+                    m["exits"][reason] = m["exits"].get(reason, 0) + n
+                for b, (w, n) in dept.get("by_sure", {}).items():
+                    row = m["by_sure"].setdefault(b, [0, 0])
+                    row[0] += w
+                    row[1] += n
                 for course, n in dept.get("masters_used", {}).items():
                     m["masters_used"][course] = m["masters_used"].get(course, 0) + n
                 m["macro_sum"] += dept.get("macro_sum", 0.0)
@@ -374,6 +381,7 @@ def trade_report(hub: "EventHub", events_dir: Path, env=os.environ) -> dict:
         "real_money": {"limits_on": live["limits"]["on"], "spent_today": live["spent_today"], "orders": counts,
                        "audit": live["audit"],
                        "positions": live["positions"], "latest": live["orders"][:5]},
+        "training": training_report.build(org),
         "ring": {k: st["shards"]["ring"]["tick"].get(k) for k in ("equity", "pnl")} if "tick" in st["shards"].get("ring", {}) else None,
     }
     return rep
@@ -520,6 +528,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._send(200 if ok else 503, json.dumps(body).encode(), "application/json")
             elif path == "/api/report" and (self._authed() or self._report_authed()):
                 self._json(200, trade_report(hub, hub.events_dir, env))
+            elif path == "/api/training" and (self._authed() or self._report_authed()):
+                self._json(200, training_report.build(hub.org()))
             elif path == "/api/bridge/next":
                 if not self._bridge_authed():
                     return self._json(401, {"error": "bridge token required"})

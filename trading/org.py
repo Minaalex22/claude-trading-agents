@@ -63,7 +63,7 @@ def summarize(agents, votes: dict[str, float]) -> dict[str, dict]:
                       "wins": 0, "experience": 0, "held": 0, "macro_sum": 0.0, "macro_count": 0, "votes": [],
                       "traders": 0, "trades_hour_sum": 0, "trades_hour_min": None, "trades_total": 0,
                       "trade_wins": 0, "trade_losses": 0, "reviews_learned": 0,
-                      "masters_used": {}}
+                      "masters_used": {}, "exits": {}, "by_sure": {}}
               for d in DEPARTMENTS}
     members = {d.key: [] for d in DEPARTMENTS}
     for a in agents:
@@ -80,6 +80,12 @@ def summarize(agents, votes: dict[str, float]) -> dict[str, dict]:
             dept["trade_wins"] += a.workspace.get("trade_wins", 0)
             dept["trade_losses"] += a.workspace.get("trade_losses", 0)
             dept["reviews_learned"] += bool(a.workspace.get("lessons"))
+            for reason, n in a.workspace.get("exits", {}).items():
+                dept["exits"][reason] = dept["exits"].get(reason, 0) + n
+            for b, (w, n) in a.workspace.get("by_sure", {}).items():
+                row = dept["by_sure"].setdefault(b, [0, 0])
+                row[0] += w
+                row[1] += n
             dept["trades_hour_min"] = t if dept["trades_hour_min"] is None else min(dept["trades_hour_min"], t)
         if a.macro_view is not None:
             dept["macro_sum"] += a.macro_view

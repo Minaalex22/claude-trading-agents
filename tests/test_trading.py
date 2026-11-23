@@ -42,6 +42,9 @@ class TeamTests(unittest.TestCase):
         self.assertEqual([len(s) for s in shards], [250, 250, 250])
 
     def test_strategies_react_to_prices(self):
+        from trading import exits
+        self.addCleanup(setattr, exits, "ENABLED", exits.ENABLED)
+        exits.ENABLED = False  # this test is about the strategies' signals, not taking profit
         up = [100 + i for i in range(30)]
         momentum, breakout, reversion = Momentum("m", "X", 10), Breakout("b", "X", 10), MeanReversion("r", "X", 10)
         for p in up:
