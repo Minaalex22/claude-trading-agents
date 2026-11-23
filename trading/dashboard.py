@@ -257,6 +257,7 @@ class EventHub:
                           "macro_sum": 0.0, "macro_count": 0, "traders": 0, "trades_hour_sum": 0,
                           "trades_hour_min": None, "trades_total": 0, "masters_used": {},
                           "trade_wins": 0, "trade_losses": 0, "reviews_learned": 0, "exits": {}, "by_sure": {},
+                          "loss_causes": {}, "filtered": {}, "calibration": None,
                           "school": {"trained": 0, "graduates": 0, "exam_sum": 0.0, "course_sums": {}}}
                   for d in DEPARTMENTS}
         for report in reports:
@@ -280,6 +281,11 @@ class EventHub:
                                             else min(m["trades_hour_min"], dept["trades_hour_min"]))
                 for reason, n in dept.get("exits", {}).items():
                     m["exits"][reason] = m["exits"].get(reason, 0) + n
+                for k in ("loss_causes", "filtered"):
+                    for cause, n in dept.get(k, {}).items():
+                        m[k][cause] = m[k].get(cause, 0) + n
+                if dept.get("calibration") and not m["calibration"]:
+                    m["calibration"] = dept["calibration"]
                 for b, (w, n) in dept.get("by_sure", {}).items():
                     row = m["by_sure"].setdefault(b, [0, 0])
                     row[0] += w

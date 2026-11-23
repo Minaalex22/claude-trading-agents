@@ -24,8 +24,9 @@ class ClockTests(unittest.TestCase):
         self.assertEqual(sessions.clock(ts(2026, 11, 18, 10, 0, MELBOURNE)).stock_phase, "closed")
 
     def test_crypto_phases(self):
-        self.assertEqual(sessions.clock(ts(2026, 11, 18, 10, 0)).crypto_phase, "overlap")  # London and New York open
-        self.assertEqual(sessions.clock(ts(2026, 11, 18, 3, 0)).crypto_phase, "london")
+        self.assertEqual(sessions.clock(ts(2026, 11, 18, 10, 15)).crypto_phase, "overlap")  # London and New York open
+        self.assertEqual(sessions.clock(ts(2026, 11, 18, 9, 45)).crypto_phase, "ny_open")  # the banks' set-up
+        self.assertEqual(sessions.clock(ts(2026, 11, 18, 3, 45)).crypto_phase, "london")
         self.assertEqual(sessions.clock(ts(2026, 11, 18, 20, 0)).crypto_phase, "asia")
         self.assertEqual(sessions.clock(ts(2026, 11, 21, 12, 0)).crypto_phase, "weekend")
 
@@ -37,7 +38,9 @@ class ClockTests(unittest.TestCase):
     def test_sizing_and_trust(self):
         c = sessions.clock(ts(2026, 11, 18, 9, 45))
         self.assertEqual((c.size("AAPL"), c.trend_trust("AAPL")), (0.5, 0.3))
-        self.assertEqual((c.size("BTC"), c.trend_trust("BTC")), (1.0, 1.0))
+        self.assertEqual((c.size("BTC"), c.trend_trust("BTC")), (0.5, 0.0))  # first 30 min after NY opens: wait
+        later = sessions.clock(ts(2026, 11, 18, 10, 30))
+        self.assertEqual((later.size("BTC"), later.trend_trust("BTC")), (1.0, 1.0))
         self.assertIsNone(sessions.clock(None))
 
     def test_session_average_resets_each_day(self):

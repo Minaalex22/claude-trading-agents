@@ -14,7 +14,7 @@ The checks:
 - **losing_streak**: the owner's rule, as in the JARVIS risk gate: after 2 losing desk trades in a row in a symbol,
   no new risk there for 5 minutes (time to review the losses), then half size until a trade wins.
 - **market_clock**: the time of day in the market's own time zone (trading/sessions.py): no new stock risk in the
-  first 5 minutes after the New York open (the JARVIS rule), half size in the rest of the opening hour and on crypto weekends, 3/4 at midday and in Asia-only crypto hours.
+  first 15 minutes after the New York open (the banks set up: mina's rule), half size in the rest of the opening hour and on crypto weekends, 3/4 at midday and in Asia-only crypto hours.
 - **chasing**: no chasing: new risk more than 1.5% away from the session average, in the direction of the move,
   goes in at half size (banks and funds buy near the day's average, not far above it).
 
@@ -81,7 +81,7 @@ def market_clock(c: OrderCheck) -> tuple[float, str | None]:
         return 1.0, None
     size = c.clock.size(c.symbol)
     if size == 0.0:
-        return 0.0, f"blocked: first 5 minutes after the New York open ({c.clock.ny_time})"
+        return 0.0, f"blocked: first 15 minutes after the New York open (banks setting up) ({c.clock.ny_time})"
     if size < 1.0:
         return size, f"x{size:g}: {c.clock.phase(c.symbol).replace('_', ' ')} ({c.clock.ny_time})"
     return 1.0, None

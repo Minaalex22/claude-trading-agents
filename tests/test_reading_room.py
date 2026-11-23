@@ -1,5 +1,6 @@
 import io
 import json
+import threading
 import math
 import time
 import unittest
@@ -71,9 +72,11 @@ class FakeClaude:
         body = kw["messages"][0]["content"]
         if body.startswith("Headlines"):
             n = len(body.splitlines()) - 1
-            reads = [{"id": i, "direction": -0.9, "why": "bearish"} for i in range(n)]
+            reads = [{"id": i, "base_rate": 0.7, "premortem": "priced in", "direction": -0.9, "why": "bearish"}
+                     for i in range(n)]
         else:
-            reads = [{"symbol": r["symbol"], "direction": 0.8, "support": 1.0, "resistance": 2.0,
+            reads = [{"symbol": r["symbol"], "market_type": "trending", "premortem": "fake breakout",
+                      "direction": 0.8, "support": 1.0, "resistance": 2.0,
                       "pattern": "breakout", "why": "higher highs"} for r in json.loads(body)["charts"]]
         text = json.dumps({"reads": reads})
         return SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text=text)])
@@ -236,3 +239,33 @@ class LiveMarketTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ValidatorTests(unittest.TestCase):
+    """The checker between Claude and the desk: one retry with the exact error, then the circuit breaker."""
+
+    def test_validate_names_the_problem(self):
+        from trading.reading_room import NEWS_SCHEMA, validate
+        good = {"reads": [{"id": 0, "base_rate": 0.5, "premortem": "x", "direction": 0.2, "why": "y"}]}
+        self.assertIsNone(validate(good, NEWS_SCHEMA))
+        self.assertIn("missing", validate({"reads": [{"id": 0, "direction": 0.2}]}, NEWS_SCHEMA))
+        bad = {"reads": [{"id": 0, "base_rate": 0.5, "premortem": "x", "direction": 3, "why": "y"}]}
+        self.assertIn("outside", validate(bad, NEWS_SCHEMA))
+        self.assertIn("JSON", validate({"_unparsed": "oops"}, NEWS_SCHEMA))
+
+    def test_retry_once_then_breaker(self):
+        from trading.reading_room import NEWS_SCHEMA
+        answers = [{"reads": [{"id": 0}]}, {"reads": [{"id": 0, "base_rate": 0.5, "premortem": "x",
+                                                        "direction": 0.1, "why": "y"}]}]
+        reader = ClaudeReader.__new__(ClaudeReader)
+        reader._lock, reader.breaker_until, reader.breaker_trips = threading.Lock(), 0.0, 0
+        sent = []
+        reader._call = lambda system, content, schema: (sent.append(content), answers.pop(0))[1]
+        self.assertEqual(reader._ask("s", "c", NEWS_SCHEMA)["reads"][0]["direction"], 0.1)
+        self.assertIn("rejected", sent[1])  # the exact error went back to Claude once
+        answers[:] = [{"reads": "no"}, {"reads": "still no"}]
+        with self.assertRaises(RuntimeError):
+            reader._ask("s", "c", NEWS_SCHEMA)
+        self.assertEqual(reader.breaker_trips, 1)
+        with self.assertRaises(RuntimeError):  # open breaker: no call at all
+            reader._ask("s", "c", NEWS_SCHEMA)

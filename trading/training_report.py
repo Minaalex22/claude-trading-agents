@@ -7,8 +7,13 @@
   against the agents' own closed practice trades and pick the lowest gate that is within `GATE_TOLERANCE`
   of the best win rate while keeping at least `GATE_MIN_SHARE` of the trades.
 
+- the loss audit (trading/loss_audit.py): why the losing trades lost, each cause's share of the losses, per
+  department and for the whole desk, plus how many trades each entry filter (trading/entry_filters.py) stopped
+
 Served at GET /api/training and inside GET /api/report. Read-only, paper only.
 """
+
+from . import loss_audit
 
 GATES = (0.0, 0.5, 0.7, 0.8, 0.9)
 GATE_TOLERANCE = 0.01
@@ -36,7 +41,7 @@ def gate_test(by_sure: dict) -> dict:
 
 def build(org: dict) -> dict:
     depts = org.get("departments", {})
-    rows, exits, by_sure = [], {}, {}
+    rows, exits, by_sure, causes, filtered = [], {}, {}, {}, {}
     wins = losses = 0
     for key, d in depts.items():
         school = d.get("school") or {}
@@ -46,6 +51,10 @@ def build(org: dict) -> dict:
         wins, losses = wins + w, losses + l
         for reason, n in (d.get("exits") or {}).items():
             exits[reason] = exits.get(reason, 0) + n
+        for k, n in (d.get("loss_causes") or {}).items():
+            causes[k] = causes.get(k, 0) + n
+        for k, n in (d.get("filtered") or {}).items():
+            filtered[k] = filtered.get(k, 0) + n
         for b, (bw, bn) in (d.get("by_sure") or {}).items():
             row = by_sure.setdefault(b, [0, 0])
             row[0] += bw
@@ -55,7 +64,9 @@ def build(org: dict) -> dict:
                      "exam": school.get("avg_exam"), "graduates": school.get("graduates"),
                      "trained": school.get("trained"), "sitting_out": d.get("sitting_out", 0),
                      "weakest_course": (school.get("courses") or {}).get(weakest_course, {}).get("name"),
-                     "weakest_course_score": courses.get(weakest_course)})
+                     "weakest_course_score": courses.get(weakest_course),
+                     "calibration": d.get("calibration"),
+                     "loss_causes": loss_audit.summarize(d.get("loss_causes") or {}, w, l)["top"]})
 
     def weakness(r):  # traders by win rate, the rest by exam; either way lower is weaker
         return (r["win_rate"] if r["win_rate"] is not None else (r["exam"] or 0)), r["pnl"] or 0
@@ -65,4 +76,6 @@ def build(org: dict) -> dict:
     return {"tick": org.get("tick", 0), "win_rate": _rate(wins, wins + losses), "trades": wins + losses,
             "departments": rows, "weakest_first": [r["department"] for r in ranked],
             "exits": {"counts": exits, "share": {k: _rate(v, closed) for k, v in exits.items()}},
-            "gate": gate_test(by_sure), "mode": "paper"}
+            "gate": gate_test(by_sure),
+            "loss_audit": {**loss_audit.summarize(causes, wins, losses), "filtered": filtered},
+            "mode": "paper"}

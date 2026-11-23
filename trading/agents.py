@@ -16,7 +16,7 @@ import statistics
 from collections import deque
 from dataclasses import dataclass
 
-from . import academy, accounts, exits, masters, mind, review
+from . import academy, accounts, entry_filters, exits, loss_audit, masters, mind, review
 from .brain import AgentBrain
 from .org import department_sizes
 
@@ -52,6 +52,8 @@ class Agent:
         self.symbol = symbol
         self.window = window
         self.prices: deque[float] = deque(maxlen=window + 1)
+        # A longer look back for the higher-timeframe check (trading/entry_filters.py); traders only.
+        self.history: deque[float] | None = None
         self.position = 0.0  # virtual position, used only to score the agent
         self.pnl = 0.0
         self.department = ""  # set by build_team
@@ -84,6 +86,8 @@ class Agent:
             if self.workspace["last_signal"] is not None:
                 self.brain.learn(self.reward(self.workspace["last_signal"], price))
         self.prices.append(price)
+        if self.history is not None:
+            self.history.append(price)
         if len(self.prices) <= self.window:
             return None
         signal = self.decide()
@@ -116,6 +120,7 @@ class Agent:
             self.workspace["last_vote"] = value
         if self.role == "trader" and not self.must_practice:
             value = self._confirm(value, signal)
+            value = entry_filters.check(self, value, signal)  # regime, higher timeframe, volatility, meta-label
             self.workspace["last_vote"] = value
         if self.role == "trader" and self.must_practice:
             value = self._practice(value)
@@ -197,7 +202,8 @@ class Agent:
             signal = self.workspace.get("last_signal") or 0.0
             self.workspace["entry_note"] = {"edge": abs(signal), "agree": self._agreement(position),
                                             "forced": self.must_practice,
-                                            "sure": self.workspace.get("sureness", abs(signal))}
+                                            "sure": self.workspace.get("sureness", abs(signal)),
+                                            **entry_filters.features(self, position)}
         if self.account is not None and self.prices:
             self.account.rebalance(position, self.prices[-1])
         self.position = position
@@ -212,7 +218,12 @@ class Agent:
         won = move > 0
         self.workspace["trade_wins" if won else "trade_losses"] += move != 0
         note = self.workspace.get("entry_note", {})
-        self.journal.append({"won": won, "move": move, **note})
+        how = self.workspace.pop("exit_reason", None) or "signal"  # stop, breakeven, target, time or signal
+        self.journal.append({"won": won, "move": move, "exit": how, **note})
+        if move:
+            loss_audit.record(self, {"won": won, "move": move, "exit": how, **note})
+            if not note.get("forced") and "er" in note:
+                entry_filters.meta_for(self).learn(note, won)  # the meta-label model learns from every real trade
         if move and not note.get("forced"):
             # Sureness buckets, so the training report can set the confidence gate from real results.
             b = gate_bucket(note.get("sure", 0.0))
@@ -246,10 +257,18 @@ class Agent:
         """How far to trust a trend signal at this time of day (trading/sessions.py)."""
         return self.clock.trend_trust(self.symbol) if self.clock is not None else 1.0
 
+    def reversion_trust(self) -> float:
+        """How far to trust a fade at this time of day (Asia calm, London breaks it: trading/sessions.py)."""
+        return self.clock.reversion_trust(self.symbol) if self.clock is not None else 1.0
+
 
 class Trader(Agent):
     role = "trader"
     style = TREND
+
+    def __init__(self, agent_id: str, symbol: str, window: int):
+        super().__init__(agent_id, symbol, window)
+        self.history = deque(maxlen=entry_filters.HTF_MULT * window + 1)
 
 
 class Momentum(Trader):
@@ -293,7 +312,7 @@ class MeanReversion(Trader):
         if stdev == 0:
             return 0.0
         z = (prices[-1] - statistics.fmean(prices)) / stdev
-        return max(-1.0, min(1.0, -z / 2))
+        return max(-1.0, min(1.0, -z / 2 * self.reversion_trust()))
 
 
 class RegimeAnalyst(Agent):
