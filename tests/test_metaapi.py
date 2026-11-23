@@ -125,6 +125,13 @@ class DiscoverTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             M.MetaApi({"METAAPI_TOKEN": "tok2"}, lambda *a, **k: [])
 
+    def test_masked_token_is_caught_before_sending(self):
+        calls = []
+        with self.assertRaises(PermissionError) as ctx:
+            M.MetaApi({"METAAPI_TOKEN": "\u2022" * 40}, lambda *a, **k: calls.append(a))
+        self.assertIn("hidden dots", M.explain(ctx.exception))
+        self.assertFalse(calls)
+
     def test_rejected_token_is_explained(self):
         import urllib.error
         err = urllib.error.HTTPError(M.PROVISIONING, 401, "Unauthorized", {}, None)
