@@ -58,6 +58,8 @@ PLATFORMS = (
     Platform("moomoo", "moomoo", "US and HK stocks, options", (), True),
     # BTCC paused its Futures API on 13 Feb 2026; read-only bridge + practice desk in trading/btcc.py
     Platform("btcc", "BTCC", "crypto futures (USDT perpetuals)", ("BTCC_API_KEY", "BTCC_SECRET_KEY"), False),
+    # Legal in Australia. Paper by default; real bets only via trading/betfair.py with BETFAIR_REAL_MONEY=on + confirm + money rules
+    Platform("betfair", "Betfair Exchange (AU)", "sports, racing, politics (exchange)", ("BETFAIR_APP_KEY", "BETFAIR_USERNAME", "BETFAIR_PASSWORD"), False),
 )
 BY_KEY = {p.key: p for p in PLATFORMS}
 SECRET_NAMES = tuple(k for p in PLATFORMS for k in p.keys if not k.endswith(("LOGIN", "SERVER", "ACCOUNT_ID")))
@@ -287,6 +289,8 @@ def status(env=os.environ) -> list[dict]:
             note = f"unknown mode {asked!r}; running paper"
         elif asked == "demo" and mode != "demo":
             note = "no demo account on this platform; running paper"
+        if p.key == "betfair" and note is None:
+            note = "bridge on /polymarket; real money only with BETFAIR_REAL_MONEY=on, a typed confirm and the money rules"
         if p.key == "btcc" and note is None:
             note = "BTCC paused its Futures API on 13 Feb 2026; practice desk on /btcc"
         rows.append({"key": p.key, "name": p.name, "markets": p.markets, "mode": mode, "configured": not missing,

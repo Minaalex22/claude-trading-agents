@@ -9,17 +9,78 @@
 <link rel="stylesheet" href="/theme.css">
 <link rel="stylesheet" href="/pages.css">
 <link rel="stylesheet" href="/kind.css">
+<link rel="stylesheet" href="/polymarket.css">
 </head><body>
 <header class="ats-bar"><a class="ats-brand" href="/news"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav" aria-label="Main menu"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/btcc">BTCC</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/jarvis">JARVIS</a><details class="ats-more"><summary>Tools</summary><div><a href="/decision">Decision</a><a href="/smart">Smart money</a><a href="/wallet">Wallet</a><a href="/calculator">Calculator</a><a href="/desks">24/7 desks</a></div></details><details class="ats-more"><summary>More</summary><div><a href="/">Command desk</a><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
 <script src="/nav.js"></script>
 <main class="pg">
  <div class="pg-head">
-  <div><small>Prediction markets · practice</small><h1><b>Polymarket</b> desk</h1>
-   <p>Prediction markets pay $1 if something happens and $0 if not, so prices are odds. Our bot hunts three safe-ish edges: buying every outcome of an event for under $1, buying YES and NO across two books for under $1, and earning fee rebates by quoting near 50c.</p></div>
-  <span class="pg-badge">SIMULATED BOOKS · NOTHING SENT · NOT LEGAL IN AUSTRALIA</span>
+  <div><small>Prediction markets · paper money</small><h1><b>Polymarket</b> platform</h1>
+   <p>Real Polymarket markets and prices, pretend money. A price of 62c means the crowd gives it a 62% chance. Buy YES or NO, sell any time at the real price, or hold and get $1 a share if you're right when it closes. The agents give their own odds on every market and we score them.</p></div>
+  <span class="pg-badge" id="mode-badge">REAL PRICES · PAPER MONEY · NOTHING SENT · NOT LEGAL IN AUSTRALIA</span>
  </div>
+ <div class="pm-alert" id="feed-msg" hidden></div>
  <section class="pg-grid">
-  <div class="pg-card c3 pg-kpi"><small>Paper profit</small><b id="k-pnl">–</b><em>locked in when every leg fills</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Paper money</small><b id="b-equity">–</b><em id="b-cash">–</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Profit / loss</small><b id="b-pnl">–</b><em id="b-pnl-sub">–</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Bets won</small><b id="b-win">–</b><em id="b-win-sub">–</em></div>
+  <div class="pg-card c3 pg-kpi"><small>Agents' odds score</small><b id="b-brier">–</b><em id="b-brier-sub">–</em></div>
+
+  <div class="pg-card c8"><h3>Live markets <span id="mk-sub">top Polymarket markets by 24h volume</span></h3>
+   <div class="pm-tools"><input id="q" type="search" placeholder="Search markets (bitcoin, election, fed...)" autocomplete="off"><div class="pg-tabs" id="cats"></div></div>
+   <div class="pg-scroll pm-list"><table class="pg-tbl"><thead><tr><th>Market</th><th>YES</th><th class="r">24h vol</th><th>Ends</th><th>Agents</th></tr></thead><tbody id="mk"></tbody></table></div></div>
+
+  <div class="pg-card c4 pm-ticket"><h3>Place a paper bet <span>real price, pretend money</span></h3>
+   <div id="tk-empty" class="pg-empty">Tap a market on the left.</div>
+   <div id="tk" hidden>
+    <a id="tk-q" class="pm-q" target="_blank" rel="noopener noreferrer"></a>
+    <div class="pm-sides"><button type="button" id="tk-yes" class="pm-yes on">YES <b id="tk-yes-p">–</b></button><button type="button" id="tk-no" class="pm-no">NO <b id="tk-no-p">–</b></button></div>
+    <label>Amount (USD)<input id="tk-usd" type="number" min="1" step="1" value="100"></label>
+    <div class="pm-est" id="tk-est"></div>
+    <div class="pm-lean" id="tk-lean"></div>
+    <button type="button" id="tk-go" class="pm-go">PLACE PAPER BET</button>
+    <div class="pm-msg" id="tk-msg"></div>
+   </div></div>
+
+  <div class="pg-card c12"><h3>Agents' best picks <span>where the agents' odds differ most from the price, after spread and fees · a view to test, not advice</span></h3><div class="pm-picks" id="picks"></div></div>
+
+  <div class="pg-card c12"><h3>My paper bets <span id="open-sub"></span></h3>
+   <div class="pg-tabs" id="btabs"><button class="on" data-t="open" type="button">Open</button><button data-t="closed" type="button">Settled and sold</button></div>
+   <div class="pg-scroll"><table class="pg-tbl"><thead id="bt-head"></thead><tbody id="bt"></tbody></table></div></div>
+ 
+  <div class="pg-card c12 pm-bridge-card"><h3>Bridges <span>Demo = pretend money on real prices · Real money = real orders on your own account</span></h3>
+   <div class="pg-tabs pm-switch" id="mode"><button class="on" data-m="demo" type="button">DEMO</button><button data-m="real" type="button">REAL MONEY</button></div>
+   <div class="pm-alert" id="mode-msg" hidden></div>
+   <div class="pm-bridges">
+    <div class="pm-bridge">
+     <h4>Betfair Exchange <em id="bf-state">checking…</em></h4>
+     <p class="pm-small" id="bf-help"></p>
+     <div class="pm-tools"><input id="bf-q" type="search" placeholder="Search Betfair (team, election, horse...)" autocomplete="off"><button type="button" id="bf-go" class="pm-sell">SEARCH</button></div>
+     <div id="bf-results" class="pm-bf-list"></div>
+     <div id="bf-ticket" class="pm-bf-ticket" hidden>
+      <div id="bf-pick" class="pm-q"></div>
+      <label>Stake (A$)<input id="bf-stake" type="number" min="1" step="1" value="5"></label>
+      <label>Odds (limit)<input id="bf-odds" type="number" min="1.01" step="0.01"></label>
+      <label id="bf-confirm-l" hidden>Type REAL MONEY to confirm<input id="bf-confirm" type="text" autocomplete="off"></label>
+      <button type="button" id="bf-place" class="pm-go">PLACE BET</button>
+      <div class="pm-msg" id="bf-msg"></div>
+     </div>
+     <h4 class="pm-sub">Agents' picks on Betfair</h4><div id="bf-matches" class="pm-small">–</div>
+     <h4 class="pm-sub">Betfair bets</h4>
+     <div class="pg-scroll"><table class="pg-tbl"><tbody id="bf-bets"></tbody></table></div>
+    </div>
+    <div class="pm-bridge">
+     <h4>Polymarket <em id="pmr-state">–</em></h4>
+     <div id="pmr-body" class="pm-small"></div>
+    </div>
+   </div></div>
+ </section>
+
+ <div class="pg-head pm-lab-head"><div><small>Arbitrage bot lab</small><h1><b>Bot</b> lab</h1>
+  <p>Our bot's three safe-ish edges on practice books: buying every outcome of an event for under $1, buying YES and NO across two books for under $1, and earning fee rebates by quoting near 50c.</p></div>
+  <span class="pg-badge">SIMULATED BOOKS · PRACTICE ONLY</span></div>
+ <section class="pg-grid">
+  <div class="pg-card c3 pg-kpi"><small>Bot paper profit</small><b id="k-pnl">–</b><em>locked in when every leg fills</em></div>
   <div class="pg-card c3 pg-kpi"><small>Edges taken</small><b id="k-n">–</b><em id="k-n-sub">–</em></div>
   <div class="pg-card c3 pg-kpi"><small>Books scanned</small><b id="k-scan">–</b><em id="k-tick">–</em></div>
   <div class="pg-card c3 pg-kpi"><small>Safety rules</small><b id="k-depth">–</b><em id="k-rules">–</em></div>
@@ -32,7 +93,7 @@
 
   <div class="pg-card c12"><h3>Maker band <span>each dot is a market's price · inside the orange band (40c to 60c) the fee is biggest, so quoting there earns the most rebate</span></h3><canvas id="band" class="pg-canvas short"></canvas></div>
 
-  <div class="pg-card c12"><h3>Paper trades <span>newest first · every leg must pass the risk desk or none go</span></h3>
+  <div class="pg-card c12"><h3>Bot paper trades <span>newest first · every leg must pass the risk desk or none go</span></h3>
    <div class="pg-scroll"><table class="pg-tbl"><thead><tr><th>Time</th><th>Strategy</th><th>Legs</th><th class="r">Locked profit</th></tr></thead><tbody id="trades"></tbody></table></div></div>
  </section>
 </main>

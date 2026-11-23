@@ -141,6 +141,18 @@ def handbook() -> str:
         "prices. MetaTrader 5 and moomoo can also use the broker's own demo account. Real-money orders are locked "
         "in this build. The plan is 1 to 2 weeks of paper trading on live prices before anyone considers real money.",
         "",
+        "PAGES AND TOOLS: /polymarket is the prediction-market platform: real Polymarket markets and prices (read "
+        "only), demo bets with $10k paper money (buy at the real ask with the fee, sell at the real bid, $1 a share "
+        "when right), the agents' own odds on every market scored with a Brier score against the crowd, and the "
+        "Bot lab (simulated arbitrage). Polymarket does not allow Australians to trade, so it stays demo. "
+        "BRIDGES with a Demo / Real money switch: the Betfair Exchange bridge (legal in Australia) is off until "
+        "BETFAIR_APP_KEY, BETFAIR_USERNAME and BETFAIR_PASSWORD are on Render; Demo bets use real Betfair prices on "
+        "paper; Real money needs BETFAIR_REAL_MONEY=on, typing REAL MONEY on each bet, and the money rules (A$10 per "
+        "bet, 1% of balance, A$50 a day, 2 open bets, odds 1.1 to 20). It also lines up the agents' Polymarket picks "
+        "with the same Betfair markets. /calculator does position size, pip value, reward-to-risk, margin and "
+        "half-Kelly with the money rules. /btcc is the BTCC practice desk (BTCC paused its API on 13 Feb 2026). "
+        "/wallet shows paper money, every desk's profit, platforms and watched crypto addresses.",
+        "",
         "SECURITY: password login with rate limits and signed cookies; JARVIS needs a second passphrase; strict "
         "Content-Security-Policy; API keys only in environment variables, never in code or logs.",
     ]
@@ -192,6 +204,11 @@ class BuiltinBrain:
         if has("who are you", "what are you", "your name"):
             return ("I'm JARVIS, your assistant for this trading system. I know every department, manager, course and "
                     "platform, and I read the live reports. I only answer you, and I never place trades.")
+        if has("betfair", "bridge", "back bet", "lay bet"):
+            return ("The Betfair Exchange bridge is on /polymarket under Bridges. It stays off until BETFAIR_APP_KEY, "
+                    "BETFAIR_USERNAME and BETFAIR_PASSWORD are added on Render. Demo bets use real Betfair prices with "
+                    "paper money. Real money needs BETFAIR_REAL_MONEY=on, typing REAL MONEY on every bet, and the money "
+                    "rules: A$10 a bet, 1% of balance, A$50 a day, 2 open bets, odds 1.1 to 20.")
         if has("platform", "broker", "etoro", "metatrader", "mt5", "moomoo", "polymarket", "real money", "live trad"):
             parts = []
             for p in snap.get("platforms") or []:
