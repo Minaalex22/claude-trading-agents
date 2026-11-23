@@ -16,7 +16,7 @@ import statistics
 from collections import deque
 from dataclasses import dataclass
 
-from . import academy, accounts, entry_filters, exits, loss_audit, masters, mind, review
+from . import academy, accounts, entry_filters, exits, loss_audit, masters, mind, review, signal_gate
 from .brain import AgentBrain
 from .org import department_sizes
 
@@ -121,6 +121,7 @@ class Agent:
         if self.role == "trader" and not self.must_practice:
             value = self._confirm(value, signal)
             value = entry_filters.check(self, value, signal)  # regime, higher timeframe, volatility, meta-label
+            value = signal_gate.check(self, value, signal)  # triage -> gate 0.8 -> deep read (SIGNAL_GATE=on)
             self.workspace["last_vote"] = value
         if self.role == "trader" and self.must_practice:
             value = self._practice(value)
