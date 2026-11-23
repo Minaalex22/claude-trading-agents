@@ -1,6 +1,6 @@
 // Service worker: makes the dashboard installable and shows an offline page.
 // Live data (/api, /events) and authenticated pages are never cached.
-const CACHE = 'ats-shell-v2';
+const CACHE = 'ats-shell-v3';
 const SHELL = ['/offline.html', '/app.css', '/icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {

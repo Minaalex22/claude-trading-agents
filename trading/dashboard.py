@@ -79,6 +79,7 @@ STATIC = {
     "/galaxy.js": ("galaxy.js", "text/javascript; charset=utf-8"),
     "/duel.css": ("duel.css", "text/css; charset=utf-8"),
     "/theme.css": ("theme.css", "text/css; charset=utf-8"),
+    "/nav.js": ("nav.js", "text/javascript; charset=utf-8"),
     "/pages.css": ("pages.css", "text/css; charset=utf-8"),
     "/news.js": ("news.js", "text/javascript; charset=utf-8"),
     "/trades.js": ("trades.js", "text/javascript; charset=utf-8"),

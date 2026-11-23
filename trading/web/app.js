@@ -122,7 +122,14 @@ function connect() {
       if (e.orders === 0) return;
     }
     const rest = Object.fromEntries(Object.entries(e).filter(([k]) => !['ts', 'shard', 'type'].includes(k)));
-    const row = el('div', '', `${new Date(e.ts * 1000).toLocaleTimeString()}  [${e.shard}] ${e.type}  ${JSON.stringify(rest)}`);
+    const row = el('div', 'lg-row');
+    row.append(el('span', 'lg-t', new Date(e.ts * 1000).toLocaleTimeString()), el('span', 'lg-s', `#${e.shard}`),
+      el('span', 'lg-k', e.type));
+    const brief = JSON.stringify(rest);
+    const body = el('span', 'lg-b', brief.length > 220 ? brief.slice(0, 220) + '…' : brief);
+    body.title = brief.length > 220 ? 'Tap to show all' : '';
+    body.addEventListener('click', () => { body.textContent = brief; });
+    row.append(body);
     const log = $('log');
     log.prepend(row);
     while (log.children.length > 300) log.lastChild.remove();
