@@ -45,6 +45,19 @@ def http_json(method: str, url: str, headers: dict, body: dict | None = None):
         return json.loads(resp.read() or b"null")
 
 
+def explain(e: Exception) -> str:
+    """A plain reason the owner can act on, never the token."""
+    code = getattr(e, "code", None)
+    if code in (401, 403):
+        return ("MetaApi token rejected: it was deleted or is wrong. Make a new token at app.metaapi.cloud "
+                "(Settings > API tokens) and paste it into METAAPI_TOKEN on Render.")
+    if code == 404:
+        return "MetaApi could not find that account. Check it is added in app.metaapi.cloud."
+    if isinstance(e, PermissionError):
+        return str(e)
+    return f"MetaTrader cloud: {type(e).__name__}: {str(e)[:200]}"
+
+
 def configured(env=os.environ) -> bool:
     return all(env.get(k) for k in ENV_KEYS)
 

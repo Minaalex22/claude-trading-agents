@@ -125,6 +125,12 @@ class DiscoverTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             M.MetaApi({"METAAPI_TOKEN": "tok2"}, lambda *a, **k: [])
 
+    def test_rejected_token_is_explained(self):
+        import urllib.error
+        err = urllib.error.HTTPError(M.PROVISIONING, 401, "Unauthorized", {}, None)
+        self.assertIn("token rejected", M.explain(err))
+        self.assertIn("could not find", M.explain(urllib.error.HTTPError("u", 404, "x", {}, None)))
+
     def test_token_alone_means_demo_mode(self):
         self.assertTrue(M.configured({"METAAPI_TOKEN": "x"}))
         row = next(r for r in P.status({"METAAPI_TOKEN": "x"}) if r["key"] == "mt5")
