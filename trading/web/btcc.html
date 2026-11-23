@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · BTCC</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/pages.css">
+<link rel="stylesheet" href="/decision.css">
+<link rel="stylesheet" href="/btcc.css">
+</head><body>
+<header class="ats-bar"><a class="ats-brand" href="/"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><a href="/wallet">Wallet</a><a href="/desks">24/7 desks</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a class="on" href="/btcc">BTCC</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/">Desk</a><details class="ats-more"><summary>More</summary><div><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/decision">Decision</a><a href="/smart">Smart money</a><a href="/jarvis">JARVIS</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<div class="bt-strip" id="strip"></div>
+<div class="bt-api" id="api"></div>
+<div class="dz-top" id="top"></div>
+<section class="bt-main">
+  <div class="dz-p bt-ticket">
+    <h3>PRACTICE ORDER<span>BTCC-style USDT perpetual · nothing goes to BTCC</span></h3>
+    <div class="bt-syms" id="syms"></div>
+    <div class="bt-price" id="price">--</div>
+    <label>Margin (USDT)<input id="margin" type="number" min="1" step="1" value="100"></label>
+    <label>Leverage <b id="levv">3x</b><input id="lev" type="range" min="1" max="5" step="1" value="3"></label>
+    <label>Stop loss (required)<input id="sl" type="number" step="any" placeholder="price"></label>
+    <label>Take profit<input id="tp" type="number" step="any" placeholder="price (optional)"></label>
+    <div class="bt-sides"><button id="long" class="bt-long" type="button">BUY / LONG</button><button id="short" class="bt-short" type="button">SELL / SHORT</button></div>
+    <div class="small" id="msg"></div>
+  </div>
+  <div class="bt-right">
+    <div class="pg-tabs bt-tabs" id="tabs"><button class="on" data-t="open" type="button">Positions</button><button data-t="closed" type="button">History</button><button data-t="real" type="button">My BTCC account</button></div>
+    <div class="dz-p bt-table" id="table"></div>
+    <div class="dz-p bt-news"><h3>BTCC NEWS AND UPDATES<span id="newsn"></span></h3><div id="news"></div></div>
+  </div>
+</section>
+<script src="/btcc.js"></script>
+</body></html>

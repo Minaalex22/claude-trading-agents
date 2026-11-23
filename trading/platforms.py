@@ -1,4 +1,4 @@
-"""Connectors for the real platforms: Polymarket, eToro, MetaTrader 5 and moomoo.
+"""Connectors for the real platforms: Polymarket, eToro, MetaTrader 5, moomoo and BTCC.
 
 Safety first:
 - Every platform starts in **paper** mode: quotes come from the real platform, but orders fill on
@@ -16,6 +16,7 @@ Environment:
   MT5_MODE, METAAPI_TOKEN, METAAPI_ACCOUNT_ID     (MetaApi cloud: works from Render, no computer needed)
   or MT5_LOGIN, MT5_PASSWORD, MT5_SERVER          (MetaTrader5 package next to the terminal, Windows only)
   MOOMOO_MODE, MOOMOO_HOST, MOOMOO_PORT           (needs the moomoo package and the OpenD gateway)
+  BTCC_API_KEY, BTCC_SECRET_KEY, BTCC_USERNAME, BTCC_PASSWORD, BTCC_API_BASE_URL  (read only, trading/btcc.py)
 
 Run `python -m trading.platforms` for a status table, or
 `python -m trading.platforms quote polymarket <token_id>` to read a live price.
@@ -55,6 +56,8 @@ PLATFORMS = (
     Platform("etoro", "eToro", "stocks, crypto, ETFs, FX", ("ETORO_API_KEY", "ETORO_USER_KEY"), False),
     Platform("mt5", "MetaTrader 5", "FX, CFDs, indices, metals", ("METAAPI_TOKEN", "METAAPI_ACCOUNT_ID"), True),
     Platform("moomoo", "moomoo", "US and HK stocks, options", (), True),
+    # BTCC paused its Futures API on 13 Feb 2026; read-only bridge + practice desk in trading/btcc.py
+    Platform("btcc", "BTCC", "crypto futures (USDT perpetuals)", ("BTCC_API_KEY", "BTCC_SECRET_KEY"), False),
 )
 BY_KEY = {p.key: p for p in PLATFORMS}
 SECRET_NAMES = tuple(k for p in PLATFORMS for k in p.keys if not k.endswith(("LOGIN", "SERVER", "ACCOUNT_ID")))
@@ -248,7 +251,17 @@ class MoomooConnector(Connector):
         return {"platform": "moomoo", "mode": "demo", "symbol": symbol, "side": side, "qty": qty, "price": price}
 
 
-CONNECTORS = {c.platform.key: c for c in (PolymarketConnector, EToroConnector, MT5Connector, MoomooConnector)}
+class BtccConnector(Connector):
+    """Paper only: BTCC has no demo API and its Futures API is paused. Live prices from public feeds."""
+    platform = BY_KEY["btcc"]
+
+    def quote(self, symbol: str) -> float:
+        from . import live_market
+        return live_market.fetch_price(symbol.upper().replace("USDT", ""))
+
+
+CONNECTORS = {c.platform.key: c for c in (PolymarketConnector, EToroConnector, MT5Connector, MoomooConnector,
+                                          BtccConnector)}
 
 
 def connect(key: str, env=os.environ, http=get_json) -> Connector:
@@ -271,6 +284,8 @@ def status(env=os.environ) -> list[dict]:
             note = f"unknown mode {asked!r}; running paper"
         elif asked == "demo" and mode != "demo":
             note = "no demo account on this platform; running paper"
+        if p.key == "btcc" and note is None:
+            note = "BTCC paused its Futures API on 13 Feb 2026; practice desk on /btcc"
         rows.append({"key": p.key, "name": p.name, "markets": p.markets, "mode": mode, "configured": not missing,
                      "needs_keys": bool(p.keys),
                      "missing": missing, "demo_supported": p.demo, "live_locked": not LIVE_TRADING_ENABLED,
