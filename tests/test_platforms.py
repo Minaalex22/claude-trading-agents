@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 class ModeTests(unittest.TestCase):
     def test_everything_starts_in_paper(self):
         rows = P.status({})
-        self.assertEqual([r["mode"] for r in rows], ["paper"] * 4)
+        self.assertEqual([r["mode"] for r in rows], ["paper"] * len(P.PLATFORMS))
         self.assertTrue(all(r["live_locked"] for r in rows))
         self.assertFalse(P.LIVE_TRADING_ENABLED)
 

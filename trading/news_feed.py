@@ -3,8 +3,8 @@
 MARKET=live turns this on in place of the simulated wire (LIVE_NEWS=off turns it off). A background
 thread polls public RSS feeds every POLL_SECONDS (no keys, no accounts):
 - per symbol: Yahoo Finance's headline feed and a Google News search for the company name;
-- general: 16 feeds from CNBC, MarketWatch, Yahoo Finance, Seeking Alpha, Nasdaq, CoinDesk, Cointelegraph, Decrypt
-  and Bitcoin Magazine, matched to symbols by ticker or company name.
+- general: 17 feeds from CNBC, MarketWatch, Yahoo Finance, Seeking Alpha, Nasdaq, CoinDesk, Cointelegraph, Decrypt
+  Bitcoin Magazine and BTCC, matched to symbols by ticker or company name.
 
 Each headline is matched to one symbol, de-duplicated by its wording (the same story from ten sites
 counts once), and dropped if it is older than MAX_AGE_SECONDS.
@@ -67,6 +67,8 @@ GENERAL_FEEDS = [
     "https://cointelegraph.com/rss",
     "https://decrypt.co/feed",
     "https://bitcoinmagazine.com/.rss/full/",
+    # BTCC exchange news (listings, announcements), via Google News
+    "https://news.google.com/rss/search?q=%22BTCC%22+exchange&hl=en-US&gl=US&ceid=US:en",
 ]
 
 

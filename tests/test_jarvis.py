@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from trading import jarvis as J
+from trading import platforms
 from trading.dashboard import EventHub, make_handler
 from trading.webauth import COOKIE, WebAuth
 
@@ -51,7 +52,7 @@ class KnowledgeTests(unittest.TestCase):
         snap = J.snapshot(org, {"agents_reporting": 1400, "jev_desk": {"approved": 2, "session_pnl": 5.0}})
         self.assertEqual(snap["departments"]["risk"]["graduates"], 349)
         self.assertEqual(snap["news"], ["Tariffs"])
-        self.assertEqual(len(snap["platforms"]), 4)
+        self.assertEqual(len(snap["platforms"]), len(platforms.PLATFORMS))
         self.assertEqual(J.snapshot(None, None)["agents_reporting"], 0)
 
 
