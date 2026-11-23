@@ -258,7 +258,8 @@ class EventHub:
                           "votes": [], "vote_sum": 0.0, "weight_sum": 0.0, "wins": 0, "experience": 0, "held": 0,
                           "macro_sum": 0.0, "macro_count": 0, "traders": 0, "trades_hour_sum": 0,
                           "trades_hour_min": None, "trades_total": 0, "masters_used": {},
-                          "trade_wins": 0, "trade_losses": 0, "reviews_learned": 0, "exits": {}, "by_sure": {},
+                          "trade_wins": 0, "trade_losses": 0, "practice_wins": 0, "practice_losses": 0,
+                          "reviews_learned": 0, "exits": {}, "by_sure": {},
                           "loss_causes": {}, "filtered": {}, "calibration": None,
                           "school": {"trained": 0, "graduates": 0, "exam_sum": 0.0, "course_sums": {}}}
                   for d in DEPARTMENTS}
@@ -276,7 +277,7 @@ class EventHub:
                 m["experience"] += dept.get("experience", 0)
                 m["held"] += dept.get("held", 0)
                 for k in ("traders", "trades_hour_sum", "trades_total", "trade_wins", "trade_losses",
-                          "reviews_learned"):
+                          "practice_wins", "practice_losses", "reviews_learned"):
                     m[k] += dept.get(k, 0)
                 if dept.get("trades_hour_min") is not None:
                     m["trades_hour_min"] = (dept["trades_hour_min"] if m["trades_hour_min"] is None
@@ -313,6 +314,8 @@ class EventHub:
             m["skill"] = round(m["wins"] / m["experience"], 4) if m["experience"] else None
             closed = m["trade_wins"] + m["trade_losses"]
             m["trade_win_rate"] = round(m["trade_wins"] / closed, 4) if closed else None
+            practice = m["practice_wins"] + m["practice_losses"]
+            m["practice_win_rate"] = round(m["practice_wins"] / practice, 4) if practice else None
             m["pnl"] = round(m["pnl"], 2)
             finish_school(m)
         tick = max((r["tick"] for r in reports), default=0)

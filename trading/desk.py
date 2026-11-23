@@ -20,6 +20,14 @@ LEADERBOARD_EVERY = 20
 ORG_EVERY = 5  # how often the managers report their departments
 MACRO_WEIGHT = 0.3  # how far the analysts' read of the news tilts the desk's call
 LATEST_NEWS = 8
+# Practice-quota trades (20 an hour) are forced coin flips that win about 47%. Letting them steer the desk dragged
+# its own closed trades down to a 25-45% win rate on real BTC/ETH/SOL/gold bars; leaving them out lifted it to
+# 52-70% (hourly 2 months, 15m 2 weeks) with more profit. Env PRACTICE_VOTES=on brings them back.
+PRACTICE_VOTES = False
+# How much the desk listens to Trend (env TREND_WEIGHT, 0 = Reversion only). Trend's chosen trades lost on years
+# of real data in most markets (forex 28-41%, gold 32-41%, indices 42-45%, shares 43-46%), but turning it down
+# cut profit in some periods, so it stays at 1 until tested further.
+TREND_WEIGHT = 1.0
 MIN_PRACTICE_TRADES = 20  # every strategy trader makes at least this many practice trades per hour
 
 
@@ -109,6 +117,8 @@ class Desk:
                 agent.news_view = self.news_view.get(agent.symbol)
                 agent.view = views.get(agent.symbol)
             vote = agent.observe(prices[agent.symbol])
+            if vote is not None and isinstance(agent, Trader) and agent.must_practice and not PRACTICE_VOTES:
+                continue  # a practice-quota trade is the agent's homework, not a call the desk should follow
             if vote is None or agent.agent_id in self.managers.benched:
                 continue  # benched by its manager: it keeps practising, but its vote doesn't count this hour
             agent_votes[agent.agent_id] = vote.value
@@ -362,7 +372,7 @@ class Desk:
         # Analysts decide whose advice to trust: trending regime favours
         # trend-followers, choppy regime favours mean-reversion traders.
         regime = sum(v["analyst"]) / len(v["analyst"]) if v["analyst"] else 0.0
-        trend_weight = (1 + regime) / 2
+        trend_weight = (1 + regime) / 2 * TREND_WEIGHT
         if self.alpha:
             # Brain Alpha's learned style weights tilt the analysts' call.
             t = trend_weight * self.alpha.weights["trend"]

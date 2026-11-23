@@ -33,6 +33,8 @@ Configured with environment variables so the same image runs as any shard:
   SESSION_RHYTHM "on": Asia calm (trust reversion), London breaks it (trust trend), New York finishes (default off)
   OPEN_FAKE     how to treat the first 30 minutes after London and New York open: "wait" (default), "fade" or "off"
   RSI2_SHARE    share of the Reversion department trading Larry Connors' RSI(2), 0..1 (default 0: tested, lower win rate)
+  PRACTICE_VOTES "on": practice-quota trades also steer the desk's orders (default off: they are homework)
+  TREND_WEIGHT  0..1: how much the desk listens to the Trend department (default 1)
   SIGNAL_GATE   "on": every new trade goes through triage -> gate 0.8 -> deep read (trading/signal_gate.py; default off)
   MINDS         "off" turns off every trader's two-step mind (think, then decide), for comparison
   COACH         "off" keeps the hourly Claude coach off even with ANTHROPIC_API_KEY set
@@ -63,6 +65,7 @@ from . import academy, live_orders, masters, memory
 from .coach import make_coach
 from . import config as ats_config
 from . import control
+from . import desk as desk_rules
 from .agents import build_team
 from .alerts import Alerts
 from .org import DEPARTMENTS, MIN_DEPARTMENT_SIZE
@@ -132,6 +135,8 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     entry_filters.configure(env.get("ENTRY_FILTERS"))
     from . import sessions
     from . import agents as agent_types, signal_gate
+    desk_rules.PRACTICE_VOTES = env.get("PRACTICE_VOTES", "off").lower() in ("on", "1", "true", "yes")
+    desk_rules.TREND_WEIGHT = max(0.0, min(1.0, float(env.get("TREND_WEIGHT", 1.0))))
     signal_gate.ENABLED = env.get("SIGNAL_GATE", "off").lower() in ("on", "1", "true", "yes")
     signal_gate.reset()
     agent_types.RSI2_SHARE = float(env.get("RSI2_SHARE", agent_types.RSI2_SHARE))

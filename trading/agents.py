@@ -217,8 +217,12 @@ class Agent:
         side = 1.0 if self.position > 0 else -1.0
         move = side * (self.prices[-1] / entry - 1)
         won = move > 0
-        self.workspace["trade_wins" if won else "trade_losses"] += move != 0
         note = self.workspace.get("entry_note", {})
+        # Practice-quota trades are scored on their own: they are forced coin flips, not the agent's choice, and
+        # counting them hid the real win rate (on real hourly bars 98% of counted trades were practice ones).
+        kind = "practice" if note.get("forced") else "trade"
+        self.workspace[f"{kind}_wins" if won else f"{kind}_losses"] = (
+            self.workspace.get(f"{kind}_wins" if won else f"{kind}_losses", 0) + (move != 0))
         how = self.workspace.pop("exit_reason", None) or "signal"  # stop, breakeven, target, time or signal
         self.journal.append({"won": won, "move": move, "exit": how, **note})
         if move:
