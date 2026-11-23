@@ -9,7 +9,7 @@ Weekends: forex, stocks and indices are shut, so only crypto trades, at half siz
 hours it is (the same weekend rule as trading/sessions.py).
 
 Times shown to the owner are Melbourne time. Practice only: every desk routes to the paper desk. When the
-MetaTrader 5 demo bridge is set up (METAAPI_TOKEN, METAAPI_ACCOUNT_ID, MT5_MODE=demo), the desks show that
+MetaTrader 5 demo bridge is set up (METAAPI_TOKEN; MT5_MODE defaults to demo), the desks show that
 route as ready for demo orders. Real money stays locked.
 """
 
@@ -160,7 +160,7 @@ def handoffs(now: datetime, n: int = 6) -> list[dict]:
 
 def route(env) -> dict:
     """Where a desk's orders go. Always the paper desk; the MT5 demo bridge shows as ready once it is set up."""
-    mt5 = bool(env.get("METAAPI_TOKEN") and env.get("METAAPI_ACCOUNT_ID")) and env.get("MT5_MODE", "").lower() == "demo"
+    mt5 = bool(env.get("METAAPI_TOKEN")) and (env.get("MT5_MODE") or "demo").lower() == "demo"
     return {"orders_to": "paper", "mt5_demo": "ready" if mt5 else "not set up", "real_money": "locked"}
 
 

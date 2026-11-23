@@ -774,7 +774,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
         def _mt5_get(self, path: str):
             if not metaapi.configured(env):
                 return self._json(200, {"connected": False, "needs": list(metaapi.ENV_KEYS),
-                                        "help": "Add METAAPI_TOKEN and METAAPI_ACCOUNT_ID on Render (Environment)."})
+                                        "help": "Add METAAPI_TOKEN on Render (Environment). The account is found from it."})
             try:
                 api = metaapi.MetaApi(env)
                 if path == "/api/mt5":
@@ -787,8 +787,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                         days = 30
                     body = {"connected": True, **api.report(days)}
             except Exception as e:  # noqa: BLE001  (network or MetaApi error: report it, keep serving)
-                return self._json(502, {"connected": False, "error": f"MetaTrader cloud: {type(e).__name__}: "
-                                                                     f"{str(e)[:200]}"})
+                return self._json(502, {"connected": False, "error": metaapi.explain(e)})
             self._json(200, body)
 
         def _mt5_order(self, raw: bytes):

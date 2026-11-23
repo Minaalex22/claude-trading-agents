@@ -13,7 +13,7 @@ Safety first:
 Environment:
   POLYMARKET_MODE                    quotes need no key (public order book)
   ETORO_MODE, ETORO_API_KEY, ETORO_USER_KEY, ETORO_API_BASE (default https://public-api.etoro.com)
-  MT5_MODE, METAAPI_TOKEN, METAAPI_ACCOUNT_ID     (MetaApi cloud: works from Render, no computer needed)
+  METAAPI_TOKEN (+ optional METAAPI_ACCOUNT_ID, MT5_MODE defaults to demo) (MetaApi cloud, no computer needed)
   or MT5_LOGIN, MT5_PASSWORD, MT5_SERVER          (MetaTrader5 package next to the terminal, Windows only)
   MOOMOO_MODE, MOOMOO_HOST, MOOMOO_PORT           (needs the moomoo package and the OpenD gateway)
   BTCC_API_KEY, BTCC_SECRET_KEY, BTCC_USERNAME, BTCC_PASSWORD, BTCC_API_BASE_URL  (read only, trading/btcc.py)
@@ -54,7 +54,7 @@ class Platform:
 PLATFORMS = (
     Platform("polymarket", "Polymarket", "prediction markets", (), False),
     Platform("etoro", "eToro", "stocks, crypto, ETFs, FX", ("ETORO_API_KEY", "ETORO_USER_KEY"), False),
-    Platform("mt5", "MetaTrader 5", "FX, CFDs, indices, metals", ("METAAPI_TOKEN", "METAAPI_ACCOUNT_ID"), True),
+    Platform("mt5", "MetaTrader 5", "FX, CFDs, indices, metals", ("METAAPI_TOKEN",), True),
     Platform("moomoo", "moomoo", "US and HK stocks, options", (), True),
     # BTCC paused its Futures API on 13 Feb 2026; read-only bridge + practice desk in trading/btcc.py
     Platform("btcc", "BTCC", "crypto futures (USDT perpetuals)", ("BTCC_API_KEY", "BTCC_SECRET_KEY"), False),
@@ -71,7 +71,10 @@ def get_json(url: str, headers: dict | None = None) -> dict:
 
 
 def requested_mode(platform: Platform, env=os.environ) -> str:
-    return (env.get(f"{platform.key.upper()}_MODE") or "paper").strip().lower()
+    default = "paper"
+    if platform.key == "mt5" and env.get("METAAPI_TOKEN"):
+        default = "demo"  # MetaApi orders are refused on anything but a demo account, so demo is the safe default
+    return (env.get(f"{platform.key.upper()}_MODE") or default).strip().lower()
 
 
 def resolve_mode(platform: Platform, env=os.environ) -> str:

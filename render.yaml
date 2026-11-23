@@ -48,10 +48,10 @@ services:
       # MetaTrader 5 (e.g. GO Markets) through the MetaApi cloud. Read-only, plus DEMO orders only.
       - key: METAAPI_TOKEN
         sync: false
-      - key: METAAPI_ACCOUNT_ID
+      - key: METAAPI_ACCOUNT_ID  # optional: found from the token when empty
         sync: false
       - key: MT5_MODE            # demo = agents' MT5 orders go to the demo account; anything else = paper
-        sync: false
+        value: demo
       # JARVIS: set these in the Render dashboard (Environment tab). They are never in the repo.
       - key: JARVIS_PASSPHRASE   # optional fixed passphrase; otherwise you choose it on first visit to /jarvis
         sync: false
