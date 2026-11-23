@@ -16,13 +16,21 @@ import statistics
 from collections import deque
 from dataclasses import dataclass
 
-from . import academy, accounts, masters, mind, review
+from . import academy, accounts, exits, masters, mind, review
 from .brain import AgentBrain
 from .org import department_sizes
 
 TREND = "trend"
 TRADE_STEP = 0.25  # a position change at least this big counts as a practice trade
 REVERSION = "reversion"
+
+
+GATE_BUCKETS = (0.9, 0.8, 0.7, 0.5, 0.0)  # sureness floors, highest first
+
+
+def gate_bucket(sure: float) -> str:
+    """The sureness bucket a trade falls in ("0.8" = sure 0.8 up to the next floor)."""
+    return next(f"{b:.1f}" for b in GATE_BUCKETS if sure >= b) if sure >= 0 else "0.0"
 
 
 @dataclass(frozen=True)
@@ -92,7 +100,7 @@ class Agent:
             self.workspace["sat_out"] += 1
             if self.role == "trader":
                 # Benched traders still keep up their practice trades (scored, never sent to the desk).
-                self._trade(self._practice(signal) if self.must_practice else 0.0)
+                self._trade(self._manage_exit(self._practice(signal)) if self.must_practice else 0.0)
             return None
         if self.role == "trader" and not self.must_practice and not academy.should_act(
                 self.training, abs(signal), self.brain.weight):
@@ -111,6 +119,9 @@ class Agent:
             self.workspace["last_vote"] = value
         if self.role == "trader" and self.must_practice:
             value = self._practice(value)
+            self.workspace["last_vote"] = value
+        if self.role == "trader":
+            value = self._manage_exit(value)
             self.workspace["last_vote"] = value
         self.workspace["votes_cast"] += 1
         if self.role == "trader":
@@ -147,6 +158,18 @@ class Agent:
             return self.position if d == held else 0.0
         return value
 
+    def _manage_exit(self, value: float) -> float:
+        """Exit discipline (trading/exits.py): stop at 1R, breakeven after +1R, target 2.4R, time exit."""
+        exits.tick_cooldown(self)
+        reason = exits.check(self)
+        if reason:
+            exits.record(self, reason)
+            self.workspace["exit_reason"] = reason
+            return 0.0
+        if exits.ENABLED and not self.position and exits.blocked(self, value):
+            return 0.0  # cooling down after a stop: no revenge trade on the same side
+        return value
+
     def _held(self) -> None:
         self.workspace["held"] += 1
         self.workspace["confirm_blocked"] = self.workspace.get("confirm_blocked", 0) + 1
@@ -170,6 +193,7 @@ class Agent:
             self._close_trade()
         if opened:
             self.workspace["entry"] = self.prices[-1]  # a new position: remember where it started (Seykota's R)
+            exits.open_trade(self)
             signal = self.workspace.get("last_signal") or 0.0
             self.workspace["entry_note"] = {"edge": abs(signal), "agree": self._agreement(position),
                                             "forced": self.must_practice,
@@ -189,6 +213,12 @@ class Agent:
         self.workspace["trade_wins" if won else "trade_losses"] += move != 0
         note = self.workspace.get("entry_note", {})
         self.journal.append({"won": won, "move": move, **note})
+        if move and not note.get("forced"):
+            # Sureness buckets, so the training report can set the confidence gate from real results.
+            b = gate_bucket(note.get("sure", 0.0))
+            row = self.workspace.setdefault("by_sure", {}).setdefault(b, [0, 0])
+            row[0] += won
+            row[1] += 1
         if self.mind is not None and move and not note.get("forced"):
             self.mind.trade_closed(won, note.get("sure", 0.0))  # step 2 learns from its own trades
         if len(self.journal) > review.JOURNAL_MAX:

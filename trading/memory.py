@@ -19,7 +19,7 @@ from pathlib import Path
 
 VERSION = 1
 SAVE_EVERY = 600  # ticks (5 minutes at 0.5 s ticks)
-WORKSPACE_KEYS = ("trade_wins", "trade_losses", "trades_total", "reviews", "lessons", "kept", "undone", "benched")
+WORKSPACE_KEYS = ("trade_wins", "trade_losses", "trades_total", "reviews", "lessons", "kept", "undone", "benched", "exits", "by_sure")
 
 
 def agent_state(a) -> dict:
