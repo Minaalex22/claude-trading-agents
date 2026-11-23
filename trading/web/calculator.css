@@ -1,0 +1,27 @@
+/* Calculator page: on top of pages.css and wallet.css. */
+.cl-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.cl-sel { background: #0a0a0a; color: #f4f4f4; border: 1px solid #262626; border-radius: 7px; padding: 9px 10px; font: 14px var(--ats-mono); }
+.cl-sel:focus { outline: none; border-color: var(--ats-o); }
+.cl-hint { font: 400 10px var(--ats-sans); color: #777; text-transform: none; letter-spacing: 0; font-style: normal; }
+.cl-live { align-self: flex-start; background: none; border: 1px solid rgba(255, 92, 0, .5); color: var(--ats-o); border-radius: 5px; padding: 1px 7px; font: 600 10px var(--ats-mono); cursor: pointer; text-transform: none; letter-spacing: .02em; }
+.cl-live:hover { background: rgba(255, 92, 0, .12); }
+.cl-big { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.cl-big > div { background: #0a0a0a; border: 1px solid #1c1c1c; border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.cl-big small { display: block; font: 10px var(--ats-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--ats-g); }
+.cl-big b { display: block; font: 700 24px var(--ats-mono); font-variant-numeric: tabular-nums; margin-top: 4px; color: var(--ats-w); overflow-wrap: anywhere; }
+.cl-big em { font-style: normal; font-size: 12px; color: var(--ats-g); }
+.cl-big b.buy { color: var(--ats-up); } .cl-big b.sell { color: var(--ats-dn); }
+.cl-tbl td:first-child { color: var(--ats-g); }
+.cl-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cl-checks li { display: flex; gap: 10px; align-items: baseline; font-size: 13px; }
+.cl-checks li b { font: 700 10px var(--ats-mono); letter-spacing: .08em; padding: 2px 7px; border-radius: 5px; white-space: nowrap; }
+.cl-checks li b.ok { background: rgba(47, 211, 122, .14); color: var(--ats-up); }
+.cl-checks li b.no { background: rgba(255, 77, 77, .14); color: var(--ats-dn); }
+.cl-checks li span { color: var(--ats-g); }
+.cl-checks li strong { color: var(--ats-w); font-weight: 600; }
+.cl-kelly { font-size: 13px; line-height: 1.6; }
+.cl-kelly b { color: var(--ats-o); font: 700 22px var(--ats-mono); display: block; }
+@media (max-width: 960px) { .cl-big { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .cl-big b { font-size: 20px; } }
+.cl-row > label { min-width: 0; justify-content: flex-end; }
+.cl-row input, .wl-form .cl-sel { width: 100%; box-sizing: border-box; }

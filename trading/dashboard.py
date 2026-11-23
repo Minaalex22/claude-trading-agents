@@ -49,6 +49,7 @@ from .news_pipeline import NewsPipeline
 from .polymarket_desk import PolymarketDesk
 from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
+from . import calculator as calc_kit
 from . import decision_desk
 from .smart_money import SmartMoney
 from . import session_desks
@@ -100,6 +101,8 @@ STATIC = {
     "/market.js": ("market.js", "text/javascript; charset=utf-8"),
     "/wallet.js": ("wallet.js", "text/javascript; charset=utf-8"),
     "/wallet.css": ("wallet.css", "text/css; charset=utf-8"),
+    "/calculator.js": ("calculator.js", "text/javascript; charset=utf-8"),
+    "/calculator.css": ("calculator.css", "text/css; charset=utf-8"),
     "/btcc.js": ("btcc.js", "text/javascript; charset=utf-8"),
     "/btcc.css": ("btcc.css", "text/css; charset=utf-8"),
     # Vendored so the strict CSP (scripts only from this site) holds and the cloud app needs no CDN.
@@ -411,6 +414,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     floor_lock = threading.Lock()
     market_page = _read("market.html")
     wallet_page = _read("wallet.html")
+    calculator_page = _read("calculator.html")
     wallet = {}  # the practice wallet, loaded on first use
     wallet_lock = threading.Lock()
     btcc_page = _read("btcc.html")
@@ -533,7 +537,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/calculator") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -631,6 +635,29 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 body = smart.snapshot()
                 body["street"] = hub.sources.street.board() if getattr(hub, "sources", None) else []
                 self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/calculator":
+                self._send(200, calculator_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/calculator":
+                q = {k: v[0][:30] for k, v in urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).items()}
+                if not q.get("symbol"):
+                    self._json(200, {"products": calc_kit.specs(), "defaults": {
+                        "risk_pct": calc_kit.DEFAULT_RISK_PCT, "rr": calc_kit.DEFAULT_RR,
+                        "rule_max_pct": calc_kit.RULE_MAX_PCT, "rule_max_usd": calc_kit.RULE_MAX_USD}})
+                else:
+                    fx = {}
+                    for pair in ("USDJPY", "USDCAD", "AUDUSD", "EURUSD"):
+                        try:
+                            v = float(q.get(pair.lower(), ""))
+                            if 0 < v < 1000:
+                                fx[pair] = v
+                        except ValueError:
+                            pass
+                    try:
+                        self._json(200, calc_kit.calculate(q["symbol"], q.get("balance"), q.get("entry"), q.get("stop"),
+                                                           q.get("target"), q.get("risk", calc_kit.DEFAULT_RISK_PCT),
+                                                           q.get("leverage"), q.get("win"), fx))
+                    except (KeyError, ValueError) as e:
+                        self._json(400, {"error": str(e).strip("'\"")})
             elif path == "/pairs":
                 self._send(200, pairs_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/pairs":
