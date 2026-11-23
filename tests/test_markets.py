@@ -197,13 +197,14 @@ class Routes(unittest.TestCase):
         os.environ.pop("EVENTS_DIR", None)
         self.tmp.cleanup()
 
-    def request(self, method, path, body=None, cookie=None):
+    def request(self, method, path, body=None, cookie=None, headers=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=30)
         h = {"Host": "ats.example.com", "Origin": "https://ats.example.com"}
         if cookie:
             h["Cookie"] = f"{COOKIE}={cookie}"
         if body is not None:
             h["Content-Type"] = "application/x-www-form-urlencoded"
+        h.update(headers or {})
         conn.request(method, path, body=body, headers=h)
         resp = conn.getresponse()
         data = resp.read()
@@ -396,12 +397,38 @@ class PolymarketPage(Routes):
         for path in ("/polymarket", "/polymarket.js", "/api/polymarket"):
             self.assertEqual(self.request("GET", path, cookie=self.cookie)[0].status, 200, path)
         html = self.request("GET", "/polymarket", cookie=self.cookie)[1].decode()
-        self.assertIn("SIMULATED BOOKS", html)
+        self.assertIn("SIMULATED BOOKS", html)  # the bot lab
+        self.assertIn("NOT LEGAL IN AUSTRALIA", html)
+        self.assertIn('href="/polymarket.css"', html)
         self.assertNotIn("style=", html)
         d = json.loads(self.request("GET", "/api/polymarket", cookie=self.cookie)[1])
         self.assertEqual(d["mode"], "simulated")
         self.assertEqual(set(d["pnl"]), {"neg_risk_squeeze", "cross_book_arb", "maker_rebate"})
         self.assertTrue(d["events"] and d["pairs"] and d["binaries"])
+
+    def test_platform_api_paper_bets(self):
+        from trading import polymarket_live
+        sample = polymarket_live.MarketFeed(get=lambda url: (_ for _ in ()).throw(OSError("offline")))
+        orig = polymarket_live.MarketFeed
+        polymarket_live.MarketFeed = lambda: sample
+        try:
+            self.assertEqual(self.request("GET", "/api/polymarket/markets")[0].status, 401)
+            v = json.loads(self.request("GET", "/api/polymarket/markets?cat=all", cookie=self.cookie)[1])
+            self.assertEqual(v["mode"], "sample")
+            mid = v["markets"][0]["id"]
+            post = lambda path, body: self.request("POST", path, body=json.dumps(body).encode(), cookie=self.cookie,
+                                                   headers={"Content-Type": "application/json"})
+            resp, body = post("/api/polymarket/bet", {"market_id": mid, "side": "YES", "usd": 50})
+            self.assertEqual(resp.status, 200, body)
+            bet = json.loads(body)["bet"]
+            self.assertEqual(post("/api/polymarket/bet", {"market_id": mid, "side": "YES", "usd": 5, "live": True})[0].status, 403)
+            book = json.loads(self.request("GET", "/api/polymarket/book", cookie=self.cookie)[1])
+            self.assertEqual(len(book["open"]), 1)
+            self.assertEqual(book["live_trading"], "locked")
+            self.assertEqual(post("/api/polymarket/sell", {"id": bet["id"]})[0].status, 200)
+            self.assertEqual(post("/api/polymarket/reset", {})[0].status, 400)
+        finally:
+            polymarket_live.MarketFeed = orig
 
 
 class PolymarketDeskTest(unittest.TestCase):
