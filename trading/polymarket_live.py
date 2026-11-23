@@ -449,3 +449,25 @@ class PaperBook:
             self.state = {"cash": START_CASH, "start": START_CASH, "next_id": 1, "open": [], "closed": [], "picks": picks}
             self._save()
         return self.snapshot()
+
+
+GEOBLOCK_URL = "https://polymarket.com/api/geoblock"
+_geo_cache: dict = {}
+
+
+def geoblock(get=_get_json, now=time.time) -> dict:
+    """Polymarket's own location check for this server. Real Polymarket orders are never routed around it."""
+    if _geo_cache and now() - _geo_cache.get("at", 0) < 600:
+        return _geo_cache["v"]
+    try:
+        r = get(GEOBLOCK_URL) or {}
+        v = {"checked": True, "blocked": bool(r.get("blocked")), "country": str(r.get("country") or "")[:8]}
+    except Exception as e:  # noqa: BLE001
+        v = {"checked": False, "blocked": None, "country": "", "error": f"couldn't reach Polymarket ({type(e).__name__})"}
+    _geo_cache.update(at=now(), v=v)
+    return v
+
+
+REAL_MONEY_NOTE = ("Polymarket does not allow people in Australia to trade (its own rules, and ACMA blocks it). "
+                   "Real Polymarket orders are not available from your account, and this app won't route around that block. "
+                   "For real money on prediction-style markets, use the Betfair Exchange bridge (legal in Australia).")

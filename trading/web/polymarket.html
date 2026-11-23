@@ -47,6 +47,33 @@
   <div class="pg-card c12"><h3>My paper bets <span id="open-sub"></span></h3>
    <div class="pg-tabs" id="btabs"><button class="on" data-t="open" type="button">Open</button><button data-t="closed" type="button">Settled and sold</button></div>
    <div class="pg-scroll"><table class="pg-tbl"><thead id="bt-head"></thead><tbody id="bt"></tbody></table></div></div>
+ 
+  <div class="pg-card c12 pm-bridge-card"><h3>Bridges <span>Demo = pretend money on real prices · Real money = real orders on your own account</span></h3>
+   <div class="pg-tabs pm-switch" id="mode"><button class="on" data-m="demo" type="button">DEMO</button><button data-m="real" type="button">REAL MONEY</button></div>
+   <div class="pm-alert" id="mode-msg" hidden></div>
+   <div class="pm-bridges">
+    <div class="pm-bridge">
+     <h4>Betfair Exchange <em id="bf-state">checking…</em></h4>
+     <p class="pm-small" id="bf-help"></p>
+     <div class="pm-tools"><input id="bf-q" type="search" placeholder="Search Betfair (team, election, horse...)" autocomplete="off"><button type="button" id="bf-go" class="pm-sell">SEARCH</button></div>
+     <div id="bf-results" class="pm-bf-list"></div>
+     <div id="bf-ticket" class="pm-bf-ticket" hidden>
+      <div id="bf-pick" class="pm-q"></div>
+      <label>Stake (A$)<input id="bf-stake" type="number" min="1" step="1" value="5"></label>
+      <label>Odds (limit)<input id="bf-odds" type="number" min="1.01" step="0.01"></label>
+      <label id="bf-confirm-l" hidden>Type REAL MONEY to confirm<input id="bf-confirm" type="text" autocomplete="off"></label>
+      <button type="button" id="bf-place" class="pm-go">PLACE BET</button>
+      <div class="pm-msg" id="bf-msg"></div>
+     </div>
+     <h4 class="pm-sub">Agents' picks on Betfair</h4><div id="bf-matches" class="pm-small">–</div>
+     <h4 class="pm-sub">Betfair bets</h4>
+     <div class="pg-scroll"><table class="pg-tbl"><tbody id="bf-bets"></tbody></table></div>
+    </div>
+    <div class="pm-bridge">
+     <h4>Polymarket <em id="pmr-state">–</em></h4>
+     <div id="pmr-body" class="pm-small"></div>
+    </div>
+   </div></div>
  </section>
 
  <div class="pg-head pm-lab-head"><div><small>Arbitrage bot lab</small><h1><b>Bot</b> lab</h1>

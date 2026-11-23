@@ -48,7 +48,7 @@ from .atlas_sources import AtlasSources
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
 from .news_pipeline import NewsPipeline
 from .polymarket_desk import PolymarketDesk
-from . import polymarket_live
+from . import polymarket_live, betfair
 from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
 from . import calculator as calc_kit
@@ -431,6 +431,12 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 poly["book"] = polymarket_live.PaperBook(feed, hub.events_dir)
             return poly["book"]
 
+    def get_betfair() -> betfair.Bridge:
+        with poly_lock:
+            if "bf" not in poly:
+                poly["bf"] = betfair.Bridge(env, hub.events_dir)
+            return poly["bf"]
+
     def poly_wallet() -> dict | None:
         total, seen = 0.0, False
         if "desk" in poly:
@@ -646,6 +652,24 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 view = book.feed.view(query.get("q", [""])[0], query.get("cat", ["all"])[0][:20])
                 book.record_leans(book.feed.cache["markets"])
                 self._json(200, view)
+            elif path == "/api/polymarket/real":
+                self._json(200, {"available": False, "geoblock": polymarket_live.geoblock(), "note": polymarket_live.REAL_MONEY_NOTE})
+            elif path == "/api/betfair":
+                bf = get_betfair()
+                self._json(200, {"status": bf.status(), "book": bf.snapshot()})
+            elif path == "/api/betfair/search":
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                try:
+                    self._json(200, {"markets": get_betfair().search(query.get("q", [""])[0][:80])})
+                except Exception as e:  # noqa: BLE001
+                    self._json(502, {"error": str(e)[:200]})
+            elif path == "/api/betfair/matches":
+                book = get_poly_book()
+                picks = book.feed.view()["picks"]
+                try:
+                    self._json(200, {"matches": get_betfair().matches(picks)})
+                except Exception as e:  # noqa: BLE001
+                    self._json(502, {"error": str(e)[:200]})
             elif path == "/api/polymarket/book":
                 book = get_poly_book()
                 book.feed.markets()
@@ -776,6 +800,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._mt5_order(raw)
             if path in ("/api/btcc/open", "/api/btcc/close"):
                 return self._btcc_post(path, raw)
+            if path in ("/api/betfair/bet", "/api/betfair/close", "/api/betfair/cancel"):
+                return self._betfair_post(path, raw)
             if path in ("/api/polymarket/bet", "/api/polymarket/sell", "/api/polymarket/reset"):
                 return self._poly_post(path, raw)
             if path == "/api/street/note":
@@ -888,6 +914,33 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._json(400, {"error": f"missing: {str(e).strip(chr(39))}"})
             except (ValueError, TypeError, AttributeError) as e:
                 return self._json(400, {"error": str(e)})
+
+        def _betfair_post(self, path: str, raw: bytes):
+            """Betfair bridge: paper by default; real money only with the owner's switch, confirm and the money rules."""
+            if not self._authed():
+                return self._json(401, {"error": "sign in required"})
+            if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                return self._json(415, {"error": "send JSON"})
+            try:
+                b = json.loads(raw or b"null") or {}
+                bf = get_betfair()
+                if path == "/api/betfair/bet":
+                    odds = b.get("odds")
+                    bet = bf.place(str(b["market_id"])[:30], int(b["selection_id"]), str(b["side"]), float(b["stake"]),
+                                   float(odds) if odds not in (None, "") else None, live=bool(b.get("live")),
+                                   confirm=str(b.get("confirm", ""))[:20])
+                    return self._json(200, {"bet": bet, "book": bf.snapshot()})
+                if path == "/api/betfair/close":
+                    return self._json(200, {"closed": bf.settle_paper(int(b["id"])), "book": bf.snapshot()})
+                return self._json(200, {"cancelled": bf.cancel_real(str(b["market_id"])[:30], str(b["bet_id"])[:30])})
+            except betfair.Refused as e:
+                return self._json(403, {"error": str(e)})
+            except KeyError as e:
+                return self._json(400, {"error": f"missing: {str(e).strip(chr(39))}"})
+            except (ValueError, TypeError) as e:
+                return self._json(400, {"error": str(e)})
+            except Exception as e:  # noqa: BLE001 (Betfair down or refused)
+                return self._json(502, {"error": str(e)[:200]})
 
         def _report_authed(self) -> bool:
             sent = self.headers.get("Authorization", "")

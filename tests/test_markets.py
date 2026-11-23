@@ -430,6 +430,21 @@ class PolymarketPage(Routes):
         finally:
             polymarket_live.MarketFeed = orig
 
+    def test_bridges_off_without_keys(self):
+        d = json.loads(self.request("GET", "/api/betfair", cookie=self.cookie)[1])
+        self.assertFalse(d["status"]["configured"])
+        self.assertIn("BETFAIR_APP_KEY", d["status"]["missing"])
+        post = lambda body: self.request("POST", "/api/betfair/bet", body=json.dumps(body).encode(), cookie=self.cookie,
+                                         headers={"Content-Type": "application/json"})
+        self.assertEqual(post({"market_id": "1.2", "selection_id": 1, "side": "BACK", "stake": 5, "odds": 2, "live": True,
+                               "confirm": "REAL MONEY"})[0].status, 403)
+        from trading import polymarket_live
+        polymarket_live._geo_cache.update(at=10**12, v={"checked": True, "blocked": True, "country": "AU"})
+        r = json.loads(self.request("GET", "/api/polymarket/real", cookie=self.cookie)[1])
+        self.assertFalse(r["available"])
+        self.assertTrue(r["geoblock"]["blocked"])
+        polymarket_live._geo_cache.clear()
+
 
 class PolymarketDeskTest(unittest.TestCase):
     def test_desk_books_paper_profit_and_throttles_updates(self):

@@ -196,3 +196,85 @@ $("#bt").addEventListener("click", async e => {
   try { const r = await api("/api/polymarket/sell", {id: Number(b.dataset.sell)}); B = r.book; drawBook(); } catch (err) { b.disabled = false; b.textContent = err.message.slice(0, 40); }
 });
 loadMarkets(); loadBook(); setInterval(loadMarkets, 30000); setInterval(loadBook, 15000);
+
+// ---------------------------------------------------------------- bridges: Demo / Real money switch
+let MODE = "demo", BF = null, BFsel = null;
+const mmsg = (el, cls, t) => { el.className = "pm-msg " + cls; el.textContent = t; };
+function drawBridges() {
+  const real = MODE === "real", st = BF && BF.status;
+  const m = $("#mode-msg"); m.hidden = !real;
+  m.textContent = "REAL MONEY: bets go to your own account and can lose real money. Every bet still needs you to type REAL MONEY, and the money rules apply.";
+  if (st) {
+    const s = $("#bf-state");
+    s.textContent = !st.configured ? "NOT CONNECTED" : st.error ? "ERROR" : real ? (st.real_switch ? "REAL MONEY ON" : "REAL MONEY OFF") : "DEMO";
+    s.className = !st.configured || st.error || (real && !st.real_switch) ? "bad" : "ok";
+    const L = st.limits;
+    $("#bf-help").innerHTML = !st.configured ? esc(st.help)
+      : st.error ? esc(st.error)
+      : `${st.funds ? `Balance <b>A$${Number(st.funds.available || 0).toFixed(2)}</b> · ` : ""}${real
+          ? (st.real_switch ? `Money rules: max A$${L.max_stake} per bet, ${L.balance_pct}% of balance, A$${L.daily_stake} a day, ${L.max_open} open bets, odds ${L.min_odds}-${L.max_odds}.`
+                            : "Real money is switched off. Add BETFAIR_REAL_MONEY=on on Render to allow real bets.")
+          : `Demo money A$${BF.book.cash.toFixed(2)} · P/L ${usd(BF.book.pnl)} · ${BF.book.wins}/${BF.book.bets} won`}`;
+    const rows = real ? BF.book.real.map(b => `<tr><td>${esc(b.side)}</td><td>${b.odds}</td><td class="r">A$${b.stake}</td><td>${esc(b.status || "")}</td><td class="g">${esc(String(b.bet_id || ""))}</td></tr>`)
+      : BF.book.open.map(b => `<tr><td>${esc(b.side)} ${esc(b.runner)}</td><td>${b.odds}</td><td class="r">A$${b.stake}</td><td class="g">${esc(b.event)}</td><td><button type="button" class="pm-sell" data-bfclose="${b.id}">CASH OUT</button></td></tr>`)
+        .concat(BF.book.closed.slice(0, 10).map(b => `<tr><td>${esc(b.side)} ${esc(b.runner)}</td><td>${b.odds}→${b.exit_odds}</td><td class="r ${b.pnl >= 0 ? "up" : "dn"}">${usd(b.pnl)}</td><td class="g">${esc(b.event)}</td><td></td></tr>`));
+    $("#bf-bets").innerHTML = rows.join("") || `<tr><td class="g">No ${real ? "real" : "demo"} Betfair bets yet.</td></tr>`;
+  }
+  $("#bf-confirm-l").hidden = !real;
+  $("#bf-place").textContent = real ? "PLACE REAL BET" : "PLACE DEMO BET";
+  $("#bf-place").classList.toggle("pm-real", real);
+  const ps = $("#pmr-state");
+  if (!real) { ps.textContent = "DEMO"; ps.className = "ok"; $("#pmr-body").innerHTML = "Demo bets on real Polymarket prices use the paper book above (ticket at the top). Nothing is sent to Polymarket."; }
+  else if (PMR) {
+    ps.textContent = "NOT AVAILABLE IN AUSTRALIA"; ps.className = "bad";
+    const g = PMR.geoblock || {};
+    $("#pmr-body").innerHTML = `${esc(PMR.note)}<br><br>Polymarket's own location check for this server: <b>${g.checked ? (g.blocked ? "blocked" : "allowed") + (g.country ? " (" + esc(g.country) + ")" : "") : esc(g.error || "not checked")}</b>.`;
+  }
+}
+let PMR = null;
+async function loadBridges() {
+  try { BF = await api("/api/betfair"); } catch (e) { /* keep */ }
+  if (MODE === "real" && !PMR) { try { PMR = await api("/api/polymarket/real"); } catch (e) { /* keep */ } }
+  drawBridges();
+}
+async function loadMatches() {
+  if (!BF || !BF.status.configured) { $("#bf-matches").textContent = "Connect Betfair to see your agents' Polymarket picks lined up with the same markets on Betfair."; return; }
+  try {
+    const r = await api("/api/betfair/matches");
+    $("#bf-matches").innerHTML = r.matches.map(x => `<div class="pm-bf-mkt">${esc(x.question)}<small>Betfair: ${esc(x.runner)} back ${x.back || "–"} = ${x.betfair_pct}% · Polymarket ${x.polymarket_pct}% · gap ${x.gap_pts > 0 ? "+" : ""}${x.gap_pts} pts</small>
+      <div class="pm-bf-run"><span>${esc(x.event)}</span><button type="button" class="back" data-bf='${esc(JSON.stringify({m: x.market_id, s: x.selection_id, side: "BACK", p: x.back, n: x.runner, e: x.event}))}'>BACK ${x.back || "–"}</button><button type="button" class="lay" data-bf='${esc(JSON.stringify({m: x.market_id, s: x.selection_id, side: "LAY", p: x.lay, n: x.runner, e: x.event}))}'>LAY ${x.lay || "–"}</button></div></div>`).join("") || "No matching Betfair markets for the current picks.";
+  } catch (e) { $("#bf-matches").textContent = e.message; }
+}
+async function bfSearch() {
+  const q = $("#bf-q").value.trim(); if (!q) return;
+  try {
+    const r = await api("/api/betfair/search?q=" + encodeURIComponent(q));
+    $("#bf-results").innerHTML = r.markets.map(mk => `<div class="pm-bf-mkt">${esc(mk.event)} · ${esc(mk.name)}<small>${esc(mk.sport)} · ${esc(mk.status)} · A$${Number(mk.matched).toLocaleString()} matched</small>${mk.runners.map(rn => `<div class="pm-bf-run"><span>${esc(rn.name)}</span>
+      <button type="button" class="back" data-bf='${esc(JSON.stringify({m: mk.market_id, s: rn.id, side: "BACK", p: rn.back, n: rn.name, e: mk.event}))}'>BACK ${rn.back || "–"}</button>
+      <button type="button" class="lay" data-bf='${esc(JSON.stringify({m: mk.market_id, s: rn.id, side: "LAY", p: rn.lay, n: rn.name, e: mk.event}))}'>LAY ${rn.lay || "–"}</button></div>`).join("")}</div>`).join("") || '<div class="pm-small">Nothing found on Betfair.</div>';
+  } catch (e) { $("#bf-results").innerHTML = `<div class="pm-small">${esc(e.message)}</div>`; }
+}
+function bfPick(btn) {
+  BFsel = JSON.parse(btn.dataset.bf); $("#bf-ticket").hidden = false;
+  $("#bf-pick").textContent = `${BFsel.side} ${BFsel.n} · ${BFsel.e}`; $("#bf-odds").value = BFsel.p || ""; $("#bf-msg").textContent = "";
+}
+$("#mode").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (!b) return; MODE = b.dataset.m; [...$("#mode").children].forEach(x => x.classList.toggle("on", x === b)); loadBridges(); });
+$("#bf-go").addEventListener("click", bfSearch);
+$("#bf-q").addEventListener("keydown", e => { if (e.key === "Enter") bfSearch(); });
+document.addEventListener("click", e => { const b = e.target.closest("button[data-bf]"); if (b) bfPick(b); });
+$("#bf-bets").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-bfclose]"); if (!b) return; b.disabled = true;
+  try { const r = await api("/api/betfair/close", {id: Number(b.dataset.bfclose)}); BF.book = r.book; drawBridges(); } catch (err) { b.disabled = false; b.textContent = err.message.slice(0, 40); }
+});
+$("#bf-place").addEventListener("click", async () => {
+  if (!BFsel) return; const msg = $("#bf-msg"), go = $("#bf-place"), real = MODE === "real"; go.disabled = true;
+  try {
+    const r = await api("/api/betfair/bet", {market_id: BFsel.m, selection_id: BFsel.s, side: BFsel.side, stake: Number($("#bf-stake").value),
+      odds: Number($("#bf-odds").value) || null, live: real, confirm: real ? $("#bf-confirm").value : ""});
+    BF.book = r.book; drawBridges();
+    mmsg(msg, "ok", real ? `Real bet sent: ${r.bet.status || ""} · bet id ${r.bet.bet_id || "–"} · matched A$${r.bet.matched || 0}` : `Demo bet #${r.bet.id}: ${r.bet.side} ${r.bet.runner} at ${r.bet.odds}`);
+    $("#bf-confirm").value = "";
+  } catch (e) { mmsg(msg, "bad", e.message); }
+  go.disabled = false;
+});
+loadBridges().then(loadMatches); setInterval(loadBridges, 30000);
