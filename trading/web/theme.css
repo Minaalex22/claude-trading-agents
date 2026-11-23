@@ -93,3 +93,63 @@ svg .f-out { fill: #3a3a3a !important; }
 /* Phone: the 3D brain's small captions pile up, keep only the names */
 @media (max-width: 560px) { .label3d .mut { display: none; } }
 .ats-nav details:first-of-type > div { left: 0; right: auto; }
+
+/* ---- one page title on every page (added 23 Nov) ---- */
+.pg.pg-top { padding-bottom: 0; }
+.pg-top .pg-head { margin-bottom: 4px; }
+.pg-head.slim h1 { font-size: 22px; }
+.pg-head.slim small { letter-spacing: .16em; }
+.ats-bar .tag { font: 600 9px var(--ats-mono) !important; letter-spacing: .14em; padding: 3px 6px; border: 1px solid #2a2a2a; border-radius: 5px; clip-path: none !important; }
+.ats-bar details.ats-more[open] summary { color: var(--ats-w) !important; background: rgba(255, 255, 255, .05) !important; }
+.ats-bar .ats-more.open-on summary { color: #000 !important; background: var(--ats-o) !important; }
+/* Galaxy keeps its live numbers; its old second title goes */
+.gx-title { display: none !important; }
+.gx-top { justify-content: flex-start; }
+/* Markets: flat black panels like every other page (were blue) */
+.mk { padding-top: 18px !important; }
+.mk-card { background: var(--ats-panel) !important; border: 1px solid var(--ats-line) !important; border-radius: 12px !important; clip-path: none !important; }
+.mk-card h3 { color: var(--ats-w) !important; display: flex; align-items: center; gap: 8px; }
+.mk-card h3::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ats-o); box-shadow: 0 0 8px var(--ats-o); }
+.mk-tabs button { border-radius: 7px !important; }
+.mk-tabs button.on { background: var(--ats-o) !important; color: #000 !important; border-color: var(--ats-o) !important; }
+.mk td, .mk th { border-bottom-color: #151515 !important; font-variant-numeric: tabular-nums; }
+.mk a { color: var(--ats-w); text-decoration: none; } .mk a:hover { color: var(--ats-o); }
+/* Order flow */
+.of-pick select { width: 100%; margin-top: 8px; padding: 8px 10px; font: 600 16px var(--ats-mono); }
+.pg-card .big { font: 700 26px var(--ats-sans); margin-bottom: 6px; }
+.pg-card .buy { color: var(--ats-up); } .pg-card .sell { color: var(--ats-dn); }
+#cvd svg { max-width: 100%; }
+/* Event log: tidy rows instead of a wall of text */
+#log { padding: 0 20px 24px !important; max-width: 1320px; margin: 0 auto; white-space: normal !important; word-break: normal !important; font: 12px var(--ats-mono); }
+#log .lg-row { display: grid; grid-template-columns: 74px 34px 110px minmax(0, 1fr); gap: 10px; align-items: baseline; padding: 6px 0 !important; border-bottom: 1px solid #151515 !important; }
+.lg-t { color: var(--ats-g); } .lg-s { color: var(--ats-g2); }
+.lg-k { color: var(--ats-o); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; overflow: hidden; text-overflow: ellipsis; }
+.lg-b { color: #bdbdbd; overflow-wrap: anywhere; cursor: pointer; }
+#shards, #hud, #matrixpanel { max-width: 1320px; margin-left: auto !important; margin-right: auto !important; box-sizing: border-box; }
+#shards .card, #hud .card { border: 1px solid var(--ats-line) !important; }
+@media (max-width: 560px) {
+  #log .lg-row { grid-template-columns: 64px 1fr; } .lg-s { display: none; } .lg-b { grid-column: 1 / -1; }
+  .ats-brand em { display: none; }
+  .ats-bar .tag { display: none; }
+}
+/* page title styles for pages that don't load pages.css */
+.pg { max-width: 1320px; margin: 0 auto; padding: 18px 20px 32px; box-sizing: border-box; }
+.pg-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; font-family: var(--ats-sans); }
+.pg-head small { font: 11px var(--ats-mono); letter-spacing: .2em; color: var(--ats-g); text-transform: uppercase; }
+.pg-head h1 { margin: 2px 0 0; font: 700 30px var(--ats-sans); letter-spacing: .02em; color: var(--ats-w); }
+.pg-head h1 b { color: var(--ats-o); }
+.pg-head p { margin: 4px 0 0; color: var(--ats-g); font-size: 14px; max-width: 720px; line-height: 1.45; }
+.pg-badge { font: 600 10px var(--ats-mono); letter-spacing: .16em; color: var(--ats-o); border: 1px solid rgba(255, 92, 0, .5); padding: 5px 9px; border-radius: 6px; }
+.pg-head.slim h1 { font-size: 22px; }
+.pg-top + main, .pg-top + .kpis { margin-top: 0 !important; }
+@media (max-width: 560px) { .pg { padding: 14px 16px 24px; } .pg-head h1 { font-size: 24px; } .pg-head.slim h1 { font-size: 20px; } .pg-head.slim .pg-badge { display: none; } }
+/* phone: nothing wider than the screen */
+.mk { grid-template-columns: minmax(0, 1fr) !important; }
+.mk-grid2 { grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)) !important; }
+.mk-card, .dd-side { min-width: 0; }
+.mk-head { min-width: 0; }
+.mk-card table { max-width: 100%; }
+.dd-score { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important; }
+@media (max-width: 640px) { .dd-score { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; } }
+#log .lg-row { grid-template-columns: 92px 34px 120px minmax(0, 1fr); }
+@media (max-width: 560px) { #log .lg-row { grid-template-columns: 92px 1fr; } }

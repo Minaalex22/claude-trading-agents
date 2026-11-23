@@ -24,7 +24,6 @@ const K = KINDS[location.pathname.replace(/^\//, "").split("/")[0]] || KINDS.cry
 document.title = `ATS Matrix · ${K.title}`;
 $("#k-title").innerHTML = `<b>${esc(K.title)}</b>`; $("#k-sub").textContent = K.sub; $("#k-desc").textContent = K.desc;
 $("#sa-title").innerHTML = `${esc(K.a)}`; $("#sb-title").innerHTML = `${esc(K.b)}`;
-document.querySelectorAll(`.ats-nav a[href="${location.pathname}"]`).forEach(a => a.classList.add("on"));
 
 let ALL = [], P = [], picked = null, tf = "1h", TR = {by_symbol: {}};
 
