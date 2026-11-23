@@ -32,6 +32,8 @@ Configured with environment variables so the same image runs as any shard:
                 it opens a trade (trading/entry_filters.py)
   SESSION_RHYTHM "on": Asia calm (trust reversion), London breaks it (trust trend), New York finishes (default off)
   OPEN_FAKE     how to treat the first 30 minutes after London and New York open: "wait" (default), "fade" or "off"
+  RSI2_SHARE    share of the Reversion department trading Larry Connors' RSI(2), 0..1 (default 0: tested, lower win rate)
+  SIGNAL_GATE   "on": every new trade goes through triage -> gate 0.8 -> deep read (trading/signal_gate.py; default off)
   MINDS         "off" turns off every trader's two-step mind (think, then decide), for comparison
   COACH         "off" keeps the hourly Claude coach off even with ANTHROPIC_API_KEY set
   COACH_MODEL   Claude model for the coach (default claude-opus-5-5)
@@ -129,6 +131,10 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     from . import entry_filters, loss_audit
     entry_filters.configure(env.get("ENTRY_FILTERS"))
     from . import sessions
+    from . import agents as agent_types, signal_gate
+    signal_gate.ENABLED = env.get("SIGNAL_GATE", "off").lower() in ("on", "1", "true", "yes")
+    signal_gate.reset()
+    agent_types.RSI2_SHARE = float(env.get("RSI2_SHARE", agent_types.RSI2_SHARE))
     sessions.RHYTHM_ON = env.get("SESSION_RHYTHM", "off").lower() in ("on", "1", "true", "yes")
     sessions.OPEN_FAKE = env.get("OPEN_FAKE", "wait").lower()
     entry_filters.reset()
