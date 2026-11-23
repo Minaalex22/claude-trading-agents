@@ -63,7 +63,8 @@ def summarize(agents, votes: dict[str, float]) -> dict[str, dict]:
                       "wins": 0, "experience": 0, "held": 0, "macro_sum": 0.0, "macro_count": 0, "votes": [],
                       "traders": 0, "trades_hour_sum": 0, "trades_hour_min": None, "trades_total": 0,
                       "trade_wins": 0, "trade_losses": 0, "reviews_learned": 0,
-                      "masters_used": {}, "exits": {}, "by_sure": {}}
+                      "masters_used": {}, "exits": {}, "by_sure": {},
+                      "loss_causes": {}, "filtered": {}}
               for d in DEPARTMENTS}
     members = {d.key: [] for d in DEPARTMENTS}
     for a in agents:
@@ -82,6 +83,9 @@ def summarize(agents, votes: dict[str, float]) -> dict[str, dict]:
             dept["reviews_learned"] += bool(a.workspace.get("lessons"))
             for reason, n in a.workspace.get("exits", {}).items():
                 dept["exits"][reason] = dept["exits"].get(reason, 0) + n
+            for key in ("loss_causes", "filtered"):
+                for k, n in a.workspace.get(key, {}).items():
+                    dept[key][k] = dept[key].get(k, 0) + n
             for b, (w, n) in a.workspace.get("by_sure", {}).items():
                 row = dept["by_sure"].setdefault(b, [0, 0])
                 row[0] += w
@@ -104,6 +108,12 @@ def summarize(agents, votes: dict[str, float]) -> dict[str, dict]:
         dept["active"] += 1
         dept["vote_sum"] += v
         dept["votes"].append(round(v, 2))
+    from . import entry_filters
+    for key, dept in report.items():
+        meta = entry_filters.META.get(key)
+        if meta is not None and meta.seen:
+            cal = meta.calibration()
+            dept["calibration"] = {k: cal[k] for k in ("trades", "base_rate", "brier", "brier_skill")}
     for dept in report.values():
         dept["avg_vote"] = round(dept.pop("vote_sum") / dept["active"], 4) if dept["active"] else None
         dept["avg_weight"] = round(dept.pop("weight_sum") / dept["agents"], 4) if dept["agents"] else None

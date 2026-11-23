@@ -247,7 +247,7 @@ class JarvisRulesTest(unittest.TestCase):
                           kill_path=self.dir / "KILL")
         self.assertEqual(b.once(), "kill switch on")
 
-    def test_no_stock_risk_in_first_five_minutes(self):
+    def test_no_stock_risk_in_first_fifteen_minutes(self):
         from trading import hooks, sessions
         import calendar
         ts = calendar.timegm((2026, 11, 23, 14, 32, 0))  # Monday 09:32 New York (EST, UTC-5)
@@ -255,6 +255,7 @@ class JarvisRulesTest(unittest.TestCase):
         self.assertEqual(c.stock_phase, "opening_bell")
         qty, notes = hooks.run_hooks(hooks.OrderCheck("AAPL", 10, 0, 100.0, clock=c))
         self.assertEqual(qty, 0)
-        self.assertIn("first 5 minutes", notes[-1])
-        later = sessions.clock(ts + 5 * 60)
+        self.assertIn("first 15 minutes", notes[-1])
+        self.assertEqual(sessions.clock(ts + 10 * 60).stock_phase, "opening_bell")  # 09:42: still setting up
+        later = sessions.clock(ts + 13 * 60)
         self.assertEqual(later.stock_phase, "opening_hour")

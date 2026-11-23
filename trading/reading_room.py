@@ -25,6 +25,7 @@ import math
 import os
 import re
 import threading
+import time
 from collections import deque
 from dataclasses import dataclass
 
@@ -171,30 +172,71 @@ NEWS_SYSTEM = (
     "You are the news desk of a paper-trading team. For each headline, say how it moves the stock or coin it "
     "names over the next hours: direction -1 (clearly bearish) to 1 (clearly bullish); the size is the strength, "
     "0 if it doesn't matter; and one short reason. Judge like an experienced macro trader: hot inflation and rate hikes are bearish, "
-    "strong growth and trade deals bullish, a surprise matters more than a scheduled event.")
+    "strong growth and trade deals bullish, a surprise matters more than a scheduled event. "
+    "Think like a superforecaster: FIRST give the base rate (how often a headline like this really moves the "
+    "price over the next hours, 0..1), THEN a pre-mortem (assume your read is wrong: why?), and only then the "
+    "direction; a low base rate or a strong pre-mortem means a small direction. Examples: 'CPI hotter than "
+    "forecast' -> base_rate 0.7, premortem 'already priced in after the leak', direction -0.6. 'CEO to speak at "
+    "conference' -> base_rate 0.1, premortem 'routine appearance', direction 0.")
 CHART_SYSTEM = (
     "You are the chart reader of a paper-trading team. For each symbol you get its recent closes (oldest "
     "first, sampled evenly) and its volatility. Read the chart like a seasoned technician: trend on the short "
     "and long view, higher highs and lows, breakouts, exhaustion. Give direction -1 (clear downtrend) to 1 "
     "(clear uptrend), 0 when there is no clear trend, the nearest support and resistance prices, the pattern you "
     "see (e.g. breakout, double top, range, flag, none) and one short reason. Be calibrated: most charts are "
-    "noise, so most directions should be small.")
+    "noise, so most directions should be small. FIRST say the market type (trending or ranging: a trend reading "
+    "in a ranging chart is the most common losing trade on our desk), THEN a pre-mortem (assume the read fails: "
+    "why?), then the direction.")
 
 NEWS_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["reads"], "properties": {
     "reads": {"type": "array", "items": {"type": "object", "additionalProperties": False,
-                                         "required": ["id", "direction", "why"],
-                                         "properties": {"id": {"type": "integer"}, "direction": {"type": "number"},
+                                         "required": ["id", "base_rate", "premortem", "direction", "why"],
+                                         "properties": {"id": {"type": "integer"}, "base_rate": {"type": "number"},
+                                                        "premortem": {"type": "string"},
+                                                        "direction": {"type": "number"},
                                                         "why": {"type": "string"}}}}}}
 CHART_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["reads"], "properties": {
     "reads": {"type": "array", "items": {"type": "object", "additionalProperties": False,
-                                         "required": ["symbol", "direction", "support", "resistance", "pattern",
-                                                      "why"],
+                                         "required": ["symbol", "market_type", "premortem", "direction",
+                                                      "support", "resistance", "pattern", "why"],
                                          "properties": {"symbol": {"type": "string"},
+                                                        "market_type": {"type": "string",
+                                                                        "enum": ["trending", "ranging"]},
+                                                        "premortem": {"type": "string"},
                                                         "direction": {"type": "number"},
                                                         "support": {"type": "number"},
                                                         "resistance": {"type": "number"},
                                                         "pattern": {"type": "string"},
                                                         "why": {"type": "string"}}}}}}
+
+
+BREAKER_SECONDS = 600
+
+
+def validate(data, schema: dict) -> str | None:
+    """Check a Claude answer against its schema and our business rules. Returns the problem in words, or None."""
+    if not isinstance(data, dict) or "_unparsed" in data:
+        return "the answer was not a JSON object"
+    reads = data.get("reads")
+    if not isinstance(reads, list):
+        return "missing the 'reads' list"
+    item = schema["properties"]["reads"]["items"]
+    for i, r in enumerate(reads):
+        if not isinstance(r, dict):
+            return f"read {i} is not an object"
+        missing = [k for k in item["required"] if k not in r]
+        if missing:
+            return f"read {i} is missing {', '.join(missing)}"
+        for k, spec in item["properties"].items():
+            if spec.get("type") == "number":
+                v = r.get(k)
+                if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+                    return f"read {i}: {k} must be a finite number"
+        if not -1.0 <= r["direction"] <= 1.0:
+            return f"read {i}: direction {r['direction']} is outside -1..1"
+        if "base_rate" in r and not 0.0 <= r["base_rate"] <= 1.0:
+            return f"read {i}: base_rate {r['base_rate']} is outside 0..1"
+    return None
 
 
 def _sample(prices: list[float], points: int = 30) -> list[float]:
@@ -222,6 +264,8 @@ class ClaudeReader:
         self.calls = 0
         self.errors = 0
         self.last_error = ""
+        self.breaker_until = 0.0
+        self.breaker_trips = 0
         self._thread = threading.Thread(target=self._run, name="claude-reader", daemon=True)
         self._thread.start()
 
@@ -249,7 +293,8 @@ class ClaudeReader:
         with self._lock:
             return {"claude": True, "model": self.model, "headlines_known": len(self.cache),
                     "waiting": len(self._pending), "calls": self.calls, "errors": self.errors,
-                    "last_error": self.last_error}
+                    "last_error": self.last_error, "breaker_trips": self.breaker_trips,
+                    "breaker_open": time.time() < self.breaker_until}
 
     # Background thread.
     def _run(self) -> None:
@@ -278,6 +323,27 @@ class ClaudeReader:
                         self.cache.setdefault(key, read_headline(key) or 0.0)
 
     def _ask(self, system: str, content: str, schema: dict) -> dict:
+        """Ask Claude, check the answer before the desk uses it, and give Claude one chance to fix a bad one.
+
+        From the agent-reliability guide mina shared: a validator between the model and the desk returns the
+        exact error once; a second failure in a row trips the circuit breaker, and the built-in reads stand in
+        until `BREAKER_SECONDS` have passed.
+        """
+        if time.time() < self.breaker_until:
+            raise RuntimeError("circuit breaker open: built-in reads in use")
+        data = self._call(system, content, schema)
+        problem = validate(data, schema)
+        if problem:
+            data = self._call(system, f"{content}\n\nYour last answer was rejected: {problem}. Answer again.", schema)
+            problem = validate(data, schema)
+            if problem:
+                with self._lock:
+                    self.breaker_until = time.time() + BREAKER_SECONDS
+                    self.breaker_trips += 1
+                raise RuntimeError(f"invalid answer twice ({problem}): circuit breaker tripped")
+        return data
+
+    def _call(self, system: str, content: str, schema: dict) -> dict:
         response = self.client.beta.messages.create(
             model=self.model, max_tokens=4096, system=system,
             messages=[{"role": "user", "content": content}],
@@ -288,7 +354,10 @@ class ClaudeReader:
         if response.stop_reason == "refusal":
             raise RuntimeError("refused")
         text = next(b.text for b in response.content if b.type == "text")
-        return json.loads(text)
+        try:
+            return json.loads(text)
+        except ValueError:
+            return {"_unparsed": text[:80]}
 
     def _read_news(self, batch: list[str]) -> None:
         lines = "\n".join(f"{i}. {t}" for i, t in enumerate(batch))

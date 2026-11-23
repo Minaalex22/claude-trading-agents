@@ -28,6 +28,10 @@ Configured with environment variables so the same image runs as any shard:
                 MEMORY_DIR is set). Saved to MEMORY_DIR (default EVENTS_DIR)/memory-<shard>.json.
   EXITS         "off" turns off every trader's exit discipline (trading/exits.py: stop 1R, breakeven after +1R,
                 target 2.4R, time exit), for comparison
+  ENTRY_FILTERS "off", "all" (default) or a comma list of regime,mtf,vol,meta: the checks a trader runs before
+                it opens a trade (trading/entry_filters.py)
+  SESSION_RHYTHM "on": Asia calm (trust reversion), London breaks it (trust trend), New York finishes (default off)
+  OPEN_FAKE     how to treat the first 30 minutes after London and New York open: "wait" (default), "fade" or "off"
   MINDS         "off" turns off every trader's two-step mind (think, then decide), for comparison
   COACH         "off" keeps the hourly Claude coach off even with ANTHROPIC_API_KEY set
   COACH_MODEL   Claude model for the coach (default claude-opus-5-5)
@@ -122,6 +126,13 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     mind.ENABLED = env.get("MINDS", "on").lower() not in ("off", "0", "false", "no")
     from . import exits
     exits.ENABLED = env.get("EXITS", "on").lower() not in ("off", "0", "false", "no")
+    from . import entry_filters, loss_audit
+    entry_filters.configure(env.get("ENTRY_FILTERS"))
+    from . import sessions
+    sessions.RHYTHM_ON = env.get("SESSION_RHYTHM", "off").lower() in ("on", "1", "true", "yes")
+    sessions.OPEN_FAKE = env.get("OPEN_FAKE", "wait").lower()
+    entry_filters.reset()
+    loss_audit.reset()
     agents = shard_agents(agent_count, symbols, shard_id, shard_count, seed)
     log = EventLog(shard_id, Path(events_dir) / f"events-{shard_id}.jsonl" if events_dir else None, stream)
     broker = PaperBroker(fee_bps=float(env.get("FEE_BPS", 1.0)))
