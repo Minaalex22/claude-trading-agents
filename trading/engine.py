@@ -37,6 +37,8 @@ Configured with environment variables so the same image runs as any shard:
   CONSENSUS     "on" (default): desk drops whisper votes and weighs setups by sqrt(group size) (trading/desk.py)
   PULLBACK      "on" (default): new desk risk waits up to 2 bars for a 0.25 x bar-move pullback, no chasing
   BUCKET_SIZING "on" (default): each symbol's last 40 desk trades scale its size 0.25x-1.4x (risk limits still cap)
+  NEWS_SPLIT    "on" (default): trend traders need agreeing news + chart; reversion is stopped only by fresh/macro news
+  NEWS_TO_DESK  "on" (default, MARKET=live only): sure, two-source news pipeline reads nudge the desk; doubtful ones brake it
   DEAD_ZONE     "on" (default): no new forex/metals risk 21-23 UTC, no new US stock risk in the last 10 minutes
   REGIME_ROUTER "on": per symbol, mute Trend in chop and lean on it in breakouts (trading/desk.py; default on)
   TREND_EXITS   "trail": Trend trades have no 2.4R target and trail their stop 1.5R behind the best point (default; "fixed" = 2.4R target)
@@ -154,6 +156,8 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     managers_rules.ATLAS_DEEP = env.get("ATLAS_DEEP", "on").lower() in ("on", "1", "true", "yes")
     on = lambda k: env.get(k, "on").lower() in ("on", "1", "true", "yes")
     desk_rules.CONSENSUS, desk_rules.PULLBACK, desk_rules.BUCKET_SIZING = on("CONSENSUS"), on("PULLBACK"), on("BUCKET_SIZING")
+    from . import agents as agent_rules
+    agent_rules.NEWS_SPLIT = on("NEWS_SPLIT")
     from . import hooks as hook_rules
     hook_rules.DEAD_ZONE = on("DEAD_ZONE")
     desk_rules.TREND_GATE = (float(env["TREND_GATE"]) if env.get("TREND_GATE", "off") not in ("off", "") else None) if "TREND_GATE" in env else 0.25
@@ -185,6 +189,9 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     desk.use_clock = env.get("SESSIONS", "on").lower() not in ("off", "0", "false", "no")
     desk.proven_only = env.get("PROVEN_ONLY", "off").lower() in ("on", "1", "true", "yes")
     desk.min_trade = float(env.get("MIN_TRADE", desk.min_trade))
+    if live_market and env.get("NEWS_TO_DESK", "on").lower() in ("on", "1", "true", "yes"):
+        from .news_pipeline import NewsPipeline
+        desk.pipeline = NewsPipeline()
     alerts = Alerts.from_env(env)  # Telegram phone alerts (trading/alerts.py); off without the two settings
     limits_live = live_orders.Limits(env)
     if live_market and events_dir and shard_id == 0 and limits_live.on and market is None:

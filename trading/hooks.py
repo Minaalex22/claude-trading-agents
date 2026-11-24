@@ -55,6 +55,7 @@ class OrderCheck:
     cooling: bool = False  # inside the pause after a losing streak
     clock: object = None  # sessions.MarketClock or None (simulator)
     session_avg: float | None = None
+    style: str = ""  # which style drives the desk's call: "trend" or "reversion"
     notes: list = field(default_factory=list)
 
     @property
@@ -64,9 +65,16 @@ class OrderCheck:
 
 
 def against_the_room(c: OrderCheck) -> tuple[float, str | None]:
-    if c.view is None or not getattr(c.view, "confident", False):
+    if c.view is None:
         return 1.0, None
     side = 1.0 if c.position + c.qty > 0 else -1.0
+    if c.style == "reversion":  # a reversion call fades the chart: only fresh or macro news against it blocks
+        from .reading_room import opposing_news
+        if opposing_news(c.view, side):
+            return 0.0, f"blocked: fresh news against a reversion trade ({c.view.news:+.2f})"
+        return 1.0, None
+    if not getattr(c.view, "confident", False):
+        return 1.0, None
     if side * c.view.direction < 0:
         return 0.0, f"blocked: news and chart point the other way ({c.view.direction:+.2f})"
     return 1.0, None

@@ -18,11 +18,15 @@ from dataclasses import dataclass
 
 from . import academy, accounts, dual_brain, entry_filters, exits, loss_audit, masters, mind, review, signal_gate
 from .brain import AgentBrain
+from .reading_room import CONFIDENT
 from .org import department_sizes
 
 TREND = "trend"
 TRADE_STEP = 0.25  # a position change at least this big counts as a practice trade
 REVERSION = "reversion"
+# News by style (env NEWS_SPLIT): trend traders need a confident news + chart view that agrees; reversion
+# traders are stopped only by fresh or macro-shock news against them (reading_room.opposing_news).
+NEWS_SPLIT = True
 
 
 GATE_BUCKETS = (0.9, 0.8, 0.7, 0.5, 0.0)  # sureness floors, highest first
@@ -152,6 +156,8 @@ class Agent:
             return value  # no reading room (READING_ROOM=off): nothing to confirm with
         d = 1.0 if value > 0 else -1.0 if value < 0 else 0.0
         held = 1.0 if self.position > 0 else -1.0 if self.position < 0 else 0.0
+        if NEWS_SPLIT and self.style == REVERSION:
+            return self._confirm_reversion(value, signal, d, held)
         if held and self._agreement(held) <= -self.rules["exit_against"]:
             self._held()
             return 0.0  # the news and the chart have turned against the open trade: get out
@@ -161,7 +167,23 @@ class Agent:
             return self.position
         if not d or (d == held and abs(value) <= abs(self.position)):
             return value  # no new exposure: closing, trimming or holding needs no confirmation
-        if abs(signal) < self.rules["min_edge"] or self._agreement(d) < self.rules["view_need"]:
+        need = max(self.rules["view_need"], CONFIDENT) if NEWS_SPLIT else self.rules["view_need"]
+        if abs(signal) < self.rules["min_edge"] or self._agreement(d) < need:
+            self._held()
+            return self.position if d == held else 0.0
+        return value
+
+    def _confirm_reversion(self, value: float, signal: float, d: float, held: float) -> float:
+        """Reversion fades the chart, so the chart leaning against it is the setup, not a warning. Only fresh
+        (under an hour) or macro-shock news pushing hard the other way blocks it or closes it."""
+        from .reading_room import opposing_news
+
+        if held and opposing_news(self.view, held):
+            self._held()
+            return 0.0
+        if not d or (d == held and abs(value) <= abs(self.position)):
+            return value
+        if abs(signal) < self.rules["min_edge"] or opposing_news(self.view, d):
             self._held()
             return self.position if d == held else 0.0
         return value
