@@ -32,7 +32,7 @@ Configured with environment variables so the same image runs as any shard:
                 it opens a trade (trading/entry_filters.py)
   SESSION_RHYTHM "on": Asia calm (trust reversion), London breaks it (trust trend), New York finishes (default off)
   OPEN_FAKE     how to treat the first 30 minutes after London and New York open: "wait" (default), "fade" or "off"
-  HA_SHARE      share of the Entry (trend) department trading Heikin Ashi colour flips (signal only; fills real), default 0.25
+  HA_SHARE      share of the Entry (trend) department trading Heikin Ashi colour flips (signal only; fills real), default 0 (lost money)
   RSI2_SHARE    share of the Reversion department trading Larry Connors' RSI(2), 0..1 (default 0: tested, lower win rate)
   DUAL_BRAIN    "on" (default): each trader's slow half audits its fast half's setups (trading/dual_brain.py)
   CONSENSUS     "on" (default): desk drops whisper votes and weighs setups by sqrt(group size) (trading/desk.py)
@@ -197,7 +197,7 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     signal_gate.ENABLED = env.get("SIGNAL_GATE", "off").lower() in ("on", "1", "true", "yes")
     signal_gate.reset()
     agent_types.RSI2_SHARE = float(env.get("RSI2_SHARE", agent_types.RSI2_SHARE))
-    agent_types.HA_SHARE = float(env.get("HA_SHARE", "0.25"))
+    agent_types.HA_SHARE = float(env.get("HA_SHARE", "0"))
     sessions.RHYTHM_ON = env.get("SESSION_RHYTHM", "off").lower() in ("on", "1", "true", "yes")
     sessions.OPEN_FAKE = env.get("OPEN_FAKE", "wait").lower()
     entry_filters.reset()

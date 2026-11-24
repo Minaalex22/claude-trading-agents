@@ -496,8 +496,8 @@ RSI2_LOW, RSI2_HIGH, RSI2_EXIT = 10.0, 90.0, 70.0
 # BTC, ETH and SOL bars from 50.4% to 47.6% (15m) and 56.0% to 53.2% (5m). It did cut Reversion's loss on the
 # 5m bars (-41.7k to -7.5k). Stricter entries (RSI below 5 or 2) didn't help.
 RSI2_SHARE = 0.0
-# Share of the Entry (trend) department that trades Heikin Ashi colour flips (env HA_SHARE, default 0.25).
-HA_SHARE = 0.25
+# Share of the Entry (trend) department that trades Heikin Ashi colour flips (env HA_SHARE, default 0).
+HA_SHARE = 0.0  # off by default (mina 2026-11-24): daily test -2.3k -> -5.6k, no win-rate gain
 
 
 def build_team(count: int, symbols: list[str], seed: int = 0) -> list[Agent]:
