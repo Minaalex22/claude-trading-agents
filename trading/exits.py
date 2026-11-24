@@ -48,6 +48,8 @@ STALL_STOP = True
 STALL_R, STALL_BARS, STALL_BARS_15M = 0.4, 8, 12
 BAR_SECONDS: float | None = None
 
+from . import sniper  # noqa: E402
+
 REASONS = ("stop", "breakeven", "target", "time", "stall")
 
 
@@ -65,7 +67,14 @@ def open_trade(agent) -> None:
     w = agent.workspace
     r = risk_unit(agent.prices)
     trail = TREND_TRAIL and agent.style != "reversion"
-    w["exit_plan"] = {"r": r, "stop_r": -TREND_STOP_R if trail else -1.0, "best_r": 0.0, "held": 0}
+    snap = _mean_snap(agent)
+    w["exit_plan"] = {"r": r, "stop_r": -TREND_STOP_R if trail else -sniper.STOP_R if snap else -1.0,
+                      "best_r": 0.0, "held": 0}
+
+
+def _mean_snap(agent) -> bool:
+    """Sniper mode's exit for Reversion agents: bank 80% at the mean (+0.9R), runner to 2.0R."""
+    return sniper.active(BAR_SECONDS) and agent.style == "reversion"
 
 
 def check(agent) -> str | None:
@@ -88,11 +97,14 @@ def check(agent) -> str | None:
         plan["stop_r"] = 0.0  # breakeven: this trade can no longer lose
     if trail and plan["best_r"] >= TREND_BREAKEVEN_R:
         plan["stop_r"] = max(plan["stop_r"], plan["best_r"] - TRAIL_R)
-    if SCALE_OUT and not agent.must_practice and not plan.get("scaled") and now_r >= SCALE_AT_R:
+    snap = _mean_snap(agent)
+    at, keep_stop = (sniper.FIRST_TP_R, sniper.RUNNER_STOP_R) if snap else (SCALE_AT_R, SCALE_STOP_R)
+    if (SCALE_OUT or snap) and not agent.must_practice and not plan.get("scaled") and now_r >= at:
         plan["scaled"] = True
-        plan["stop_r"] = max(plan["stop_r"], SCALE_STOP_R)
-        return "scale"  # bank half (agents.py keeps the other half)
-    if not trail and now_r >= TARGET_R:
+        plan["share"] = sniper.FIRST_TP_SHARE if snap else SCALE_SHARE
+        plan["stop_r"] = max(plan["stop_r"], keep_stop)
+        return "scale"  # bank part of it (agents.py keeps the rest)
+    if not trail and now_r >= (sniper.RUNNER_TP_R if snap else TARGET_R):
         return "target"
     if now_r <= plan["stop_r"]:
         return "breakeven" if plan["stop_r"] >= 0 else "stop"

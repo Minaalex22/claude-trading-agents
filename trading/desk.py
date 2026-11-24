@@ -5,7 +5,7 @@ from collections import defaultdict, deque
 
 from . import agents as agents_mod
 
-from . import academy, accounts, coach as coaching, exits, hooks, review, sessions, smt_filter
+from . import academy, accounts, coach as coaching, exits, hooks, review, sessions, smt_filter, sniper
 from .meta_gate import MetaGate
 from . import mind as mindmod
 
@@ -209,6 +209,8 @@ class Desk:
                 score = view * exposure if n >= self.proven_min else 0.0
             if abs(score) < self.signal_threshold:
                 score = 0.0
+            if sniper.active(self.bar_seconds) and self.broker.position(symbol) * score <= 0 and abs(score) < sniper.BAR:
+                score = 0.0  # sniper: opening (or flipping) needs 0.82; holding keeps the 0.5 bar
             if self.risk.killed:
                 score = 0.0  # kill switch: close everything
             orders += self._work_pending(symbol, prices, score)
@@ -492,6 +494,13 @@ class Desk:
         style = self.lead_style.get(symbol, "trend")
         hist = {s: list(d) for s, d in self.long_hist.items()}
         mine = hist.get(symbol, [])
+        if sniper.active(self.bar_seconds):
+            from datetime import datetime, timezone
+            hour = datetime.fromtimestamp(self.now, timezone.utc).hour if self.now is not None else None
+            view = self.room.views.get(symbol) if self.room else None
+            why = sniper.gate(symbol, style, side, score, hist, view, self.bar_seconds, hour)
+            if why:
+                return why
         smt_why = smt_filter.smt(symbol, style, side, hist)
         parent_why = smt_filter.parent(symbol, style, side, mine, self.bar_seconds)
         if not self.meta_on:

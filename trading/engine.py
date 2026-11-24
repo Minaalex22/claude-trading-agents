@@ -37,6 +37,8 @@ Configured with environment variables so the same image runs as any shard:
   CONSENSUS     "on" (default): desk drops whisper votes and weighs setups by sqrt(group size) (trading/desk.py)
   PULLBACK      "on" (default): new desk risk waits up to 2 bars for a 0.25 x bar-move pullback, no chasing
   BUCKET_SIZING "on" (default): each symbol's last 40 desk trades scale its size 0.25x-1.4x (risk limits still cap)
+  SNIPER        "on" (default): A+ entries only: score 0.82, 1h-4h bars in 12-17 UTC, reversion sweep + reclaim
+                + SMT divergence + news not against; reversion agents bank 80% at +0.9R (trading/sniper.py)
   SCALE_OUT     "on" (default): agents bank half at +1.2R and lift the rest's stop to +0.15R (trading/exits.py)
   STALL_STOP    "on" (default): close a trade that hasn't reached +0.4R in 8 bars (12 on 15m)
   BUCKET_CAP    "on" (default): at most 2 open positions per macro bucket (USD bloc, US tech beta, crypto)
@@ -167,6 +169,8 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     risk_rules.BUCKET_CAP = on("BUCKET_CAP")
     smt_filter.SMT_FILTER, smt_filter.PARENT_LOCK = on("SMT_FILTER"), on("PARENT_LOCK")
     meta_gate.ENABLED = on("META_GATE")
+    from . import sniper
+    sniper.SNIPER = on("SNIPER")
     desk_rules.Desk.meta_on = meta_gate.ENABLED
     from . import agents as agent_rules
     agent_rules.NEWS_SPLIT = on("NEWS_SPLIT")

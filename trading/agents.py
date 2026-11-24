@@ -196,7 +196,7 @@ class Agent:
             # Bank half: keep SCALE_SHARE of the position (less, if the vote already wants less).
             w = self.workspace
             w["exits"] = {**w.get("exits", {}), "scale": w.get("exits", {}).get("scale", 0) + 1}
-            keep = self.position * (1 - exits.SCALE_SHARE)
+            keep = self.position * (1 - w["exit_plan"].get("share", exits.SCALE_SHARE))
             w["exit_plan"]["cap"] = abs(keep)
             return keep if value * self.position > 0 and abs(value) >= abs(keep) else value
         if reason:
