@@ -51,6 +51,7 @@ from .polymarket_desk import PolymarketDesk
 from . import polymarket_live, betfair
 from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
+from . import orbit_portfolio as orbit_kit
 from . import calculator as calc_kit
 from . import news_lab
 from . import decision_desk
@@ -108,6 +109,8 @@ STATIC = {
     "/decision.css": ("decision.css", "text/css; charset=utf-8"),
     "/smart.js": ("smart.js", "text/javascript; charset=utf-8"),
     "/pairs.css": ("pairs.css", "text/css; charset=utf-8"),
+    "/orbit.js": ("orbit.js", "text/javascript; charset=utf-8"),
+    "/orbit.css": ("orbit.css", "text/css; charset=utf-8"),
     "/desks.js": ("desks.js", "text/javascript; charset=utf-8"),
     "/desks.css": ("desks.css", "text/css; charset=utf-8"),
     "/pipeline.css": ("pipeline.css", "text/css; charset=utf-8"),
@@ -479,6 +482,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     smart = SmartMoney(env.get("SEC_USER_AGENT"))  # insiders from SEC EDGAR, fetched in the background
     conductor_page = _read("conductor.html")
     pairs_page = _read("pairs.html")
+    orbit_page = _read("orbit.html")  # five arms, one account: the multi-strategy portfolio (trading/orbit_portfolio.py)
+    orbit_data = orbit_kit.load_backtest()
     decision_page = _read("decision.html")
     smart_page = _read("smart.html")
     desks_page = _read("desks.html")  # the five session desks: /desks and /desks/<sydney|asia|europe|london|newyork>
@@ -676,7 +681,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/newslab", "/account") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/newslab", "/account", "/orbit") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -830,6 +835,15 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                     log = list(hub.pipeline.log)[::-1]
                 body["live"] = news_lab.reroute(log, body["params"]["gate"])
                 self._json(200, body)
+            elif path == "/orbit":
+                self._send(200, orbit_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path in ("/api/orbit", "/api/orbit.csv"):
+                dash = orbit_kit.dashboard(hub.trades()["trades"], orbit_data)
+                if path.endswith(".csv"):
+                    self._send(200, orbit_kit.chosen_trades_csv(dash).encode(), "text/csv; charset=utf-8",
+                               {"Cache-Control": "no-store", "Content-Disposition": 'attachment; filename="chosen_trades.csv"'})
+                else:
+                    self._send(200, json.dumps(dash).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/calculator":
                 self._send(200, calculator_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/calculator":
