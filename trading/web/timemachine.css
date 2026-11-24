@@ -20,3 +20,5 @@
 .tm-tbl a { color: var(--ats-o); }
 .tm-tbl .buy { color: var(--ats-up); } .tm-tbl .sell { color: var(--ats-dn); }
 @media (max-width: 560px) { .tm-hist { height: 90px; } }
+.tm-two { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+.tm-tbl td.ok { color: var(--ats-up); } .tm-tbl td.no { color: var(--ats-dn); }

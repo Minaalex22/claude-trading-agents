@@ -2,7 +2,7 @@
 
 from collections import defaultdict, deque
 
-from . import academy, accounts, coach as coaching, hooks, review, sessions
+from . import academy, accounts, coach as coaching, event_guard, hooks, review, sessions
 from . import mind as mindmod
 from . import night_shift
 
@@ -104,6 +104,8 @@ class Desk:
         self.price_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=ROUTER_SLOW + 1))
         self.regime: dict[str, str] = {}
         self.bar_seconds: float | None = None  # time between market ticks, for the cost hurdle
+        self.calendar = None  # event_guard.Calendar (live markets): earnings + big economic news
+        self.checker = None  # trade_checker.TradeChecker: Sentinel's written PASS/FAIL + audit log
 
     def step(self, prices: dict[str, float], headlines: list[dict] | None = None, now: float | None = None) -> None:
         """One tick. `now` is the market time (unix seconds) for live prices and backtests; None in the simulator."""
@@ -186,7 +188,9 @@ class Desk:
                                      view=views.get(symbol), paused=symbol in self.managers.paused,
                                      streak=self.journal.streak(symbol), clock=self.clock,
                                      cooling=self.journal.cooling(symbol, self.ticks, self.now, max(1, (self.hour_ticks or 7200) // 12)),
-                                     session_avg=self.session_avg.get(symbol) if self.clock else None)
+                                     session_avg=self.session_avg.get(symbol) if self.clock else None,
+                                     events=self.calendar.snapshot() if self.calendar and self.now else None,
+                                     now=self.now)
             desired, notes = hooks.run_hooks(check)
             if notes:
                 self.checks["blocked" if abs(desired * prices[symbol]) < self.min_trade else "shrunk"] += 1
@@ -194,6 +198,25 @@ class Desk:
                               notes=notes)
             if abs(desired * prices[symbol]) < self.min_trade and not (self.risk.killed and desired):
                 continue
+            if self.checker and not self.risk.killed:
+                after = check.position + desired
+                if abs(after) > abs(check.position) or (after and check.position and (after > 0) != (check.position > 0)):
+                    ev_ok, ev_reason = True, "PASS"
+                    if check.events and self.now is not None:
+                        from datetime import datetime, timezone
+                        ev_ok, _, ev_reason = event_guard.check(symbol, check.events,
+                                                                datetime.fromtimestamp(self.now, timezone.utc))
+                    view = views.get(symbol)
+                    rec = self.checker.review(
+                        symbol=symbol, qty=desired, price=prices[symbol], desk_score=score,
+                        threshold=self.signal_threshold, event_ok=ev_ok, event_reason=ev_reason,
+                        costs_ok=self._clears_costs(symbol) if self._hurdle() else None,
+                        room_direction=getattr(view, "direction", None),
+                        room_confident=bool(getattr(view, "confident", False)), tick=self.ticks, now=self.now)
+                    if not rec.passed:
+                        self.checks["blocked"] += 1
+                        self.log.emit("checker", symbol=symbol, wanted=round(desired, 4), verdict=rec.verdict)
+                        continue
             qty, reason = self.risk.approve(symbol, desired, prices, audit=night_shift.audit_from_prices(
                 symbol, self.price_hist[symbol], self.broker.fee_bps / 10_000) if self.risk.night_active else None)
             if reason:

@@ -53,6 +53,7 @@ from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
 from . import calculator as calc_kit
 from . import timemachine as tm_kit
+from . import event_guard, trade_checker
 from . import news_lab
 from . import decision_desk
 from .smart_money import SmartMoney
@@ -113,6 +114,7 @@ STATIC = {
     "/calculator.css": ("calculator.css", "text/css; charset=utf-8"),
     "/timemachine.js": ("timemachine.js", "text/javascript; charset=utf-8"),
     "/timemachine.css": ("timemachine.css", "text/css; charset=utf-8"),
+    "/audit.js": ("audit.js", "text/javascript; charset=utf-8"),
     "/newslab.js": ("newslab.js", "text/javascript; charset=utf-8"),
     "/newslab.css": ("newslab.css", "text/css; charset=utf-8"),
     "/btcc.js": ("btcc.js", "text/javascript; charset=utf-8"),
@@ -477,6 +479,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     wallet_page = _read("wallet.html")
     calculator_page = _read("calculator.html")
     timemachine_page = _read("timemachine.html")
+    audit_page = _read("audit.html")
+    audit_calendar = {}  # the earnings + news calendar for the Audit page, loaded on first use
     tm_bars = tm_kit.Bars()                 # 5-minute bars, cached 5 min (practice bars if offline)
     tm_congress = tm_kit.Congress()         # House Clerk filings, cached 1 hour
     tm_tickets = tm_kit.PracticeTickets()   # practice tickets only, never sent to a broker
@@ -614,7 +618,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/timemachine", "/newslab") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/timemachine", "/audit", "/newslab") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -803,6 +807,21 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             elif path == "/api/timemachine/congress":
                 q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 self._json(200, tm_congress.latest(member=q.get("member", [""])[0][:40]))
+            elif path == "/audit":
+                self._send(200, audit_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/audit":
+                with wallet_lock:
+                    if "c" not in audit_calendar:
+                        syms = [x.strip() for x in env.get("SYMBOLS", "AAPL,MSFT,NVDA,AMZN,GOOG,TSLA,META,AMD,BTC,ETH").split(",") if x.strip()]
+                        audit_calendar["c"] = event_guard.Calendar(syms)
+                        if env.get("EVENT_GUARD", "on").lower() not in ("off", "0", "false", "no"):
+                            audit_calendar["c"].start()
+                cal = audit_calendar["c"]
+                body = trade_checker.read_log(hub.events_dir)
+                body.update({"calendar": cal.upcoming(), "calendar_status": cal.status,
+                             "guard_on": env.get("EVENT_GUARD", "on").lower() not in ("off", "0", "false", "no"),
+                             "checker_on": env.get("TRADE_CHECKER", "on").lower() not in ("off", "0", "false", "no")})
+                self._json(200, body)
             elif path == "/pairs":
                 self._send(200, pairs_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/pairs":

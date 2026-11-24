@@ -15,6 +15,8 @@ Configured with environment variables so the same image runs as any shard:
   PRACTICE_HOUR_TICKS  ticks in one practice hour (default 3600 / TICK_SECONDS, or 7200 when TICK_SECONDS
                 is 0). Each hour every strategy trader makes at least 20 practice trades and every
                 agent takes a refresher course (the hourly upgrade).
+  EVENT_GUARD   "off" turns off the earnings + big-news guard (default on, live prices only; trading/event_guard.py)
+  TRADE_CHECKER "off" turns off Sentinel's written PASS/FAIL and the desk audit log (default on; trading/trade_checker.py)
   READING_ROOM  "off" turns off the shared news + chart read and the traders' confirmation filter (default on)
   READING_ROOM_CLAUDE  "off" keeps Claude out of the reading room even with ANTHROPIC_API_KEY set
   READING_ROOM_MODEL   Claude model for the reading room (default claude-opus-5-5)
@@ -177,6 +179,15 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     desk.use_clock = env.get("SESSIONS", "on").lower() not in ("off", "0", "false", "no")
     desk.proven_only = env.get("PROVEN_ONLY", "off").lower() in ("on", "1", "true", "yes")
     desk.min_trade = float(env.get("MIN_TRADE", desk.min_trade))
+    # Sentinel's written PASS/FAIL + the audit log (trading/trade_checker.py), on by default.
+    if env.get("TRADE_CHECKER", "on").lower() not in ("off", "0", "false", "no"):
+        from . import trade_checker
+        desk.checker = trade_checker.TradeChecker(events_dir, shard_id)
+    # Earnings + big-news guard (trading/event_guard.py): live prices only (the calendar is about real dates).
+    if live_market and market is None and env.get("EVENT_GUARD", "on").lower() not in ("off", "0", "false", "no"):
+        from . import event_guard
+        desk.calendar = event_guard.Calendar(symbols)
+        desk.calendar.start()
     alerts = Alerts.from_env(env)  # Telegram phone alerts (trading/alerts.py); off without the two settings
     limits_live = live_orders.Limits(env)
     if live_market and events_dir and shard_id == 0 and limits_live.on and market is None:
