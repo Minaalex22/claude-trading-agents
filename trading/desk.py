@@ -46,6 +46,19 @@ FRICTION_SIM = 2.0  # the simulator has no clock
 # Analysts' trend gate (env TREND_GATE, default 0.25; "off" disables): when the analysts' regime vote is below it,
 # the desk doesn't listen to Trend at all on that symbol and Reversion drives.
 TREND_GATE: float | None = 0.25
+# Diverse consensus (env CONSENSUS): whisper votes (under WHISPER) are dropped, the rest are grouped by setup
+# (strategy kind + market type) and each group counts sqrt(its size), so 200 clones of one idea can't outvote
+# independent strategies agreeing; a single-setup call is cut to SINGLE_SETUP.
+CONSENSUS = True
+WHISPER = 0.35
+SINGLE_SETUP = 0.72
+# Pullback entries (env PULLBACK): new desk risk waits for a pullback of PULLBACK_ATR x the average bar move
+# (0.15 on 15-minute bars) for PULLBACK_BARS bars; if the price runs away, the desk doesn't chase.
+PULLBACK = True
+PULLBACK_ATR, PULLBACK_ATR_15M, PULLBACK_BARS = 0.25, 0.15, 2
+# Bucket sizing (env BUCKET_SIZING): each symbol's last 40 closed desk trades set its size: under 8 trades x0.75,
+# expectancy at or under 0.05R x0.25, at least 0.35R with a 58%+ win rate x1.4, else x1. Risk limits still cap it.
+BUCKET_SIZING = True
 MIN_PRACTICE_TRADES = 20  # every strategy trader makes at least this many practice trades per hour
 
 
@@ -102,6 +115,10 @@ class Desk:
         self.hour_stats: dict[str, dict] = {}
         self.price_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=ROUTER_SLOW + 1))
         self.regime: dict[str, str] = {}
+        self.pending: dict[str, dict] = {}  # pullback entries waiting for their price
+        self.pending_cool: dict[str, int] = {}
+        self.bucket: dict[str, deque] = defaultdict(lambda: deque(maxlen=40))  # closed desk trade moves per symbol
+        self.tagged: dict[str, dict[str, list]] = {}
         self.bar_seconds: float | None = None  # time between market ticks, for the cost hurdle
 
     def step(self, prices: dict[str, float], headlines: list[dict] | None = None, now: float | None = None) -> None:
@@ -123,6 +140,7 @@ class Desk:
         views = self.room.update(prices, headlines) if self.room else {}
         votes = defaultdict(lambda: {"trend": [], "reversion": [], "analyst": [], "risk": [], "macro": []})
         agent_votes: dict[str, float] = {}
+        tagged = defaultdict(lambda: {"trend": [], "reversion": []})
         proven = defaultdict(list)
         self._set_practice_pace()
         by_symbol = defaultdict(list)
@@ -148,12 +166,16 @@ class Desk:
                 continue  # benched by its manager: it keeps practising, but its vote doesn't count this hour
             agent_votes[agent.agent_id] = vote.value
             if isinstance(agent, Trader):
-                votes[agent.symbol]["reversion" if agent.style == REVERSION else "trend"].append(vote.value)
+                style = "reversion" if agent.style == REVERSION else "trend"
+                votes[agent.symbol][style].append(vote.value)
+                tag = f"{getattr(agent, 'kind', type(agent).__name__)}:{agent.workspace.get('dual_tag', '').split(':')[-1]}"
+                tagged[agent.symbol][style].append((tag, vote.value))
                 if accounts.proven(agent.account):
                     proven[agent.symbol].append(vote.value)
             else:
                 votes[agent.symbol][vote.role].append(vote.value)
 
+        self.tagged = tagged
         self.news_view = {s: sum(v["macro"]) / len(v["macro"]) for s, v in votes.items() if v["macro"]}
         self.proven_view = {s: (sum(v) / len(v), len(v)) for s, v in proven.items()}
         risk_votes = [v for sym in votes.values() for v in sym["risk"]]
@@ -173,7 +195,8 @@ class Desk:
                 score = 0.0
             if self.risk.killed:
                 score = 0.0  # kill switch: close everything
-            target_value = score * self.risk.limits.max_position_value
+            orders += self._work_pending(symbol, prices, score)
+            target_value = score * self.risk.limits.max_position_value * self._bucket_mult(symbol)
             desired = target_value / prices[symbol] - self.broker.position(symbol)
             if self._hurdle() and abs(target_value) > abs(self.broker.position(symbol) * prices[symbol]) \
                     and not self.risk.killed and not self._clears_costs(symbol):
@@ -196,6 +219,12 @@ class Desk:
             qty, reason = self.risk.approve(symbol, desired, prices)
             if reason:
                 self.log.emit("risk", symbol=symbol, wanted=round(desired, 4), allowed=round(qty, 4), reason=reason)
+            if qty and PULLBACK and not self.risk.killed and self._adds_risk(symbol, qty):
+                # Wait for a pullback instead of chasing the bar's close. One order at a time; after one expires
+                # the desk waits as many bars again before it stages another (no chasing a runaway price).
+                if symbol not in self.pending and self.ticks >= self.pending_cool.get(symbol, 0):
+                    self._stage(symbol, qty, prices[symbol], hooks.why(votes[symbol], views.get(symbol), exposure))
+                continue
             if qty and self.beta:
                 decision = self.beta.jev.validate(self._proposal(symbol, qty, prices[symbol]))
                 if not decision.approved:
@@ -205,6 +234,8 @@ class Desk:
                 before = self.broker.position(symbol)
                 self.broker.fill(symbol, qty, prices[symbol])
                 closed = self.journal.fill(symbol, before, qty, prices[symbol], self.ticks, self.now)
+                if closed:
+                    self.bucket[symbol].append(closed["move"])
                 if closed:
                     # One closed round trip, for the Trades page: what it was, and did it make or lose money.
                     self.log.emit("closed", symbol=symbol, side=closed["side"], qty=round(closed["qty"], 4),
@@ -427,9 +458,97 @@ class Desk:
             return "chop"
         return "transition"
 
+    def _adds_risk(self, symbol: str, qty: float) -> bool:
+        before = self.broker.position(symbol)
+        after = before + qty
+        return abs(after) > abs(before) or bool(after and before and (after > 0) != (before > 0))
+
+    def _bar_move(self, symbol: str) -> float:
+        p = list(self.price_hist.get(symbol, ()))[-(ROUTER_FAST + 1):]
+        return sum(abs(b - a) for a, b in zip(p, p[1:])) / (len(p) - 1) if len(p) > 1 else 0.0
+
+    def _stage(self, symbol: str, qty: float, price: float, why: str = "") -> None:
+        mult = PULLBACK_ATR_15M if self.bar_seconds == 900 else PULLBACK_ATR
+        offset = mult * self._bar_move(symbol)
+        limit = price - offset if qty > 0 else price + offset
+        self.pending[symbol] = {"qty": qty, "limit": limit, "left": PULLBACK_BARS, "why": why}
+        self.log.emit("staged", symbol=symbol, qty=round(qty, 4), limit=round(limit, 4), bars=PULLBACK_BARS)
+
+    def _work_pending(self, symbol: str, prices: dict, score: float) -> int:
+        """Fill a staged pullback entry if the price came to it; drop it when it expires or the call flips."""
+        order = self.pending.get(symbol)
+        if not order:
+            return 0
+        price = prices[symbol]
+        if self.risk.killed or score * order["qty"] <= 0:
+            self.pending.pop(symbol)
+            return 0
+        if (order["qty"] > 0 and price <= order["limit"]) or (order["qty"] < 0 and price >= order["limit"]):
+            self.pending.pop(symbol)
+            fill_px = order["limit"]
+            qty, _ = self.risk.approve(symbol, order["qty"], {**prices, symbol: fill_px})
+            if qty and self.beta and not self.beta.jev.validate(self._proposal(symbol, qty, fill_px)).approved:
+                return 0
+            if not qty:
+                return 0
+            before = self.broker.position(symbol)
+            self.broker.fill(symbol, qty, fill_px)
+            closed = self.journal.fill(symbol, before, qty, fill_px, self.ticks, self.now)
+            if closed:
+                self.bucket[symbol].append(closed["move"])
+                self.log.emit("closed", symbol=symbol, side=closed["side"], qty=round(closed["qty"], 4),
+                              entry=round(closed["entry"], 4), exit=round(closed["exit"], 4),
+                              move=round(closed["move"], 5), won=closed["won"],
+                              pnl=round(closed["qty"] * closed["entry"] * closed["move"], 2))
+            why = f"{order['why']} (pullback entry)"
+            self.log.emit("order", symbol=symbol, qty=round(qty, 4), price=round(fill_px, 4),
+                          score=round(score, 3), why=why, checks=[])
+            if self.on_order:
+                self.on_order(symbol, qty, fill_px, why)
+            return 1
+        order["left"] -= 1
+        if order["left"] <= 0:
+            self.pending.pop(symbol)  # the price ran away: no chasing
+            self.pending_cool[symbol] = self.ticks + PULLBACK_BARS
+        return 0
+
+    def _bucket_mult(self, symbol: str) -> float:
+        if not BUCKET_SIZING:
+            return 1.0
+        moves = list(self.bucket.get(symbol, ()))
+        if len(moves) < 8:
+            return 0.75
+        wins = [m for m in moves if m > 0]
+        losses = [-m for m in moves if m <= 0]
+        p = len(wins) / len(moves)
+        avg_win = sum(wins) / len(wins) if wins else 0.0
+        avg_loss = sum(losses) / len(losses) if losses and sum(losses) else (avg_win or 1e-9)
+        exp_r = (p * avg_win - (1 - p) * avg_loss) / avg_loss
+        if exp_r <= 0.05:
+            return 0.25
+        if exp_r >= 0.35 and p >= 0.58:
+            return 1.4
+        return 1.0
+
+    @staticmethod
+    def _cluster(pairs: list) -> float:
+        groups: dict[str, list[float]] = defaultdict(list)
+        for tag, v in pairs:
+            if abs(v) >= WHISPER:
+                groups[tag].append(v)
+        if not groups:
+            return 0.0
+        total = sum(len(g) ** 0.5 for g in groups.values())
+        value = sum(sum(g) / len(g) * len(g) ** 0.5 for g in groups.values()) / total
+        return value * (1.0 if len(groups) >= 2 else SINGLE_SETUP)
+
     def _score(self, v: dict, symbol: str | None = None) -> float:
-        trend = sum(v["trend"]) / len(v["trend"]) if v["trend"] else 0.0
-        reversion = sum(v["reversion"]) / len(v["reversion"]) if v["reversion"] else 0.0
+        tv = self.tagged.get(symbol) if CONSENSUS and symbol is not None and hasattr(self, "tagged") else None
+        if tv is not None:
+            trend, reversion = self._cluster(tv["trend"]), self._cluster(tv["reversion"])
+        else:
+            trend = sum(v["trend"]) / len(v["trend"]) if v["trend"] else 0.0
+            reversion = sum(v["reversion"]) / len(v["reversion"]) if v["reversion"] else 0.0
         # Analysts decide whose advice to trust: trending regime favours
         # trend-followers, choppy regime favours mean-reversion traders.
         regime = sum(v["analyst"]) / len(v["analyst"]) if v["analyst"] else 0.0

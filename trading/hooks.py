@@ -15,6 +15,9 @@ The checks:
   no new risk there for 5 minutes (time to review the losses), then half size until a trade wins.
 - **market_clock**: the time of day in the market's own time zone (trading/sessions.py): no new stock risk in the
   first 15 minutes after the New York open (the banks set up: mina's rule), half size in the rest of the opening hour and on crypto weekends, 3/4 at midday and in Asia-only crypto hours.
+- **dead_zone**: thin-liquidity windows: no new forex or metals risk in the 21:00-23:00 UTC rollover (spreads
+  widen several times), and no new US stock or index risk in the last 10 minutes before the New York close (the
+  first 15 minutes are already blocked by market_clock). Crypto trades 24/7 with no rollover. DEAD_ZONE switch.
 - **chasing**: no chasing: new risk more than 1.5% away from the session average, in the direction of the move,
   goes in at half size (banks and funds buy near the day's average, not far above it).
 
@@ -33,6 +36,11 @@ from . import sessions
 STREAK = 2  # this many losing desk trades in a row in a symbol pauses it, then halves the next orders
 PAUSE_SECONDS = 300  # the pause after a losing streak
 RECENT = 50  # trades kept per symbol
+DEAD_ZONE = True  # env DEAD_ZONE
+FX_METALS = {"EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "EUR", "GBP", "JPY", "AUD",
+             "GOLD", "SILVER", "XAU", "XAUUSD", "XAG", "XAGUSD"}
+ROLLOVER_UTC = (21, 23)  # hours
+CLOSE_MINUTES = 10
 
 
 @dataclass
@@ -87,6 +95,21 @@ def market_clock(c: OrderCheck) -> tuple[float, str | None]:
     return 1.0, None
 
 
+def dead_zone(c: OrderCheck) -> tuple[float, str | None]:
+    if not DEAD_ZONE or c.clock is None or c.symbol in sessions.CRYPTO:
+        return 1.0, None
+    from datetime import datetime, timezone
+    utc = datetime.fromtimestamp(c.clock.ts, timezone.utc)
+    if c.symbol in FX_METALS:
+        if ROLLOVER_UTC[0] <= utc.hour < ROLLOVER_UTC[1]:
+            return 0.0, f"blocked: forex/metals rollover {ROLLOVER_UTC[0]}:00-{ROLLOVER_UTC[1]}:00 UTC (wide spreads)"
+        return 1.0, None
+    ny = sessions._ny(c.clock.ts)
+    if ny.weekday() < 5 and (16 * 60 - CLOSE_MINUTES) <= ny.hour * 60 + ny.minute < 16 * 60:
+        return 0.0, f"blocked: last {CLOSE_MINUTES} minutes before the New York close (auction whipsaws)"
+    return 1.0, None
+
+
 def chasing(c: OrderCheck) -> tuple[float, str | None]:
     if c.clock is None or not c.session_avg:
         return 1.0, None
@@ -97,7 +120,7 @@ def chasing(c: OrderCheck) -> tuple[float, str | None]:
     return 1.0, None
 
 
-HOOKS = (symbol_paused, against_the_room, losing_streak, market_clock, chasing)
+HOOKS = (symbol_paused, against_the_room, losing_streak, market_clock, dead_zone, chasing)
 
 
 def run_hooks(c: OrderCheck, hooks=HOOKS) -> tuple[float, list[str]]:
