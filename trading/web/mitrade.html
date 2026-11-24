@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · Mitrade</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/pages.css">
+<link rel="stylesheet" href="/decision.css">
+<link rel="stylesheet" href="/btcc.css">
+</head><body>
+<header class="ats-bar"><a class="ats-brand" href="/news"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav" aria-label="Main menu"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/btcc">BTCC</a><a href="/mitrade">Mitrade</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/jarvis">JARVIS</a><details class="ats-more"><summary>Tools</summary><div><a href="/decision">Decision</a><a href="/smart">Smart money</a><a href="/account">One account</a><a href="/wallet">Wallet</a><a href="/calculator">Calculator</a><a href="/newslab">News Lab</a><a href="/desks">24/7 desks</a><a href="/orbit">Orbit portfolio</a></div></details><details class="ats-more"><summary>More</summary><div><a href="/">Command desk</a><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<script src="/nav.js"></script>
+<div class="pg pg-top"><div class="pg-head"><div><small>CFDs · Mitrade's own live prices</small><h1>Mitrade <b>bridge</b></h1><p>Live bid and ask straight from Mitrade, and practice trades that fill at Mitrade's prices. Nothing is sent to Mitrade.</p></div><span class="pg-badge">PRACTICE MONEY · REAL MONEY LOCKED</span></div></div>
+<div class="bt-api" id="api"></div>
+<div class="dz-top" id="top"></div>
+<section class="bt-main">
+  <div class="dz-p bt-ticket">
+    <h3>PRACTICE ORDER<span>fills at Mitrade's bid / ask · nothing goes to Mitrade</span></h3>
+    <label>Market<select id="sym"></select></label>
+    <div class="bt-price" id="price">--</div>
+    <div class="small" id="spread"></div>
+    <label>Margin (USD)<input id="margin" type="number" min="1" step="1" value="100"></label>
+    <label>Leverage <b id="levv">2x</b><input id="lev" type="range" min="1" max="5" step="1" value="2"></label>
+    <label>Stop loss (required)<input id="sl" type="number" step="any" placeholder="price"></label>
+    <label>Take profit<input id="tp" type="number" step="any" placeholder="price (optional)"></label>
+    <div class="bt-sides"><button id="buy" class="bt-long" type="button">BUY</button><button id="sell" class="bt-short" type="button">SELL</button></div>
+    <div class="small" id="msg"></div>
+  </div>
+  <div class="bt-right">
+    <div class="pg-tabs bt-tabs" id="tabs"><button class="on" data-t="prices" type="button">Mitrade prices</button><button data-t="open" type="button">Positions</button><button data-t="closed" type="button">History</button><button data-t="real" type="button">My Mitrade account</button></div>
+    <div class="dz-p bt-table" id="table"></div>
+  </div>
+</section>
+<script src="/mitrade.js"></script>
+</body></html>

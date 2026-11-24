@@ -90,6 +90,8 @@ from .market import SimulatedMarket
 from .news import NewsWire
 from .reading_room import ReadingRoom, make_reader
 from .risk import RiskLimits, RiskManager
+from .night_shift import NightShiftConfig, NightShiftEngine, briefing_text
+from .hooks import should_suppress_alert
 
 DEFAULT_SYMBOLS = "AAPL,MSFT,NVDA,AMZN,GOOG,TSLA,META,AMD,BTC,ETH"
 DEFAULT_AGENT_COUNT = MIN_DEPARTMENT_SIZE * len(DEPARTMENTS)  # 350 per department
@@ -181,7 +183,9 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
                         max_daily_loss=float(env.get("DAILY_LOSS_LIMIT", RiskLimits.max_daily_loss)))
     hour_ticks = int(env.get("PRACTICE_HOUR_TICKS") or (round(3600 / tick_seconds) if tick_seconds else 7200))
     room = ReadingRoom(symbols, claude=make_reader(env)) if env.get("READING_ROOM", "on") != "off" else None
-    risk = RiskManager(limits, broker, kill_path=Path(events_dir) / "KILL" if events_dir else None)
+    # Night Shift (trading/night_shift.py): the overnight capsule; on by default, NIGHT_SHIFT_ENABLED=false turns it off.
+    night = NightShiftEngine(NightShiftConfig.from_env(env))
+    risk = RiskManager(limits, broker, kill_path=Path(events_dir) / "KILL" if events_dir else None, night_shift=night)
     desk = Desk(agents, broker, risk, log, beta=BrainBeta(cfg), alpha=alpha,
                 hour_ticks=hour_ticks, room=room, reviews=env.get("REVIEWS", "on") != "off", coach=make_coach(env))
     desk.signal_threshold = float(env.get("SIGNAL_THRESHOLD", desk.signal_threshold))
@@ -216,6 +220,9 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     live = live_market
     if market is not None:
         news = None  # a replay of past prices: past headlines aren't available
+        if hasattr(market, "now"):
+            # A replay's day is the bar's day, not today's: the daily loss stop must reset each replayed day.
+            risk.clock = lambda: market.now() or time.time()
     elif live:
         from .live_market import LiveMarket  # real prices, paper money: orders still go to the paper broker
         market = LiveMarket(symbols, poll_seconds=float(env.get("LIVE_POLL_SECONDS", 15)))
@@ -265,7 +272,15 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
             desk.step(prices, news.tick(market.drift, desk.ticks + 1) if news else [], now=now)
             if desk.risk.stop_reason != last_stop:
                 last_stop = desk.risk.stop_reason
-                alerts.stop(shard_id, last_stop)
+                if not (last_stop and last_stop.startswith("night shift") and should_suppress_alert(night, now)):
+                    alerts.stop(shard_id, last_stop)  # the capsule's own stop waits for the 07:00 briefing
+            if now is not None and night.cfg.enabled and desk.ticks % 20 == 0:
+                log.emit("night_shift", **night.status())
+            brief = night.take_briefing()
+            if brief:
+                log.emit("night_shift", briefing_now=True, **night.status())
+                if shard_id == 0:
+                    alerts.send(briefing_text(brief))
             if memory_path and desk.ticks % memory.SAVE_EVERY == 0:
                 _save(desk, memory_path, log)
             if tick_seconds:

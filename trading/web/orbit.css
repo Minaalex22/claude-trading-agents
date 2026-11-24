@@ -1,0 +1,23 @@
+/* Orbit portfolio: five arms, one account (our black/orange look) */
+.ob .pg-card h2 { font: 600 12px var(--ats-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ats-w); margin: 0 0 10px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ob .pg-card h2 .g { font-weight: 400; letter-spacing: .06em; text-transform: none; }
+.ob-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ob-bar button, .ob-btn { background: #0f0f0f; color: var(--ats-w); border: 1px solid #262626; border-radius: 7px; padding: 7px 12px; font: 600 12px var(--ats-mono); cursor: pointer; text-decoration: none; }
+.ob-bar button:hover, .ob-btn:hover { border-color: var(--ats-o); color: var(--ats-o); }
+.ob-bar .ob-play { background: var(--ats-o); color: #000; border-color: var(--ats-o); }
+.ob-bar .ob-play:hover { color: #000; filter: brightness(1.1); }
+.ob-bar input[type=range] { flex: 1 1 200px; accent-color: var(--ats-o); min-width: 140px; }
+.ob-bar #date { font: 700 14px var(--ats-mono); color: var(--ats-amber); min-width: 92px; text-align: right; }
+.ob-orbit canvas { height: 330px; }
+.ob-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font: 11px var(--ats-mono); color: var(--ats-g); margin-top: 8px; }
+.ob-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.ob-note { font-size: 13px; line-height: 1.55; color: #cfcfcf; margin: 10px 0 0; }
+.ob-note b { color: var(--ats-o); }
+.ob-corr td, .ob-corr th { text-align: center; }
+.ob-heat { border-collapse: collapse; font: 11px var(--ats-mono); width: 100%; min-width: 620px; }
+.ob-heat th { color: var(--ats-g); font-weight: 400; padding: 5px 4px; }
+.ob-heat td { color: #fff; text-align: center; padding: 6px 3px; border: 1px solid #111; font-variant-numeric: tabular-nums; }
+.ob-recent { max-height: 340px; }
+.ob .arm-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.ob .heat-hot { color: var(--ats-up); } .ob .heat-cold { color: var(--ats-dn); }
+@media (max-width: 700px) { .ob-orbit canvas { height: 280px; } .ob-bar #date { min-width: 0; } }
