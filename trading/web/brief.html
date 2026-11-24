@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · Brief and close</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/pages.css">
+<link rel="stylesheet" href="/wallet.css">
+<link rel="stylesheet" href="/calculator.css">
+<link rel="stylesheet" href="/timemachine.css">
+</head><body>
+<header class="ats-bar"><a class="ats-brand" href="/news"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav" aria-label="Main menu"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/btcc">BTCC</a><a href="/mitrade">Mitrade</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/jarvis">JARVIS</a><details class="ats-more"><summary>Tools</summary><div><a href="/decision">Decision</a><a href="/smart">Smart money</a><a href="/account">One account</a><a href="/wallet">Wallet</a><a href="/calculator">Calculator</a><a href="/timemachine">Time Machine</a><a href="/audit">Audit log</a><a href="/brief">Brief and close</a><a href="/newslab">News Lab</a><a href="/desks">24/7 desks</a><a href="/orbit">Orbit portfolio</a></div></details><details class="ats-more"><summary>More</summary><div><a href="/">Command desk</a><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<script src="/nav.js"></script>
+<main class="pg">
+ <div class="pg-head">
+  <div><small>Before every open, after every day</small><h1>Session brief <b>and daily close</b></h1>
+   <p>Fifteen minutes before Asia (10:00), London (18:00) and New York (00:30) open in Melbourne, the desk writes the top 5 ideas with a reason for each, the earnings and news to avoid, and what the managers are doing. At 08:15 it closes the day: trades, win rate, P&amp;L, a ledger check, and every Saturday a check of real results against practice.</p></div>
+  <span class="pg-badge" id="acct">ACCOUNT · …</span>
+ </div>
+ <section class="pg-grid">
+  <div class="pg-card c8"><h3>Top 5 ideas <span id="brief-sub">loading</span></h3>
+   <table class="pg-tbl tm-tbl"><thead><tr><th>#</th><th>Market</th><th>Side</th><th>Confidence</th><th>Why</th></tr></thead><tbody id="ideas"></tbody></table>
+   <p class="g tm-small" id="blocked"></p>
+   <p class="tm-warn">Advice only. Nothing on this page places an order.</p>
+  </div>
+  <div class="pg-card c4"><h3>Sessions <span id="next"></span></h3>
+   <table class="pg-tbl tm-tbl"><tbody id="sessions"></tbody></table>
+   <h3>Managers</h3>
+   <table class="pg-tbl tm-tbl"><tbody id="managers"></tbody></table>
+  </div>
+  <div class="pg-card c6"><h3>Coming up <span>earnings and big news</span></h3>
+   <table class="pg-tbl tm-tbl"><tbody id="events"></tbody></table>
+  </div>
+  <div class="pg-card c6"><h3>Daily close <span id="close-day"></span></h3>
+   <div class="cl-big">
+    <div><small>Trades</small><b id="c-n">–</b></div>
+    <div><small>Win rate</small><b id="c-w">–</b></div>
+    <div><small>P&amp;L</small><b id="c-p">–</b></div>
+    <div><small>Worst drop</small><b class="dn" id="c-d">–</b></div>
+   </div>
+   <ul class="cl-checks" id="close-checks"></ul>
+  </div>
+  <div class="pg-card c12"><h3>Weekly audit <span>real results vs practice</span></h3>
+   <p id="weekly" class="tm-size"></p>
+  </div>
+ </section>
+</main>
+<script src="/brief.js"></script>
+</body></html>

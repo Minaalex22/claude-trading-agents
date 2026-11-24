@@ -53,6 +53,9 @@ from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
 from . import orbit_portfolio as orbit_kit
 from . import calculator as calc_kit
+from . import timemachine as tm_kit
+from . import event_guard, trade_checker
+from . import session_brief, daily_close
 from . import news_lab
 from . import decision_desk
 from .smart_money import SmartMoney
@@ -121,6 +124,10 @@ STATIC = {
     "/wallet.css": ("wallet.css", "text/css; charset=utf-8"),
     "/calculator.js": ("calculator.js", "text/javascript; charset=utf-8"),
     "/calculator.css": ("calculator.css", "text/css; charset=utf-8"),
+    "/timemachine.js": ("timemachine.js", "text/javascript; charset=utf-8"),
+    "/timemachine.css": ("timemachine.css", "text/css; charset=utf-8"),
+    "/audit.js": ("audit.js", "text/javascript; charset=utf-8"),
+    "/brief.js": ("brief.js", "text/javascript; charset=utf-8"),
     "/newslab.js": ("newslab.js", "text/javascript; charset=utf-8"),
     "/newslab.css": ("newslab.css", "text/css; charset=utf-8"),
     "/btcc.js": ("btcc.js", "text/javascript; charset=utf-8"),
@@ -492,6 +499,67 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     market_page = _read("market.html")
     wallet_page = _read("wallet.html")
     calculator_page = _read("calculator.html")
+    timemachine_page = _read("timemachine.html")
+    audit_page = _read("audit.html")
+    audit_calendar = {}  # the earnings + news calendar for the Audit page, loaded on first use
+    brief_page = _read("brief.html")
+    briefs = {"brief": None, "brief_key": None, "close": None, "close_day": None, "weekly": None, "sent": []}
+    briefs_lock = threading.Lock()
+
+    def get_calendar() -> event_guard.Calendar:
+        with wallet_lock:
+            if "c" not in audit_calendar:
+                syms = [x.strip() for x in env.get("SYMBOLS", "AAPL,MSFT,NVDA,AMZN,GOOG,TSLA,META,AMD,BTC,ETH").split(",") if x.strip()]
+                audit_calendar["c"] = event_guard.Calendar(syms)
+                if env.get("EVENT_GUARD", "on").lower() not in ("off", "0", "false", "no"):
+                    audit_calendar["c"].start()
+            return audit_calendar["c"]
+
+    def decision_now() -> dict:
+        prices_now = hub.prices()
+        hist = prices_now.get("history") or []
+        with hub.cond:
+            leans = {sym: hub.pipeline.lean(sym) for sym in (hist[-1]["prices"] if hist else {})}
+        return decision_desk.build(hub.org(), hub.trades(), prices_now, getattr(hub, "sources", None), smart, leans)
+
+    def make_brief(session=None) -> dict:
+        cal = get_calendar()
+        events = cal.snapshot()
+        return session_brief.build(decision_now(), cal.upcoming(), lambda sym: event_guard.check(sym, events),
+                                   hub.org().get("managers", []), mode_switch.mode, one_account.armed(env),
+                                   session=session)
+
+    def make_close() -> tuple[dict, dict]:
+        trades = hub.trades()["trades"]
+        r = daily_close.report(trades, hub.prices()["history"], hub.org().get("managers", []),
+                               trade_checker.read_log(hub.events_dir, 5000))
+        return r, daily_close.weekly_audit(trades, sim_win_rate=float(env.get("SIM_WIN_RATE", daily_close.SIM_WIN_RATE)))
+
+    def brief_loop():
+        """Write the session brief 15 minutes before each open and the daily close at 08:15 Melbourne."""
+        while True:
+            try:
+                key = session_brief.due(None, briefs["brief_key"])
+                if key:
+                    b = make_brief(key.split(":")[0])
+                    with briefs_lock:
+                        briefs.update(brief=b, brief_key=key)
+                    alerts.send(session_brief.text(b))
+                day = daily_close.close_due(None, briefs["close_day"])
+                if day:
+                    r, w = make_close()
+                    with briefs_lock:
+                        briefs.update(close=r, close_day=day, weekly=w)
+                    alerts.send(daily_close.text(r, w if session_brief._local(None).weekday() == daily_close.WEEKLY_DAY else None))
+            except Exception:  # noqa: BLE001 - a bad tick of the scheduler never stops the app
+                pass
+            time.sleep(60)
+
+    if env.get("SESSION_BRIEF", "on").lower() not in ("off", "0", "false", "no") and env.get("BRIEF_LOOP", "on") != "off":
+        threading.Thread(target=brief_loop, daemon=True, name="session-brief").start()
+    tm_bars = tm_kit.Bars()                 # 5-minute bars, cached 5 min (practice bars if offline)
+    tm_congress = tm_kit.Congress()         # House Clerk filings, cached 1 hour
+    tm_tickets = tm_kit.PracticeTickets()   # practice tickets only, never sent to a broker
     newslab_page = _read("newslab.html")
     wallet = {}  # the practice wallet, loaded on first use
     wallet_lock = threading.Lock()
@@ -681,7 +749,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/newslab", "/account", "/orbit") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/timemachine", "/audit", "/brief", "/newslab", "/account", "/orbit") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -870,6 +938,49 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                                            q.get("leverage"), q.get("win"), fx))
                     except (KeyError, ValueError) as e:
                         self._json(400, {"error": str(e).strip("'\"")})
+            elif path == "/timemachine":
+                self._send(200, timemachine_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/timemachine":
+                q = {k: v[0][:30] for k, v in urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).items()}
+                try:
+                    body = tm_kit.run(tm_bars, q)
+                    if mode_switch.mode == "live":   # the One account switch decides; this page never sends real orders
+                        body["check"].update(broker="Live switch on: real orders go through the One account page",
+                                             real_money="One account (Live)")
+                    self._json(200, {**body, "account_mode": mode_switch.mode, "tickets": tm_tickets.list()})
+                except (KeyError, ValueError) as e:
+                    self._json(400, {"error": str(e).strip("'\"")})
+            elif path == "/api/timemachine/scan":
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                try:
+                    orm = int(q.get("or", ["15"])[0])
+                except ValueError:
+                    orm = 15
+                self._json(200, tm_kit.scan(tm_bars, or_minutes=orm if orm in (5, 15, 30) else 15))
+            elif path == "/api/timemachine/congress":
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                self._json(200, tm_congress.latest(member=q.get("member", [""])[0][:40]))
+            elif path == "/brief":
+                self._send(200, brief_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/brief":
+                fresh = make_brief()                     # what the brief says right now
+                r, w = make_close()                      # today's numbers so far
+                with briefs_lock:
+                    body = {"now": fresh, "now_text": session_brief.text(fresh),
+                            "last_brief": briefs["brief"], "close": briefs["close"] or r,
+                            "close_text": daily_close.text(briefs["close"] or r), "weekly": briefs["weekly"] or w,
+                            "next_open": session_brief.next_open()[1].strftime("%a %H:%M Melbourne"),
+                            "sessions": [{"key": k, "name": n, "opens": f"{hh:02d}:{mm:02d}"} for k, n, hh, mm in session_brief.SESSIONS]}
+                self._json(200, body)
+            elif path == "/audit":
+                self._send(200, audit_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/audit":
+                cal = get_calendar()
+                body = trade_checker.read_log(hub.events_dir)
+                body.update({"calendar": cal.upcoming(), "calendar_status": cal.status,
+                             "guard_on": env.get("EVENT_GUARD", "on").lower() not in ("off", "0", "false", "no"),
+                             "checker_on": env.get("TRADE_CHECKER", "on").lower() not in ("off", "0", "false", "no")})
+                self._json(200, body)
             elif path == "/pairs":
                 self._send(200, pairs_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/pairs":
@@ -947,6 +1058,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._mitrade_post(path, raw)
             if path in ("/api/btcc/open", "/api/btcc/close"):
                 return self._btcc_post(path, raw)
+            if path == "/api/timemachine/ticket":
+                return self._tm_ticket(raw)
             if path in ("/api/betfair/bet", "/api/betfair/close", "/api/betfair/cancel"):
                 return self._betfair_post(path, raw)
             if path in ("/api/polymarket/bet", "/api/polymarket/sell", "/api/polymarket/reset"):
@@ -1016,6 +1129,23 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             except Exception as e:  # noqa: BLE001
                 return self._json(502, {"error": f"MetaTrader cloud: {type(e).__name__}"})
             self._json(200, {"order": fill})
+
+        def _tm_ticket(self, raw: bytes):
+            """Time Machine -> budget -> risk -> a Demo practice ticket. Re-checks the plan on the server."""
+            if not self._authed():
+                return self._json(401, {"error": "sign in required"})
+            if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                return self._json(415, {"error": "send JSON"})
+            try:
+                b = json.loads(raw or b"null")
+                q = {k: str(b.get(k, ""))[:30] for k in ("symbol", "entry", "stop", "target", "time", "sessions",
+                                                          "runs", "seed", "balance", "risk")}
+                body = tm_kit.run(tm_bars, q)
+                c, m = body["check"], body["machine"]
+                t = tm_tickets.add(body["symbol"], m["side"], c["shares"], m["entry"], m["stop"], m["target"], c)
+                return self._json(200, {"ticket": t, "tickets": tm_tickets.list()})
+            except (AttributeError, KeyError, TypeError, ValueError) as e:
+                return self._json(400, {"error": str(e).strip("'\"")})
 
         def _mitrade_post(self, path: str, raw: bytes):
             """Mitrade practice desk only. Fills at Mitrade's bid/ask; nothing is sent to Mitrade."""
@@ -1360,7 +1490,13 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             if not jarvis.questions.allowed(client):
                 return self._json(429, {"error": "Slow down a little: too many questions this minute."})
             jarvis.questions.hit(client)
-            reply = jarvis.ask(client, question, snapshot(hub.org(), hub.state()))
+            snap = snapshot(hub.org(), hub.state())
+            with briefs_lock:
+                if briefs["brief"]:
+                    snap["session_brief"] = session_brief.text(briefs["brief"])
+                if briefs["close"]:
+                    snap["daily_close"] = daily_close.text(briefs["close"], briefs["weekly"])
+            reply = jarvis.ask(client, question, snap)
             self._json(200, {"reply": reply, "brain": jarvis.brain.name})
 
         def stream(self):

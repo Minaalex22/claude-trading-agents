@@ -233,6 +233,11 @@ class BuiltinBrain:
         q = question.lower()
         has = lambda *words: any(re.search(rf"\b{w}", q) for w in words)  # noqa: E731
         depts = snap.get("departments") or {}
+        if has("session brief", "top 5", "top five", "top ideas", "best setups", "idea scout"):
+            return snap.get("session_brief") or ("No session brief yet. One is written 15 minutes before each open: "
+                                                 "Asia 10:00, London 18:00 and New York 00:30 Melbourne time. See /brief.")
+        if has("daily close", "end of day", "close report", "weekly audit", "sim vs real"):
+            return snap.get("daily_close") or "No daily close yet. It is written at 08:15 Melbourne time. See /brief."
         if has("night shift", "overnight", "last night", "while i slept", "morning briefing", "briefing"):
             return night_answer(snap.get("night_shift"))
         if has("good morning") and snap.get("night_shift_alarm_due"):

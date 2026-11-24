@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · Audit log</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/pages.css">
+<link rel="stylesheet" href="/wallet.css">
+<link rel="stylesheet" href="/calculator.css">
+<link rel="stylesheet" href="/timemachine.css">
+</head><body>
+<header class="ats-bar"><a class="ats-brand" href="/news"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav" aria-label="Main menu"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/btcc">BTCC</a><a href="/mitrade">Mitrade</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/jarvis">JARVIS</a><details class="ats-more"><summary>Tools</summary><div><a href="/decision">Decision</a><a href="/smart">Smart money</a><a href="/account">One account</a><a href="/wallet">Wallet</a><a href="/calculator">Calculator</a><a href="/timemachine">Time Machine</a><a href="/audit">Audit log</a><a href="/brief">Brief and close</a><a href="/newslab">News Lab</a><a href="/desks">24/7 desks</a><a href="/orbit">Orbit portfolio</a></div></details><details class="ats-more"><summary>More</summary><div><a href="/">Command desk</a><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<script src="/nav.js"></script>
+<main class="pg">
+ <div class="pg-head">
+  <div><small>Every trade decision, in writing</small><h1>Audit <b>log</b></h1>
+   <p>Before any order that adds risk reaches the risk rules, Sentinel writes PASS or FAIL with the reasons. The event guard keeps the desk out of earnings and big economic news. Getting out is never blocked.</p></div>
+  <span class="pg-badge">PRACTICE · REAL MONEY LOCKED</span>
+ </div>
+ <section class="pg-grid">
+  <div class="pg-card c4"><h3>Sentinel's verdicts</h3>
+   <div class="cl-big tm-two">
+    <div><small>Passed</small><b class="up" id="n-pass">–</b></div>
+    <div><small>Failed</small><b class="dn" id="n-fail">–</b></div>
+   </div>
+   <ul class="cl-checks" id="reasons"></ul>
+   <p class="g tm-small" id="switches"></p>
+  </div>
+  <div class="pg-card c8"><h3>Event guard <span id="cal-status">loading</span></h3>
+   <p class="g tm-small">Earnings: no new entries from 24 hours before to 1 hour after. High-impact news: none from 45 minutes before to 30 minutes after, half size from 2 hours before.</p>
+   <table class="pg-tbl tm-tbl"><thead><tr><th>When (UTC)</th><th>Event</th><th>Applies to</th><th>Impact</th></tr></thead><tbody id="cal"></tbody></table>
+  </div>
+  <div class="pg-card c12"><h3>Latest decisions <span>newest first</span></h3>
+   <table class="pg-tbl tm-tbl"><thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Price</th><th>Score / threshold</th><th>Event</th><th>Verdict</th></tr></thead><tbody id="rows"><tr><td colspan="7" class="g">Loading…</td></tr></tbody></table>
+  </div>
+ </section>
+</main>
+<script src="/audit.js"></script>
+</body></html>

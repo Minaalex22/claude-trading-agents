@@ -15,6 +15,8 @@ The checks:
   no new risk there for 5 minutes (time to review the losses), then half size until a trade wins.
 - **market_clock**: the time of day in the market's own time zone (trading/sessions.py): no new stock risk in the
   first 15 minutes after the New York open (the banks set up: mina's rule), half size in the rest of the opening hour and on crypto weekends, 3/4 at midday and in Asia-only crypto hours.
+- **event_guard**: no new risk from 24h before to 1h after a stock's earnings, or from 45 minutes before to 30
+  minutes after high-impact economic news; half size from 2 hours before (trading/event_guard.py, mina's rule).
 - **dead_zone**: thin-liquidity windows: no new forex or metals risk in the 21:00-23:00 UTC rollover (spreads
   widen several times), and no new US stock or index risk in the last 10 minutes before the New York close (the
   first 15 minutes are already blocked by market_clock). Crypto trades 24/7 with no rollover. DEAD_ZONE switch.
@@ -34,6 +36,7 @@ chart said, so every decision can be explained afterwards. Paper only.
 from collections import deque
 from dataclasses import dataclass, field
 
+from . import event_guard as guard
 from . import option_flows, sessions
 
 STREAK = 2  # this many losing desk trades in a row in a symbol pauses it, then halves the next orders
@@ -58,6 +61,7 @@ class OrderCheck:
     cooling: bool = False  # inside the pause after a losing streak
     clock: object = None  # sessions.MarketClock or None (simulator)
     session_avg: float | None = None
+    events: list | None = None  # event_guard.ScheduledEvent list (live markets only)
     style: str = ""  # which style drives the desk's call: "trend" or "reversion"
     now: float | None = None  # market time (unix seconds); None in the simulator
     notes: list = field(default_factory=list)
@@ -132,6 +136,16 @@ def chasing(c: OrderCheck) -> tuple[float, str | None]:
     return 1.0, None
 
 
+def event_guard(c: OrderCheck) -> tuple[float, str | None]:
+    if not c.events or c.now is None:
+        return 1.0, None
+    from datetime import datetime, timezone
+    ok, size, reason = guard.check(c.symbol, c.events, datetime.fromtimestamp(c.now, timezone.utc))
+    if not ok:
+        return 0.0, f"blocked: {reason}"
+    return (size, reason) if size < 1.0 else (1.0, None)
+
+
 def against_whale(c: OrderCheck) -> tuple[float, str | None]:
     """Never open against a $3M+ 0DTE whale print at a key level (option_flows; needs prints to be sent in)."""
     after = c.position + c.qty
@@ -139,7 +153,7 @@ def against_whale(c: OrderCheck) -> tuple[float, str | None]:
     return (0.0, why) if why else (1.0, None)
 
 
-HOOKS = (symbol_paused, against_the_room, losing_streak, market_clock, dead_zone, chasing, against_whale)
+HOOKS = (symbol_paused, against_the_room, losing_streak, market_clock, dead_zone, event_guard, chasing, against_whale)
 
 
 def run_hooks(c: OrderCheck, hooks=HOOKS) -> tuple[float, list[str]]:
