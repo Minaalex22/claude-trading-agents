@@ -22,10 +22,46 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, time, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, time, timedelta, timezone, tzinfo
 
-MELBOURNE_TZ = ZoneInfo("Australia/Melbourne")
+
+def _first_sunday(year: int, month: int) -> datetime:
+    d = datetime(year, month, 1)
+    return d + timedelta(days=(6 - d.weekday()) % 7)
+
+
+class _Melbourne(tzinfo):
+    """Australia/Melbourne without the tz database (Windows and slim images may not have it):
+    AEST +10, and AEDT +11 from the first Sunday of October 02:00 to the first Sunday of April 03:00."""
+
+    def _dst_local(self, dt: datetime) -> bool:
+        naive = dt.replace(tzinfo=None)
+        start = _first_sunday(naive.year, 10) + timedelta(hours=2)
+        end = _first_sunday(naive.year, 4) + timedelta(hours=3)
+        return naive >= start or naive < end
+
+    def utcoffset(self, dt):
+        return timedelta(hours=11 if dt is not None and self._dst_local(dt) else 10)
+
+    def dst(self, dt):
+        return timedelta(hours=1 if dt is not None and self._dst_local(dt) else 0)
+
+    def tzname(self, dt):
+        return "AEDT" if dt is not None and self._dst_local(dt) else "AEST"
+
+    def fromutc(self, dt):
+        naive = dt.replace(tzinfo=None)
+        start = _first_sunday(naive.year, 10) + timedelta(hours=2 - 10)  # 02:00 AEST in UTC
+        end = _first_sunday(naive.year, 4) + timedelta(hours=3 - 11)  # 03:00 AEDT in UTC
+        hours = 11 if (naive >= start or naive < end) else 10
+        return (naive + timedelta(hours=hours)).replace(tzinfo=self)
+
+
+try:
+    from zoneinfo import ZoneInfo
+    MELBOURNE_TZ = ZoneInfo("Australia/Melbourne")
+except Exception:  # no tz database here
+    MELBOURNE_TZ = _Melbourne()
 
 
 def _on(env, key: str, default: str) -> bool:
