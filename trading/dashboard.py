@@ -77,6 +77,13 @@ STATIC = {
     "/3d.js": ("3d.js", "text/javascript; charset=utf-8"),
     "/jarvis.css": ("jarvis.css", "text/css; charset=utf-8"),
     "/jarvis.js": ("jarvis.js", "text/javascript; charset=utf-8"),
+    "/apex.js": ("apex.js", "text/javascript; charset=utf-8"),
+    "/apex-hands.js": ("apex-hands.js", "text/javascript; charset=utf-8"),
+    # MediaPipe Hands for JARVIS's pinch to wake, served from here so nothing loads from another site.
+    "/vendor/mediapipe/vision_bundle.mjs": ("vendor/mediapipe/vision_bundle.mjs", "text/javascript; charset=utf-8"),
+    "/vendor/mediapipe/vision_wasm_internal.js": ("vendor/mediapipe/vision_wasm_internal.js", "text/javascript; charset=utf-8"),
+    "/vendor/mediapipe/vision_wasm_internal.wasm": ("vendor/mediapipe/vision_wasm_internal.wasm", "application/wasm"),
+    "/vendor/mediapipe/hand_landmarker.task": ("vendor/mediapipe/hand_landmarker.task", "application/octet-stream"),
     "/orderflow.css": ("orderflow.css", "text/css; charset=utf-8"),
     "/orderflow.js": ("orderflow.js", "text/javascript; charset=utf-8"),
     "/markets.css": ("markets.css", "text/css; charset=utf-8"),
@@ -143,6 +150,10 @@ MARKET_API = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}")
 MARKET_FAV = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}/favourite")
 # Only JARVIS's page may use the microphone; nothing may use the camera, location or payment APIs.
 PERMISSIONS = "microphone=(self), camera=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+# The JARVIS page alone may also use the webcam (opt-in pinch to wake, processed in the browser) and run the
+# WebAssembly hand tracker, which needs 'wasm-unsafe-eval' (WebAssembly only; JavaScript eval stays blocked).
+JARVIS_CSP = CSP.replace("script-src 'self';", "script-src 'self' 'wasm-unsafe-eval';")
+JARVIS_PERMISSIONS = PERMISSIONS.replace("camera=()", "camera=(self)")
 
 
 class EventHub:
@@ -576,8 +587,9 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             # "same-origin", not "no-referrer": with no-referrer, browsers send `Origin: null` on our own
             # form posts, and the CSRF check below then refused every sign-in. Nothing leaks cross-site either way.
             self.send_header("Referrer-Policy", "same-origin")
-            self.send_header("Content-Security-Policy", CSP)
-            self.send_header("Permissions-Policy", PERMISSIONS)
+            jarvis_page_req = urllib.parse.urlsplit(self.path).path == "/jarvis"
+            self.send_header("Content-Security-Policy", JARVIS_CSP if jarvis_page_req else CSP)
+            self.send_header("Permissions-Policy", JARVIS_PERMISSIONS if jarvis_page_req else PERMISSIONS)
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
             self.send_header("Cross-Origin-Resource-Policy", "same-origin")
             if auth.enabled and self._secure():  # no HSTS for this computer's own plain-http address
