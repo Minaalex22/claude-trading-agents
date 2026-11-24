@@ -5,6 +5,7 @@ from collections import defaultdict, deque
 from . import academy, accounts, coach as coaching, hooks, review, sessions
 from . import mind as mindmod
 from . import night_shift
+from .orbit_portfolio import OrbitPortfolioCoordinator
 
 from .agents import REVERSION, Agent, Trader
 from .brains import BrainAlpha, BrainBeta
@@ -71,6 +72,8 @@ class Desk:
         self.proven_only = False
         self.proven_min = PROVEN_MIN
         self.proven_view: dict[str, tuple[float, int]] = {}
+        # Orbit heat (trading/orbit_portfolio.py): each arm's size follows its own recent results. ORBIT_HEAT=off.
+        self.orbit = OrbitPortfolioCoordinator.from_env(account_equity=broker.starting_cash)
         self.on_order = None  # called with (symbol, qty, price, why) after each paper fill (real-money mirror)
         self.ticks = 0
         self.news_view: dict[str, float] = {}  # per symbol, last tick's analysts' news read
@@ -174,7 +177,7 @@ class Desk:
                 score = 0.0
             if self.risk.killed:
                 score = 0.0  # kill switch: close everything
-            target_value = score * self.risk.limits.max_position_value
+            target_value = score * self.risk.limits.max_position_value * self.orbit.heat(symbol)
             desired = target_value / prices[symbol] - self.broker.position(symbol)
             if self._hurdle() and abs(target_value) > abs(self.broker.position(symbol) * prices[symbol]) \
                     and not self.risk.killed and not self._clears_costs(symbol):
@@ -213,6 +216,7 @@ class Desk:
                                   entry=round(closed["entry"], 4), exit=round(closed["exit"], 4),
                                   move=round(closed["move"], 5), won=closed["won"],
                                   pnl=round(closed["qty"] * closed["entry"] * closed["move"], 2))
+                    self.orbit.record_arm_result(symbol, "1h", closed["qty"] * closed["entry"] * closed["move"])
                     if self.risk.night_active:  # the overnight capsule (trading/night_shift.py)
                         self.risk.night_shift.record_closed_trade(
                             symbol, closed["qty"] * closed["entry"] * closed["move"], closed["move"])
