@@ -1,0 +1,22 @@
+/* Time Machine page: on top of pages.css, wallet.css and calculator.css. */
+.tm-go { margin-top: 6px; background: var(--ats-o); color: #000; border: 0; border-radius: 8px; padding: 10px 14px; font: 700 13px var(--ats-mono); letter-spacing: .04em; cursor: pointer; }
+.tm-go:disabled { background: #2a2a2a; color: #777; cursor: not-allowed; }
+.tm-btn { background: none; border: 1px solid rgba(255, 92, 0, .6); color: var(--ats-o); border-radius: 7px; padding: 7px 14px; font: 600 12px var(--ats-mono); cursor: pointer; }
+.tm-btn:hover { background: rgba(255, 92, 0, .12); }
+.tm-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.tm-in { flex: 1; min-width: 160px; background: #0a0a0a; color: #f4f4f4; border: 1px solid #262626; border-radius: 7px; padding: 8px 10px; font: 13px var(--ats-mono); }
+.tm-in:focus { outline: none; border-color: var(--ats-o); }
+.tm-hist { display: flex; align-items: flex-end; gap: 2px; height: 120px; padding: 6px 0; border-bottom: 1px solid #262626; }
+.tm-hist i { flex: 1; background: #3a3a3a; border-radius: 2px 2px 0 0; min-height: 1px; }
+.tm-hist i.up { background: var(--ats-up); } .tm-hist i.dn { background: var(--ats-dn); } .tm-hist i.mid { background: var(--ats-o); }
+.tm-axis { display: flex; justify-content: space-between; font: 11px var(--ats-mono); color: var(--ats-g); margin: 4px 0 12px; }
+.tm-verdict { font-size: 15px !important; line-height: 1.3; }
+.tm-warn { font-size: 12px; color: #c9a27f; border-left: 3px solid var(--ats-o); padding: 6px 10px; margin: 12px 0 0; background: rgba(255, 92, 0, .06); }
+.tm-size { font-size: 13px; color: var(--ats-g); margin-bottom: 10px; }
+.tm-size b { color: var(--ats-o); font: 700 24px var(--ats-mono); display: block; }
+.tm-small { font-size: 11px; margin: 8px 0; }
+.tm-tbl td, .tm-tbl th { font-size: 12px; }
+.tm-tbl td:first-child { color: var(--ats-w); font-weight: 600; }
+.tm-tbl a { color: var(--ats-o); }
+.tm-tbl .buy { color: var(--ats-up); } .tm-tbl .sell { color: var(--ats-dn); }
+@media (max-width: 560px) { .tm-hist { height: 90px; } }

@@ -52,6 +52,7 @@ from . import polymarket_live, betfair
 from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
 from . import calculator as calc_kit
+from . import timemachine as tm_kit
 from . import news_lab
 from . import decision_desk
 from .smart_money import SmartMoney
@@ -110,6 +111,8 @@ STATIC = {
     "/wallet.css": ("wallet.css", "text/css; charset=utf-8"),
     "/calculator.js": ("calculator.js", "text/javascript; charset=utf-8"),
     "/calculator.css": ("calculator.css", "text/css; charset=utf-8"),
+    "/timemachine.js": ("timemachine.js", "text/javascript; charset=utf-8"),
+    "/timemachine.css": ("timemachine.css", "text/css; charset=utf-8"),
     "/newslab.js": ("newslab.js", "text/javascript; charset=utf-8"),
     "/newslab.css": ("newslab.css", "text/css; charset=utf-8"),
     "/btcc.js": ("btcc.js", "text/javascript; charset=utf-8"),
@@ -473,6 +476,10 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     market_page = _read("market.html")
     wallet_page = _read("wallet.html")
     calculator_page = _read("calculator.html")
+    timemachine_page = _read("timemachine.html")
+    tm_bars = tm_kit.Bars()                 # 5-minute bars, cached 5 min (practice bars if offline)
+    tm_congress = tm_kit.Congress()         # House Clerk filings, cached 1 hour
+    tm_tickets = tm_kit.PracticeTickets()   # practice tickets only, never sent to a broker
     newslab_page = _read("newslab.html")
     wallet = {}  # the practice wallet, loaded on first use
     wallet_lock = threading.Lock()
@@ -607,7 +614,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/newslab") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/timemachine", "/newslab") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -778,6 +785,24 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                                            q.get("leverage"), q.get("win"), fx))
                     except (KeyError, ValueError) as e:
                         self._json(400, {"error": str(e).strip("'\"")})
+            elif path == "/timemachine":
+                self._send(200, timemachine_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/timemachine":
+                q = {k: v[0][:30] for k, v in urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).items()}
+                try:
+                    self._json(200, {**tm_kit.run(tm_bars, q), "tickets": tm_tickets.list()})
+                except (KeyError, ValueError) as e:
+                    self._json(400, {"error": str(e).strip("'\"")})
+            elif path == "/api/timemachine/scan":
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                try:
+                    orm = int(q.get("or", ["15"])[0])
+                except ValueError:
+                    orm = 15
+                self._json(200, tm_kit.scan(tm_bars, or_minutes=orm if orm in (5, 15, 30) else 15))
+            elif path == "/api/timemachine/congress":
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                self._json(200, tm_congress.latest(member=q.get("member", [""])[0][:40]))
             elif path == "/pairs":
                 self._send(200, pairs_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/pairs":
@@ -851,6 +876,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._mitrade_post(path, raw)
             if path in ("/api/btcc/open", "/api/btcc/close"):
                 return self._btcc_post(path, raw)
+            if path == "/api/timemachine/ticket":
+                return self._tm_ticket(raw)
             if path in ("/api/betfair/bet", "/api/betfair/close", "/api/betfair/cancel"):
                 return self._betfair_post(path, raw)
             if path in ("/api/polymarket/bet", "/api/polymarket/sell", "/api/polymarket/reset"):
@@ -918,6 +945,23 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             except Exception as e:  # noqa: BLE001
                 return self._json(502, {"error": f"MetaTrader cloud: {type(e).__name__}"})
             self._json(200, {"order": fill})
+
+        def _tm_ticket(self, raw: bytes):
+            """Time Machine -> budget -> risk -> a Demo practice ticket. Re-checks the plan on the server."""
+            if not self._authed():
+                return self._json(401, {"error": "sign in required"})
+            if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                return self._json(415, {"error": "send JSON"})
+            try:
+                b = json.loads(raw or b"null")
+                q = {k: str(b.get(k, ""))[:30] for k in ("symbol", "entry", "stop", "target", "time", "sessions",
+                                                          "runs", "seed", "balance", "risk")}
+                body = tm_kit.run(tm_bars, q)
+                c, m = body["check"], body["machine"]
+                t = tm_tickets.add(body["symbol"], m["side"], c["shares"], m["entry"], m["stop"], m["target"], c)
+                return self._json(200, {"ticket": t, "tickets": tm_tickets.list()})
+            except (AttributeError, KeyError, TypeError, ValueError) as e:
+                return self._json(400, {"error": str(e).strip("'\"")})
 
         def _mitrade_post(self, path: str, raw: bytes):
             """Mitrade practice desk only. Fills at Mitrade's bid/ask; nothing is sent to Mitrade."""

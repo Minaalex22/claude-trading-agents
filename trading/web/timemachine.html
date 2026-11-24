@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · Time Machine</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/pages.css">
+<link rel="stylesheet" href="/wallet.css">
+<link rel="stylesheet" href="/calculator.css">
+<link rel="stylesheet" href="/timemachine.css">
+</head><body>
+<header class="ats-bar"><a class="ats-brand" href="/news"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav" aria-label="Main menu"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/btcc">BTCC</a><a href="/mitrade">Mitrade</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/jarvis">JARVIS</a><details class="ats-more"><summary>Tools</summary><div><a href="/decision">Decision</a><a href="/smart">Smart money</a><a href="/wallet">Wallet</a><a href="/calculator">Calculator</a><a href="/timemachine">Time Machine</a><a href="/newslab">News Lab</a><a href="/desks">24/7 desks</a></div></details><details class="ats-more"><summary>More</summary><div><a href="/">Command desk</a><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<script src="/nav.js"></script>
+<main class="pg">
+ <div class="pg-head">
+  <div><small>Replay a trade before you take it</small><h1>Time <b>Machine</b></h1>
+   <p>Pick a stock, an entry, a stop and a target. It replays the rest of the day thousands of times from the stock's own recent 5-minute bars and tells you how often the target comes first, the stop comes first, or neither. Then it sizes the trade, checks the money rules and writes a Demo ticket.</p></div>
+  <span class="pg-badge">PRACTICE · REAL MONEY LOCKED</span>
+ </div>
+ <section class="pg-grid">
+  <div class="pg-card c4"><h3>Your trade</h3>
+   <form id="tm" class="wl-form" autocomplete="off">
+    <div class="cl-row">
+     <label>Symbol<input name="symbol" value="TSLA" maxlength="12" required></label>
+     <label>Entry time <em class="cl-hint">bar close, New York</em><input name="time" value="10:15" pattern="[0-9]{1,2}:[0-9]{2}" required></label>
+    </div>
+    <label>Entry <em class="cl-hint">blank = last price</em><input name="entry" type="number" min="0" step="any"></label>
+    <div class="cl-row">
+     <label>Stop<input name="stop" type="number" min="0" step="any"></label>
+     <label>Target <em class="cl-hint">blank = 2.4x stop</em><input name="target" type="number" min="0" step="any"></label>
+    </div>
+    <div class="cl-row">
+     <label>Sessions <em class="cl-hint">10 to 60 days</em><input name="sessions" type="number" min="10" max="60" step="1" value="60"></label>
+     <label>Replays<input name="runs" type="number" min="500" max="20000" step="500" value="10000"></label>
+    </div>
+    <div class="cl-row">
+     <label>Balance (USD)<input name="balance" type="number" min="1" step="any" value="10000"></label>
+     <label>Risk %<input name="risk" type="number" min="0.01" max="10" step="0.05" value="0.5"></label>
+    </div>
+    <input name="seed" type="hidden" value="19">
+    <button type="submit" class="tm-go">Run the Time Machine</button>
+    <p class="wl-msg" id="msg"></p>
+   </form></div>
+
+  <div class="pg-card c8"><h3>Odds <span id="what">run a trade to see the odds</span></h3>
+   <div class="cl-big">
+    <div><small>Target first</small><b class="up" id="o-t">–</b><em id="o-t-sub"></em></div>
+    <div><small>Stop first</small><b class="dn" id="o-s">–</b><em id="o-s-sub"></em></div>
+    <div><small>Neither by the close</small><b id="o-f">–</b><em id="o-f-sub"></em></div>
+    <div><small>Verdict</small><b class="tm-verdict" id="o-v">–</b><em id="o-v-sub"></em></div>
+   </div>
+   <div class="tm-hist" id="hist" aria-label="Where the price sits at the close"></div>
+   <div class="tm-axis" id="axis"></div>
+   <table class="pg-tbl cl-tbl"><tbody id="detail"></tbody></table>
+   <p class="tm-warn" id="warn">It resamples the same past sessions again and again. It is not thousands of real trades, and earnings, news and halts can do things those sessions never did.</p>
+  </div>
+
+  <div class="pg-card c6"><h3>Budget and risk <span>money rules decide</span></h3>
+   <div class="tm-size" id="size">Run a trade to size it.</div>
+   <ul class="cl-checks" id="checks"></ul>
+   <button type="button" class="tm-go" id="ticket" disabled>Send to practice desk (Demo)</button>
+   <p class="g tm-small">Broker: Demo. Nothing here can send a real order. A ticket only appears when every check passes.</p>
+   <table class="pg-tbl"><tbody id="tickets"></tbody></table>
+  </div>
+
+  <div class="pg-card c6"><h3>Opening-range scanner <span id="scan-sub">first 15 minutes, today</span></h3>
+   <div class="tm-bar"><div class="pg-tabs" id="or"><button type="button" data-or="5">5 min</button><button type="button" data-or="15" class="on">15 min</button><button type="button" data-or="30">30 min</button></div><button type="button" class="tm-btn" id="scan">Scan</button></div>
+   <table class="pg-tbl tm-tbl"><thead><tr><th>Stock</th><th>Side</th><th>Range</th><th>Entry</th><th>Stop</th><th>Target</th><th></th></tr></thead><tbody id="hits"><tr><td colspan="7" class="g">Tap Scan to check the watch list.</td></tr></tbody></table>
+   <p class="g tm-small">A scan is a list of charts that match a rule, not a list of things to buy. Tap Replay to send a setup to the Time Machine.</p>
+  </div>
+
+  <div class="pg-card c12"><h3>Congress trades <span>House stock-trade filings</span></h3>
+   <div class="tm-bar"><input id="member" class="tm-in" placeholder="Filter by member, e.g. Pelosi" maxlength="40"><button type="button" class="tm-btn" id="cong">Load filings</button></div>
+   <table class="pg-tbl tm-tbl"><thead><tr><th>Filed</th><th>Member</th><th>District</th><th>Report</th></tr></thead><tbody id="congress"><tr><td colspan="4" class="g">Tap Load filings.</td></tr></tbody></table>
+   <p class="g tm-small" id="cong-note">Fast, not early: members have up to 45 days to report, so every trade here is days or weeks old.</p>
+  </div>
+
+  <div class="pg-card c12"><h3>The 11 day-trader tools <span>where each one lives in ATS Matrix</span></h3>
+   <table class="pg-tbl tm-tbl"><tbody>
+    <tr><td>Scanner</td><td>Opening-range scanner on this page, plus the Markets pages</td></tr>
+    <tr><td>News</td><td><a href="/news">News</a> and the <a href="/pipeline">News Pipeline</a></td></tr>
+    <tr><td>Entry</td><td>Entry time on this page (the bar that closed outside the range)</td></tr>
+    <tr><td>Exit</td><td>Stop at the range's middle, target 2.4x the stop (our money rule)</td></tr>
+    <tr><td>Time Machine</td><td>This page</td></tr>
+    <tr><td>Risk</td><td>Budget and risk card on this page, same rules as <a href="/calculator">Calculator</a></td></tr>
+    <tr><td>Budget</td><td>Whole shares from the max loss, 10% cash kept back</td></tr>
+    <tr><td>Broker</td><td>Demo practice tickets only. Real money locked</td></tr>
+    <tr><td>Alerts</td><td>Stop and target on the <a href="/trades">Trades</a> page</td></tr>
+    <tr><td>Analyst</td><td><a href="/shares">Shares</a> pages and the News Pipeline's deep read</td></tr>
+    <tr><td>Congress</td><td>Congress trades card on this page</td></tr>
+   </tbody></table>
+  </div>
+ </section>
+</main>
+<script src="/timemachine.js"></script>
+</body></html>
