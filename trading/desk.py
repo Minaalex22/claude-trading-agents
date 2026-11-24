@@ -2,6 +2,8 @@
 
 from collections import defaultdict, deque
 
+from . import agents as agents_mod
+
 from . import academy, accounts, coach as coaching, hooks, review, sessions
 from . import mind as mindmod
 from . import night_shift
@@ -61,6 +63,9 @@ PULLBACK_ATR, PULLBACK_ATR_15M, PULLBACK_BARS = 0.25, 0.15, 2
 # Bucket sizing (env BUCKET_SIZING): each symbol's last 40 closed desk trades set its size: under 8 trades x0.75,
 # expectancy at or under 0.05R x0.25, at least 0.35R with a 58%+ win rate x1.4, else x1. Risk limits still cap it.
 BUCKET_SIZING = True
+# News pipeline into the desk (env NEWS_TO_DESK, live feeds only): sure (>= 0.8) and two-source confirmed reads add
+# PIPE_WEIGHT x their lean to the desk's score; an open human-queue read under 0.6 halves exposure in that symbol.
+PIPE_CONF, PIPE_DOUBT, PIPE_WEIGHT, PIPE_BRAKE = 0.8, 0.6, 0.3, 0.5
 MIN_PRACTICE_TRADES = 20  # every strategy trader makes at least this many practice trades per hour
 
 
@@ -119,6 +124,8 @@ class Desk:
         self.hour_stats: dict[str, dict] = {}
         self.price_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=ROUTER_SLOW + 1))
         self.regime: dict[str, str] = {}
+        self.pipeline = None  # live feeds: a NewsPipeline whose sure, confirmed reads nudge the desk (engine)
+        self.lead_style: dict[str, str] = {}
         self.pending: dict[str, dict] = {}  # pullback entries waiting for their price
         self.pending_cool: dict[str, int] = {}
         self.bucket: dict[str, deque] = defaultdict(lambda: deque(maxlen=40))  # closed desk trade moves per symbol
@@ -141,7 +148,9 @@ class Desk:
             self.price_hist[symbol].append(price)
         if self.beta:
             self.beta.begin()
-        views = self.room.update(prices, headlines) if self.room else {}
+        views = self.room.update(prices, headlines, now) if self.room else {}
+        if self.pipeline is not None and headlines:
+            self.pipeline.feed(headlines, {k: {"news": v.news, "chart": v.chart} for k, v in views.items()}, now)
         votes = defaultdict(lambda: {"trend": [], "reversion": [], "analyst": [], "risk": [], "macro": []})
         agent_votes: dict[str, float] = {}
         tagged = defaultdict(lambda: {"trend": [], "reversion": []})
@@ -200,6 +209,8 @@ class Desk:
             if self.risk.killed:
                 score = 0.0  # kill switch: close everything
             orders += self._work_pending(symbol, prices, score)
+            if self.pipeline is not None and not self.risk.killed:
+                score = self._pipeline_nudge(symbol, score)
             target_value = score * self.risk.limits.max_position_value * self._bucket_mult(symbol) * self.orbit.heat(symbol)
             desired = target_value / prices[symbol] - self.broker.position(symbol)
             if self._hurdle() and abs(target_value) > abs(self.broker.position(symbol) * prices[symbol]) \
@@ -212,7 +223,8 @@ class Desk:
                                      view=views.get(symbol), paused=symbol in self.managers.paused,
                                      streak=self.journal.streak(symbol), clock=self.clock,
                                      cooling=self.journal.cooling(symbol, self.ticks, self.now, max(1, (self.hour_ticks or 7200) // 12)),
-                                     session_avg=self.session_avg.get(symbol) if self.clock else None)
+                                     session_avg=self.session_avg.get(symbol) if self.clock else None,
+                                     style=self.lead_style.get(symbol, "") if agents_mod.NEWS_SPLIT else "")
             desired, notes = hooks.run_hooks(check)
             if notes:
                 self.checks["blocked" if abs(desired * prices[symbol]) < self.min_trade else "shrunk"] += 1
@@ -467,6 +479,16 @@ class Desk:
             return "chop"
         return "transition"
 
+    def _pipeline_nudge(self, symbol: str, score: float) -> float:
+        """Live feeds only: the news pipeline's lean counts when it is sure (>= PIPE_CONF) and two sources
+        confirmed the story; while a doubtful read (< PIPE_DOUBT) waits for a human, exposure is halved."""
+        lean = self.pipeline.desk_lean(symbol, self.now, PIPE_CONF)
+        if lean is not None:
+            score = max(-1.0, min(1.0, score + PIPE_WEIGHT * lean))
+        if self.pipeline.doubtful(symbol, self.now, PIPE_DOUBT):
+            score *= PIPE_BRAKE
+        return score
+
     def _adds_risk(self, symbol: str, qty: float) -> bool:
         before = self.broker.position(symbol)
         after = before + qty
@@ -574,6 +596,9 @@ class Desk:
             self.regime[symbol] = self.regime_of(symbol)
             t_mult, r_mult = ROUTER_WEIGHTS[self.regime[symbol]]
         score = trend_weight * t_mult * trend + (1 - trend_weight) * r_mult * reversion
+        if symbol is not None and hasattr(self, "lead_style"):
+            t_part, r_part = trend_weight * t_mult * trend, (1 - trend_weight) * r_mult * reversion
+            self.lead_style[symbol] = "reversion" if abs(r_part) > abs(t_part) else "trend"
         # Analysts trained in politics and economics add what the news says.
         macro = sum(v["macro"]) / len(v["macro"]) if v["macro"] else 0.0
         return max(-1.0, min(1.0, score + MACRO_WEIGHT * macro))

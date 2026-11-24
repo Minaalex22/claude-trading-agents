@@ -119,6 +119,22 @@ def _follow_shadows(agent, s: dict) -> None:
     s["shadow"] = keep[-20:]
 
 
+def snapshot(agent) -> dict:
+    """What the slow half checks from the reading room: the combined view, plus the time-faded news on its own
+    (a fresh macro shock weighs MACRO_BOOST x) and its age, so a stretched chart isn't mistaken for bad news."""
+    from .reading_room import MACRO_BOOST
+
+    view = getattr(agent, "view", None)
+    if view is None:
+        return {"room": 0.0, "news_score": 0.0, "news_age_mins": None, "macro_shock": False}
+    news = getattr(view, "news", 0.0)
+    shock = bool(getattr(view, "is_macro_shock", False))
+    snap = {"room": view.direction, "news_score": max(-1.0, min(1.0, news * (MACRO_BOOST if shock else 1.0))),
+            "news_age_mins": getattr(view, "news_age_mins", None), "macro_shock": shock}
+    agent.workspace["dual_snapshot"] = snap
+    return snap
+
+
 def propose(agent, direction: float) -> dict:
     """Fast half: the setup this signal means, with its expected move and where it is wrong."""
     from . import entry_filters, exits
@@ -143,9 +159,10 @@ def audit(agent, proposal: dict) -> str | None:
         return "friction"
     if on_probation(s, proposal["tag"]):
         return "ledger"
-    view = getattr(agent, "view", None)
-    if view is not None and view.direction * proposal["side"] <= -PREMORTEM_VIEW and proposal["regime"] == "vol_spike":
-        return "premortem"
+    snap = snapshot(agent)
+    against = min(snap["room"] * proposal["side"], snap["news_score"] * proposal["side"])
+    if proposal["regime"] == "vol_spike" and against <= -PREMORTEM_VIEW:
+        return "premortem"  # a strong room view or fresh news against it, in a volatility spike
     return None
 
 

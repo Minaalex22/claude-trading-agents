@@ -31,7 +31,17 @@ from dataclasses import dataclass
 
 CHART_BARS = 120
 FAST, SLOW = 20, 60
-NEWS_KEEP = 0.97  # per tick: how long a headline keeps moving the view
+NEWS_KEEP = 0.97  # per tick, simulator only (no clock): how long a headline keeps moving the view
+# With a clock (live prices, backtests) news fades by time instead: half its push every NEWS_HALF_LIFE minutes,
+# MACRO_HALF_LIFE for macro headlines (central banks, inflation, jobs, tariffs, war), which the market digests slower.
+NEWS_HALF_LIFE, MACRO_HALF_LIFE = 90.0, 240.0
+MACRO_WORDS = ("rate decision", "interest rate", "central bank", "fed ", "fomc", "ecb", "rba", "boj", "inflation",
+               "cpi", "jobs", "payroll", "unemployment", "gdp", "tariff", "sanction", "war ", "escalat", "ceasefire",
+               "stimulus", "election", "default")
+NEWS_FLOOR = 0.03  # a faded read below this counts as no news
+MACRO_BOOST = 1.25  # agents' slow-brain premortem weighs a fresh macro shock 1.25x
+FRESH_MINS = 60  # news younger than this is "fresh"
+SHOCK = 0.35  # a macro read at least this strong, while fresh, is a macro shock
 CHART_SHARE = 0.6  # the view: 60% chart, 40% news
 CONFIDENT = 0.25  # a view at least this strong blocks trades against it
 CLAUDE_CHART_EVERY = 1800  # ticks between Claude's chart reads, all symbols in one call (15 min at 0.5 s ticks)
@@ -70,6 +80,8 @@ class View:
     news: float = 0.0
     claude_chart: float | None = None
     why: str = ""
+    news_age_mins: float | None = None  # minutes since the last headline moved the read (ticks in the simulator)
+    is_macro_shock: bool = False  # a fresh, strong macro headline is driving the news read
 
     @property
     def confident(self) -> bool:
@@ -90,6 +102,20 @@ def read_headline(text: str) -> float | None:
                 return -push
     hits = [push for word, push in MARKET_WORDS.items() if re.search(rf"(?<![a-z-]){re.escape(word)}(?:s|es|d|ed|ing)?(?![a-z])", t)]
     return max(-1.0, min(1.0, sum(hits))) if hits else None
+
+
+def is_macro(text: str) -> bool:
+    t = f" {text.split(':', 1)[-1].lower()} "
+    return any(w in t for w in MACRO_WORDS)
+
+
+def opposing_news(view, direction: float) -> bool:
+    """Fresh (under FRESH_MINS) or macro-shock news pushing hard (SHOCK) against a trade in `direction`."""
+    if view is None or not direction:
+        return False
+    against = view.news * (1.0 if direction > 0 else -1.0) <= -SHOCK
+    fresh = view.news_age_mins is not None and view.news_age_mins < FRESH_MINS
+    return against and (fresh or view.is_macro_shock)
 
 
 def read_chart(prices: list[float]) -> float:
@@ -113,12 +139,25 @@ class ReadingRoom:
         self.news = {s: 0.0 for s in self.symbols}
         self.views = {s: View() for s in self.symbols}
         self.ticks = 0
+        self.now: float | None = None
+        self.news_at: dict[str, float | None] = {s: None for s in self.symbols}  # when news last moved each read
+        self.macro = {s: False for s in self.symbols}
         self.read = {"headlines": 0, "by_claude": 0, "unread": 0, "claude_charts": 0}
 
-    def update(self, prices: dict[str, float], headlines: list[dict] | None = None) -> dict[str, View]:
+    def update(self, prices: dict[str, float], headlines: list[dict] | None = None,
+               now: float | None = None) -> dict[str, View]:
         self.ticks += 1
+        dt = (now - self.now) / 60 if now is not None and self.now is not None and now > self.now else None
+        clock = now if now is not None else float(self.ticks)
+        self.now = now if now is not None else self.now
         for s in self.symbols:
-            self.news[s] *= NEWS_KEEP
+            if now is None:
+                self.news[s] *= NEWS_KEEP
+            elif dt:
+                self.news[s] *= 0.5 ** (dt / (MACRO_HALF_LIFE if self.macro[s] else NEWS_HALF_LIFE))
+                if abs(self.news[s]) < NEWS_FLOOR:  # faded out: clear it and the macro flag
+                    self.news[s] = 0.0
+                    self.macro[s] = False
             if s in prices:
                 self.history[s].append(prices[s])
         for h in headlines or ():
@@ -133,6 +172,8 @@ class ReadingRoom:
             self.read["by_claude"] += by_claude
             # Real headlines carry a weight: half on the first source, the rest once a second confirms it.
             self.news[s] = max(-1.0, min(1.0, self.news[s] + push * float(h.get("weight", 1.0))))
+            self.news_at[s] = clock
+            self.macro[s] = is_macro(h["text"])
         if self.claude and self.ticks % CLAUDE_CHART_EVERY == 0:
             self.claude.request_charts({s: list(self.history[s]) for s in self.symbols})
         claude_charts = self.claude.charts() if self.claude else {}
@@ -140,6 +181,10 @@ class ReadingRoom:
             v = self.views[s]
             v.chart = read_chart(list(self.history[s]))
             v.news = self.news[s]
+            at = self.news_at[s]
+            v.news_age_mins = None if at is None else (clock - at) / (60 if now is not None else 1)
+            v.is_macro_shock = bool(self.macro[s] and v.news_age_mins is not None and v.news_age_mins <= FRESH_MINS
+                                    and abs(v.news) >= SHOCK)
             chart = v.chart
             c = claude_charts.get(s)
             if c is not None:
@@ -162,6 +207,8 @@ class ReadingRoom:
                 "read": dict(self.read),
                 "views": {s: {"direction": round(v.direction, 3), "chart": round(v.chart, 3),
                               "news": round(v.news, 3),
+                              "news_age_mins": None if v.news_age_mins is None else round(v.news_age_mins, 1),
+                              "is_macro_shock": v.is_macro_shock,
                               "claude_chart": None if v.claude_chart is None else round(v.claude_chart, 3),
                               "why": v.why} for s, v in self.views.items()}}
 
