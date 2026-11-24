@@ -23,6 +23,8 @@ Configured with environment variables so the same image runs as any shard:
   READING_ROOM_PREFILTER "off": ask Claude about every headline, even ones the free word list is sure of (default on)
   VOL_SIZING    "off": flat dollar limits only; on (default) a symbol's position is also capped so its stop loses at most
                 VOL_RISK_PCT of equity (default 0.0075 = 0.75%; trading/ops_guard.py)
+  TEAM_RELAY "off": the old blind parallel vote instead of the Sage -> Sentinel -> Atlas relay on one shared
+                blackboard (trading/team_relay.py; default on)
   BROKER_DRIFT "off": live desk skips the broker parity check (no new risk when Mitrade's mid is >0.15% from the
                 desk's price; trading/execution_guard.py; default on)
   PASSIVE_ENTRIES "off": Scalper (reversion-led) entries cross the spread at once instead of resting a limit at the
@@ -233,6 +235,8 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
         room.prefilter = env.get("READING_ROOM_PREFILTER", "on").lower() not in ("off", "0", "false", "no")
     from . import execution_guard, indicators
     execution_guard.ENABLED = env.get("PASSIVE_ENTRIES", "on").lower() not in ("off", "0", "false", "no")
+    from . import team_relay
+    team_relay.ENABLED = env.get("TEAM_RELAY", "on").lower() not in ("off", "0", "false", "no")
     execution_guard.DRIFT_CHECK = env.get("BROKER_DRIFT", "on").lower() not in ("off", "0", "false", "no")
     indicators.ENABLED = env.get("INDICATOR_CACHE", "on").lower() not in ("off", "0", "false", "no")
     # Night Shift (trading/night_shift.py): the overnight capsule; on by default, NIGHT_SHIFT_ENABLED=false turns it off.

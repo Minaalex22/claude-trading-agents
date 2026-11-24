@@ -439,3 +439,36 @@ class OrderTrailTests(unittest.TestCase):
             self.assertIn("9 checker PASS", trail_text(ev))
             reply = jarvis.BuiltinBrain().answer("why did we buy SPY?", {"order_trails": [ev]})
             self.assertIn("SPY: bought 8", reply)
+
+
+class TeamRelayTests(unittest.TestCase):
+    def test_floors_in_order(self):
+        from trading import team_relay as tr
+        bb = tr.phase1_sage(tr.MarketBlackboard("SPY"), [-0.4, -0.2])  # efficiency 0.2: chop
+        self.assertEqual(bb.regime_label, "CHOP")
+        tr.phase2_sentinel(bb, [0.9, 0.8], spread_to_r=0.2)
+        self.assertAlmostEqual(bb.risk_multiplier, 0.5525, delta=0.001)  # 0.85 x 0.65 for a wide spread
+        self.assertEqual((bb.suggested_stop_r, bb.suggested_target_r), (1.35, 0.95))
+        tr.phase3_atlas(bb, {"trend": {"fast": [-0.9], "higher": [-0.9]},  # Entry is muted in chop
+                             "reversion": {"fast": [0.8], "higher": [0.7, 0.75]}})
+        self.assertEqual(bb.active_style, "Scalper")
+        self.assertAlmostEqual(bb.cluster_consensus, 0.45 * 0.8 + 0.55 * 0.725)
+        self.assertGreater(tr.score(bb), 0)
+        self.assertEqual(tr.phase1_sage(tr.MarketBlackboard("X"), [1.0]).regime_label, "BREAKOUT")
+
+    def test_vetoes(self):
+        from trading import team_relay as tr
+        bb = tr.phase2_sentinel(tr.phase1_sage(tr.MarketBlackboard("X"), [-1.0]), [1.0])
+        tr.phase3_atlas(bb, {"reversion": {"fast": [0.9], "higher": [-0.6]}})
+        self.assertIn("disagree", bb.veto_reasons[0])
+        self.assertEqual(tr.score(bb), 0.0)
+        bb = tr.phase2_sentinel(tr.phase1_sage(tr.MarketBlackboard("X"), [-1.0]), [1.0])
+        tr.phase3_atlas(bb, {"reversion": {"fast": [0.9], "higher": []}})
+        self.assertIn("Medium/Slow", bb.veto_reasons[0])
+
+    def test_desk_runs_the_relay_and_logs_the_board(self):
+        out = io.StringIO()
+        desk = engine.run({"AGENT_COUNT": "750", "TICKS": "80", "TICK_SECONDS": "0"}, stream=out)
+        self.assertGreater(desk.relay["bars"], 0)
+        trails = [json.loads(l) for l in out.getvalue().splitlines() if '"type":"pipeline"' in l]
+        self.assertTrue(all(t["board"]["regime_label"] in ("BREAKOUT", "TRANSITION", "CHOP") for t in trails))
