@@ -42,7 +42,7 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import btcc, control, live_orders, markets, metaapi, platforms, training_report
+from . import btcc, control, mitrade, live_orders, markets, metaapi, platforms, training_report
 from .alerts import Alerts
 from .atlas_sources import AtlasSources
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
@@ -114,6 +114,7 @@ STATIC = {
     "/newslab.css": ("newslab.css", "text/css; charset=utf-8"),
     "/btcc.js": ("btcc.js", "text/javascript; charset=utf-8"),
     "/btcc.css": ("btcc.css", "text/css; charset=utf-8"),
+    "/mitrade.js": ("mitrade.js", "text/javascript; charset=utf-8"),
     # Vendored so the strict CSP (scripts only from this site) holds and the cloud app needs no CDN.
     "/vendor/three.min.js": ("vendor/three.min.js", "text/javascript; charset=utf-8"),
     "/vendor/lightweight-charts.js": ("vendor/lightweight-charts.js", "text/javascript; charset=utf-8"),
@@ -478,6 +479,15 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     btcc_page = _read("btcc.html")
     btcc_desk = {}  # the BTCC practice desk, loaded on first use
 
+    mitrade_page = _read("mitrade.html")
+    mitrade_desk = {}  # the Mitrade practice desk, loaded on first use
+
+    def get_mitrade() -> mitrade.PracticeDesk:
+        with wallet_lock:
+            if "d" not in mitrade_desk:
+                mitrade_desk["d"] = mitrade.PracticeDesk(hub.events_dir)
+            return mitrade_desk["d"]
+
     def get_btcc() -> btcc.PracticeDesk:
         with wallet_lock:
             if "d" not in btcc_desk:
@@ -597,7 +607,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/calculator", "/newslab") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/newslab") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -629,6 +639,14 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._json(200, {"platforms": platforms.status(), "live_trading": "locked"})
             elif path in ("/api/mt5", "/api/mt5/report"):
                 self._mt5_get(path)
+            elif path == "/mitrade":
+                self._send(200, mitrade_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/mitrade":
+                desk = get_mitrade()
+                self._json(200, {"feed": mitrade.FEED.status(), "quotes": mitrade.FEED.quotes(),
+                                 "trend": mitrade.FEED.trend(), "practice": desk.snapshot(),
+                                 "account": {"linked": False, "note": mitrade.ACCOUNT_NOTE},
+                                 "links": mitrade.LINKS, "live_trading": "locked"})
             elif path == "/btcc":
                 self._send(200, btcc_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/btcc":
@@ -829,6 +847,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._orderflow_trades(raw)
             if path == "/api/mt5/order":
                 return self._mt5_order(raw)
+            if path in ("/api/mitrade/open", "/api/mitrade/close"):
+                return self._mitrade_post(path, raw)
             if path in ("/api/btcc/open", "/api/btcc/close"):
                 return self._btcc_post(path, raw)
             if path in ("/api/betfair/bet", "/api/betfair/close", "/api/betfair/cancel"):
@@ -898,6 +918,29 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             except Exception as e:  # noqa: BLE001
                 return self._json(502, {"error": f"MetaTrader cloud: {type(e).__name__}"})
             self._json(200, {"order": fill})
+
+        def _mitrade_post(self, path: str, raw: bytes):
+            """Mitrade practice desk only. Fills at Mitrade's bid/ask; nothing is sent to Mitrade."""
+            if not self._authed():
+                return self._json(401, {"error": "sign in required"})
+            if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                return self._json(415, {"error": "send JSON"})
+            try:
+                b = json.loads(raw or b"null")
+                desk = get_mitrade()
+                if path == "/api/mitrade/open":
+                    tp = b.get("take_profit")
+                    pos = desk.open(str(b["symbol"])[:12], str(b["side"]), float(b["margin"]), float(b["leverage"]),
+                                    float(b["stop_loss"]), float(tp) if tp not in (None, "") else None,
+                                    live=bool(b.get("live")))
+                    return self._json(200, {"position": pos})
+                return self._json(200, {"closed": desk.close(int(b["id"]))})
+            except mitrade.Refused as e:
+                return self._json(403, {"error": str(e)})
+            except KeyError as e:
+                return self._json(400, {"error": f"missing or unknown: {str(e).strip(chr(39))}"})
+            except (ValueError, TypeError, RuntimeError) as e:
+                return self._json(400, {"error": str(e)})
 
         def _btcc_post(self, path: str, raw: bytes):
             """BTCC practice desk only. Nothing is sent to BTCC; real money is locked."""

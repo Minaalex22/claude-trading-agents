@@ -9,7 +9,7 @@
 .bt-main{display:grid;grid-template-columns:320px minmax(0,1fr);gap:10px;padding:12px 16px 24px}
 .bt-right{display:grid;gap:10px;min-width:0}
 .bt-ticket label{display:block;margin:10px 0 0;font:600 10px var(--ats-mono);letter-spacing:.1em;color:var(--ats-g)}
-.bt-ticket input[type=number]{display:block;width:100%;box-sizing:border-box;margin-top:4px;background:#000;border:1px solid var(--ats-line);color:var(--ats-w);padding:8px;font:500 13px var(--ats-mono)}
+.bt-ticket select,.bt-ticket input[type=number]{display:block;width:100%;box-sizing:border-box;margin-top:4px;background:#000;border:1px solid var(--ats-line);color:var(--ats-w);padding:8px;font:500 13px var(--ats-mono)}
 .bt-ticket input[type=number]:focus{outline:none;border-color:var(--ats-o)}
 .bt-ticket input[type=range]{width:100%;accent-color:var(--ats-o)}.bt-ticket label b{color:var(--ats-o)}
 .bt-syms{display:flex;gap:6px}.bt-syms button{flex:1;background:#000;border:1px solid var(--ats-line);color:var(--ats-g);padding:6px;font:600 11px var(--ats-mono);cursor:pointer}
