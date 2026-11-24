@@ -34,6 +34,8 @@ import math
 import random
 import statistics
 
+from . import indicators
+
 ENABLED = True  # MINDS=off (engine) turns the two-step minds off, for comparison
 
 FEATURES = ("strategy", "room", "chart", "news", "last_move", "trend", "stretch")
@@ -68,10 +70,11 @@ class Mind:
     # ---- step 1: think ------------------------------------------------------------------------------
     def see(self, agent, strategy: float) -> dict:
         prices = list(agent.prices)
-        rets = [b / a - 1 for a, b in zip(prices, prices[1:])] or [0.0]
-        vol = statistics.pstdev(rets) or 1e-9
-        mean = statistics.fmean(prices)
-        sd = statistics.pstdev(prices) or 1e-9
+        st = indicators.series(agent.symbol, prices)  # shared by every agent on this symbol (trading/indicators.py)
+        rets = st["rets"] or [0.0]
+        vol = st["ret_sd"] or 1e-9
+        mean = st["mean"]
+        sd = st["sd"] or 1e-9
         view = agent.view
         seen = {"strategy": _clip(strategy),
                 "room": view.direction if view is not None else 0.0,

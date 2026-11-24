@@ -27,6 +27,8 @@ import math
 import zlib
 import statistics
 
+from . import indicators
+
 ALL = ("regime", "mtf", "vol", "meta")
 DEFAULT = ("regime", "mtf")  # what runs unless ENTRY_FILTERS says otherwise (vol and meta: tested, not kept)
 ON: set[str] = set(DEFAULT)  # ENTRY_FILTERS (engine) picks which ones run; "off" turns them all off
@@ -54,7 +56,7 @@ def efficiency(prices) -> float:
 def _vol(prices) -> float:
     p = list(prices)
     rets = [b / a - 1 for a, b in zip(p, p[1:])]
-    return statistics.pstdev(rets) if len(rets) > 1 else 0.0
+    return indicators.pstdev(rets) if len(rets) > 1 else 0.0
 
 
 def features(agent, direction: float) -> dict:

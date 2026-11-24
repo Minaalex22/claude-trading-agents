@@ -12,6 +12,8 @@ Endpoints:
   /api/state    latest tick, leaderboard, agent count per shard, ring heatmap
                 and the Jev decision desk totals (JSON)
   /jarvis       JARVIS, the owner's voice assistant with the hologram (trading/jarvis.py)
+  /api/order-check ?symbol=&side=&score=&price=&stop=: one order through the nine-stage master pipeline
+  /api/promotion  the 3-gate live-promotion check per arm (trading/strategy_lab.py); say "sign off <arm>" to JARVIS
   /api/jarvis   GET her status; POST /api/jarvis/unlock {"passphrase"} and /api/jarvis/ask {"question"}
   /api/platforms  real platform connectors: mode and whether keys are set (names only)
   /api/mt5      MetaTrader 5 account and open positions (read only, via MetaApi cloud)
@@ -183,6 +185,7 @@ class EventHub:
         self.closed: deque[dict] = deque(maxlen=CLOSED_KEEP)
         self.pipeline = NewsPipeline()  # every headline: triage -> gate -> deep read -> tags -> bill
         self.closed_totals = {"trades": 0, "won": 0, "lost": 0, "pnl": 0.0, "by_symbol": {}}
+        self.trails: deque[dict] = deque(maxlen=50)  # each desk order's nine-stage trail (trading/master_pipeline.py)
 
     def poll_files(self) -> None:
         for path in sorted(self.events_dir.glob("events-*.jsonl")):
@@ -233,6 +236,8 @@ class EventHub:
                 shard["start"] = {**shard["start"], "agents": event["agents"], "total_agents": event["total_agents"]}
             if kind == "closed":
                 self._record_closed(event)
+            if kind == "pipeline":
+                self.trails.append(event)
             if kind == "org" and event.get("news"):
                 views = (event.get("reading_room") or {}).get("views") or {}
                 self.pipeline.feed(event["news"], views)
@@ -374,7 +379,10 @@ class EventHub:
                     "approval_rate": round(approved / (approved + rejected), 4) if approved + rejected else None,
                     "session_pnl": round(sum(t.get("pnl", 0) for t in ticks), 2)}
             return {"shards": shards, "agents_reporting": total, "events_seen": self.seq,
-                    "heatmap": heatmap, "jev_desk": desk, "night_shift": self.night_shift()}
+                    "heatmap": heatmap, "jev_desk": desk, "night_shift": self.night_shift(),
+                    "order_trails": list(self.trails)[::-1][:20],
+                    "feed_watchdog": sorted({p for v in shards.values()
+                                             for p in ((v.get("market") or {}).get("watchdog") or {}).get("problems", [])})}
 
     def night_shift(self) -> dict | None:
         """Every shard's overnight capsule as one view (trading/night_shift.py), or None before the first report."""
@@ -808,6 +816,28 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._json(200, hub.night_shift() or {"enabled": night_clock.cfg.enabled, "active": False,
                                                       "window": "23:30 - 07:00 Melbourne", "summary": None,
                                                       "briefing": None, "budget": night_clock.cfg.budget_usd})
+            elif path == "/api/order-check":
+                # One candidate order through the master pipeline's nine stages (trading/master_pipeline.py).
+                from . import master_pipeline
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                try:
+                    price = float(q.get("price", ["0"])[0])
+                    ctx = master_pipeline.CandidateOrderContext(
+                        symbol=q.get("symbol", ["EURUSD"])[0][:12].upper(), side=q.get("side", ["BUY"])[0].upper(),
+                        desk_score=float(q.get("score", ["0.6"])[0]), entry_price=price,
+                        stop_price=float(q.get("stop", [str(price * 0.99)])[0]),
+                        timeframe=q.get("tf", ["1h"])[0][:4], style=q.get("style", ["reversion"])[0][:10])
+                    if price <= 0:
+                        raise ValueError
+                except (ValueError, IndexError):
+                    return self._json(400, {"error": "give symbol, side, score, price and stop"})
+                self._json(200, master_pipeline.MasterDeskPipeline().evaluate_trade(ctx))
+            elif path == "/api/promotion":
+                from . import strategy_lab
+                self._json(200, {"arms": strategy_lab.check(list(hub.closed), hub.events_dir),
+                                 "rules": {"min_trades": strategy_lab.MIN_TRADES, "min_win_rate": strategy_lab.MIN_WIN_RATE,
+                                           "min_profit_factor": strategy_lab.MIN_PROFIT_FACTOR,
+                                           "max_drift": strategy_lab.MAX_DRIFT, "cost_bps": strategy_lab.COST_BPS}})
             elif path == "/api/trades":
                 self._send(200, json.dumps(hub.trades()).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/api/org":
@@ -978,6 +1008,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 cal = get_calendar()
                 body = trade_checker.read_log(hub.events_dir)
                 body.update({"calendar": cal.upcoming(), "calendar_status": cal.status,
+                             "trails": hub.state()["order_trails"],
                              "guard_on": env.get("EVENT_GUARD", "on").lower() not in ("off", "0", "false", "no"),
                              "checker_on": env.get("TRADE_CHECKER", "on").lower() not in ("off", "0", "false", "no")})
                 self._json(200, body)
@@ -1490,6 +1521,12 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             if not jarvis.questions.allowed(client):
                 return self._json(429, {"error": "Slow down a little: too many questions this minute."})
             jarvis.questions.hit(client)
+            signoff = re.fullmatch(r"\s*(sign off|withdraw)\s+([a-z]+)\s*[.!]?\s*", question.lower())
+            if signoff:  # the live-promotion check's gate 3: only the signed-in, unlocked owner can say it
+                from . import strategy_lab
+                reply = (strategy_lab.sign_off(hub.events_dir, signoff.group(2), list(hub.closed))
+                         if signoff.group(1) == "sign off" else strategy_lab.withdraw(hub.events_dir, signoff.group(2)))
+                return self._json(200, {"reply": reply, "brain": "promotion"})
             snap = snapshot(hub.org(), hub.state())
             with briefs_lock:
                 if briefs["brief"]:

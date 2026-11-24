@@ -9,17 +9,84 @@ it stops, and reads it back when it starts. Agents are matched by id, so a resiz
 of the agents that stay. A missing, old or damaged file is ignored: the desk then starts fresh, as before.
 
 What is kept per agent: brain (trust, experience, hits, recent results), its own rules and any rule change
-still on trial, its lessons, its trade record, virtual P&L and its practice account (trading/accounts.py). Per desk: Brain Alpha's style weights and
-the practice clock (hours, reviews, days). The paper account itself starts fresh on every run. Paper only.
+still on trial, its lessons, its trade record, virtual P&L, its practice account (trading/accounts.py), its mind's
+feature weights and its dual brain's ledger, shadow trades and probation list (trading/dual_brain.py). Per desk: Brain
+Alpha's style weights, the practice clock (hours, reviews, days), the managers' benched and paused lists, the
+meta-label models (trading/entry_filters.py), Orbit's arm heat (each arm's recent results) and tonight's Night
+Shift capsule (balance, stop, counters; only if it is still the same night). The paper account itself starts
+fresh on every run. Paper only.
+
+When: every SAVE_EVERY ticks, and also every SAVE_SECONDS (15 minutes) of real time. On live prices a tick is
+one 15-second poll, so 600 ticks was 2.5 hours of learning at risk; now it is at most 15 minutes.
 """
 
 import json
 import os
+import time
 from pathlib import Path
 
 VERSION = 1
 SAVE_EVERY = 600  # ticks (5 minutes at 0.5 s ticks)
-WORKSPACE_KEYS = ("trade_wins", "trade_losses", "trades_total", "reviews", "lessons", "kept", "undone", "benched", "exits", "by_sure")
+SAVE_SECONDS = 900.0  # and at least every 15 minutes of real time, whatever the tick length
+WORKSPACE_KEYS = ("trade_wins", "trade_losses", "trades_total", "reviews", "lessons", "kept", "undone", "benched",
+                  "exits", "by_sure", "dual")
+NIGHT_FRESH = 2 * 3600  # a saved night capsule only comes back if the restart is this soon (same night)
+NIGHT_KEYS = ("start_budget", "current_balance", "halted", "halt_reason", "briefing_delivered_date", "active",
+              "session_date", "trades_count", "wins", "losses", "skipped_toxic", "timeline")
+
+
+def due(last_saved: float | None, now: float, tick: int) -> bool:
+    """Time to save: every SAVE_EVERY ticks, or SAVE_SECONDS of real time since the last save."""
+    return tick % SAVE_EVERY == 0 or (last_saved is not None and now - last_saved >= SAVE_SECONDS)
+
+
+def desk_extras(desk) -> dict:
+    from . import entry_filters
+    out = {"benched": sorted(desk.managers.benched), "paused": sorted(desk.managers.paused),
+           "meta": {k: {"w": m.w, "bias": m.bias, "seen": m.seen, "brier_sum": m.brier_sum, "wins": m.wins,
+                        "buckets": m.buckets} for k, m in entry_filters.META.items()}}
+    orbit = getattr(desk, "orbit", None)
+    if orbit is not None:
+        out["orbit"] = {"equity": orbit.account_equity, "recorded": orbit.recorded,
+                        "arms": {a.key: list(a.recent_pnl_usd) for a in orbit.arms.values()}}
+    ns = getattr(desk.risk, "night_shift", None)
+    if ns is not None:
+        out["night"] = {k: getattr(ns, k) for k in NIGHT_KEYS}
+        out["night"]["carried"] = sorted(ns.carried)
+        out["night"]["saved_at"] = time.time()
+    return out
+
+
+def restore_extras(desk, d: dict) -> None:
+    from . import entry_filters
+    from .dual_brain import Ledger
+    try:
+        desk.managers.benched = set(d.get("benched", ()))
+        desk.managers.paused = set(d.get("paused", ()))
+        for k, m in (d.get("meta") or {}).items():
+            model = entry_filters.META.setdefault(k, entry_filters.MetaLabeler())
+            model.w.update({x: float(v) for x, v in m["w"].items() if x in model.w})
+            model.bias, model.seen = float(m["bias"]), int(m["seen"])
+            model.brier_sum, model.wins = float(m["brier_sum"]), int(m["wins"])
+            model.buckets = {b: list(v) for b, v in m["buckets"].items()}
+        o, orbit = d.get("orbit"), getattr(desk, "orbit", None)
+        if o and orbit is not None:
+            orbit.account_equity, orbit.recorded = float(o["equity"]), int(o["recorded"])
+            for a in orbit.arms.values():
+                a.recent_pnl_usd.clear()
+                a.recent_pnl_usd.extend(float(x) for x in o["arms"].get(a.key, ()))
+        n, ns = d.get("night"), getattr(desk.risk, "night_shift", None)
+        if n and ns is not None and n.get("active") and time.time() - float(n.get("saved_at", 0)) < NIGHT_FRESH:
+            for k in NIGHT_KEYS:
+                if k in n:
+                    setattr(ns, k, n[k])
+            ns.carried = set(n.get("carried", ()))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        pass
+    for a in desk.agents:
+        dual = a.workspace.get("dual")
+        if isinstance(dual, dict) and not isinstance(dual.get("ledger"), Ledger):
+            dual["ledger"] = Ledger({k: list(v) for k, v in (dual.get("ledger") or {}).items()})
 
 
 def agent_state(a) -> dict:
@@ -34,7 +101,7 @@ def agent_state(a) -> dict:
 def save(desk, path: Path) -> None:
     data = {"version": VERSION, "tick": desk.ticks,
             "desk": {"hours": desk.hours, "reviews": desk.reviews, "days": desk.days,
-                     "alpha": dict(desk.alpha.weights) if desk.alpha else None},
+                     "alpha": dict(desk.alpha.weights) if desk.alpha else None, **desk_extras(desk)},
             "agents": {a.agent_id: agent_state(a) for a in desk.agents}}
     path = Path(path)
     tmp = path.with_suffix(".tmp")
@@ -78,6 +145,7 @@ def restore(desk, path: Path) -> int:
     desk.hours = int(d.get("hours", 0))
     desk.reviews = int(d.get("reviews", 0))
     desk.days = int(d.get("days", 0))
+    restore_extras(desk, d)
     alpha = d.get("alpha")
     if desk.alpha and isinstance(alpha, dict) and set(alpha) == set(desk.alpha.weights):
         desk.alpha.weights = {k: float(v) for k, v in alpha.items()}

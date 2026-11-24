@@ -20,6 +20,14 @@ Configured with environment variables so the same image runs as any shard:
   READING_ROOM  "off" turns off the shared news + chart read and the traders' confirmation filter (default on)
   READING_ROOM_CLAUDE  "off" keeps Claude out of the reading room even with ANTHROPIC_API_KEY set
   READING_ROOM_MODEL   Claude model for the reading room (default claude-opus-5-5)
+  READING_ROOM_PREFILTER "off": ask Claude about every headline, even ones the free word list is sure of (default on)
+  VOL_SIZING    "off": flat dollar limits only; on (default) a symbol's position is also capped so its stop loses at most
+                VOL_RISK_PCT of equity (default 0.0075 = 0.75%; trading/ops_guard.py)
+  BROKER_DRIFT "off": live desk skips the broker parity check (no new risk when Mitrade's mid is >0.15% from the
+                desk's price; trading/execution_guard.py; default on)
+  PASSIVE_ENTRIES "off": Scalper (reversion-led) entries cross the spread at once instead of resting a limit at the
+                touch for up to 2 bars (cancelled if price runs 0.35R away; trading/execution_guard.py; default on)
+  INDICATOR_CACHE "off": every agent works out its own rolling numbers instead of sharing them per symbol (default on)
   REVIEWS       "off" stops the traders' 15-minute self-reviews and the daily copy-the-best step (default on)
   MARKET        "sim" (default) or "live": live trades real prices (Coinbase, Yahoo) with paper money
   LIVE_POLL_SECONDS  how often live prices are fetched (default 15)
@@ -72,6 +80,9 @@ Configured with environment variables so the same image runs as any shard:
   MIN_TRADE     smallest rebalance in dollars the desk will send (default 5000)
   LIVE_MAX_ORDER_USD, LIVE_MAX_DAY_USD, LIVE_SYMBOLS  real-money mirror (shard 0, MARKET=live): each desk
                 order in LIVE_SYMBOLS becomes a capped proposal the owner approves (trading/live_orders.py)
+  PROMOTION_GATE "off": real-money proposals don't wait for the symbol's arm to pass the 3-gate live-promotion check
+                (trading/strategy_lab.py: 50+ real-price trades at 60%+ wins and PF 1.35+, sim-vs-real drift under 8
+                points, and your sign-off to JARVIS; default on)
   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID  phone alerts (trading/alerts.py): real-money proposals, fills, stops
   DASHBOARD_URL the app's address, so alerts can link to the approval desk
   MASTERS_OFF   comma-separated masters whose rules are switched off (e.g. "soros,buffett"; see trading/masters.py)
@@ -212,10 +223,18 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     interval = env.get("LEARNING_INTERVAL_SECONDS")
     alpha = BrainAlpha(["trend", "reversion"], float(interval) if interval else cfg.beta.learning_interval_seconds,
                        cfg.beta.learning_enabled)
+    vol_sizing = env.get("VOL_SIZING", "on").lower() not in ("off", "0", "false", "no")
     limits = RiskLimits(max_drawdown=cfg.risk.max_drawdown,
-                        max_daily_loss=float(env.get("DAILY_LOSS_LIMIT", RiskLimits.max_daily_loss)))
+                        max_daily_loss=float(env.get("DAILY_LOSS_LIMIT", RiskLimits.max_daily_loss)),
+                        risk_per_trade=float(env.get("VOL_RISK_PCT", 0.0075)) if vol_sizing else None)
     hour_ticks = int(env.get("PRACTICE_HOUR_TICKS") or (round(3600 / tick_seconds) if tick_seconds else 7200))
     room = ReadingRoom(symbols, claude=make_reader(env)) if env.get("READING_ROOM", "on") != "off" else None
+    if room is not None:
+        room.prefilter = env.get("READING_ROOM_PREFILTER", "on").lower() not in ("off", "0", "false", "no")
+    from . import execution_guard, indicators
+    execution_guard.ENABLED = env.get("PASSIVE_ENTRIES", "on").lower() not in ("off", "0", "false", "no")
+    execution_guard.DRIFT_CHECK = env.get("BROKER_DRIFT", "on").lower() not in ("off", "0", "false", "no")
+    indicators.ENABLED = env.get("INDICATOR_CACHE", "on").lower() not in ("off", "0", "false", "no")
     # Night Shift (trading/night_shift.py): the overnight capsule; on by default, NIGHT_SHIFT_ENABLED=false turns it off.
     night = NightShiftEngine(NightShiftConfig.from_env(env))
     risk = RiskManager(limits, broker, kill_path=Path(events_dir) / "KILL" if events_dir else None, night_shift=night)
@@ -242,11 +261,16 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     limits_live = live_orders.Limits(env)
     if live_market and events_dir and shard_id == 0 and limits_live.on and market is None:
         # Real-money mirror: shard 0's orders become small proposals the owner approves on the dashboard.
+        from . import strategy_lab
+        promotion_gate = env.get("PROMOTION_GATE", "on").lower() not in ("off", "0", "false", "no")
+
         def mirror(symbol, qty, price, why):
             # Real money follows proven agents only: enough of them on this symbol, agreeing with the trade.
             view, n = desk.proven_view.get(symbol, (0.0, 0))
             if n < desk.proven_min or view * qty <= 0 or abs(view) < PROVEN_AGREE:
                 return
+            if promotion_gate and not strategy_lab.promoted(events_dir, symbol):
+                return  # its arm hasn't passed the 3-gate live-promotion check (trading/strategy_lab.py)
             order = live_orders.propose(Path(events_dir), symbol, "buy" if qty > 0 else "sell", price,
                                         json.dumps(why, default=str)[:300], limits_live)
             if order:
@@ -287,8 +311,11 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
              learning_interval_seconds=alpha.interval, school=academy.summarize(agents),
              remembered=remembered, coach=desk.coach is not None)
 
+    from .watchdog import FeedWatchdog
+    watch = FeedWatchdog(symbols, alert=alerts.send if shard_id == 0 else None, log=log)
     stopping = False
     last_stop = None
+    last_saved = time.time()  # learning is saved every 600 ticks and at least every 15 minutes of real time
 
     def stop(*_):
         nonlocal stopping
@@ -307,9 +334,18 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
                              per_department=per_department)
             prices = market.tick()
             if live:
-                risk.frozen = market.stale()
+                # Exit-only on old or stuck prices; the watchdog also tells JARVIS and the phone (trading/watchdog.py).
+                risk.frozen = market.stale() | watch.check(
+                    prices, market.updated_at() if hasattr(market, "updated_at") else None, desk.bar_seconds,
+                    news.status() if news else None, getattr(market, "poll_seconds", None),
+                    getattr(market, "last_poll_seconds", None))
+                if execution_guard.DRIFT_CHECK:
+                    # Broker parity: Mitrade's live mids (cached 5s, never raises) for the drift check in desk.py
+                    from . import mitrade
+                    desk.broker_mids = execution_guard.broker_mids(prices, mitrade.FEED.quotes())
                 if desk.ticks % 20 == 0:
-                    log.emit("market", **feed_status(market, news))
+                    log.emit("market", **feed_status(market, news), watchdog=watch.status(), broker_drift={
+                        k: v for k, v in desk.drift.items() if k != "last"})
             now = market.now() if hasattr(market, "now") else (time.time() if live else None)
             desk.step(prices, news.tick(market.drift, desk.ticks + 1) if news else [], now=now)
             if desk.risk.stop_reason != last_stop:
@@ -323,8 +359,9 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
                 log.emit("night_shift", briefing_now=True, **night.status())
                 if shard_id == 0:
                     alerts.send(briefing_text(brief))
-            if memory_path and desk.ticks % memory.SAVE_EVERY == 0:
+            if memory_path and memory.due(last_saved, time.time(), desk.ticks):
                 _save(desk, memory_path, log)
+                last_saved = time.time()
             if tick_seconds:
                 time.sleep(tick_seconds)
     except KeyboardInterrupt:

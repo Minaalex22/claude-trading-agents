@@ -132,7 +132,14 @@ def run(bars: dict, env: dict | None = None) -> dict:
               "learning_half": metrics(times[:half], equity[:half]),
               "test_half": metrics(times[half:], equity[half:]),
               "buy_and_hold_test_half": metrics(times[half:], buy_and_hold(market, half, len(equity))),
-              "stopped": ticks[-1].get("stopped") if ticks else None}
+              "stopped": ticks[-1].get("stopped") if ticks else None,
+              "passive_limits": desk.passive.status(), "vol_sizing_shrunk": desk.sizing["shrunk"]}
+    from . import strategy_lab
+    closed = [{"symbol": sym, "qty": t["qty"], "entry": t["entry"], "pnl": t["qty"] * t["entry"] * t["move"]}
+              for sym, rows in desk.journal.since(0).items() for t in rows]
+    report["arms"] = strategy_lab.arm_stats(closed)
+    if env.get("PROMOTION_DIR"):  # gate 2 of the live-promotion check: each arm's win rate in practice
+        strategy_lab.record_sim(env["PROMOTION_DIR"], {k: v["win_rate"] for k, v in report["arms"].items()})
     return report
 
 

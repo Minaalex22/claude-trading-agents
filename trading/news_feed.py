@@ -6,8 +6,15 @@ thread polls public RSS feeds every POLL_SECONDS (no keys, no accounts):
 - general: 17 feeds from CNBC, MarketWatch, Yahoo Finance, Seeking Alpha, Nasdaq, CoinDesk, Cointelegraph, Decrypt
   Bitcoin Magazine and BTCC, matched to symbols by ticker or company name.
 
-Each headline is matched to one symbol, de-duplicated by its wording (the same story from ten sites
-counts once), and dropped if it is older than MAX_AGE_SECONDS.
+Each headline is matched to one symbol, de-duplicated (the same story from ten sites counts once), and
+dropped if it is older than MAX_AGE_SECONDS.
+
+**Same story, different words** (mina's cost fix): exact wording isn't enough. "Nvidia beats Q3 earnings
+estimates" and "NVDA smashes Q3 profit forecast" are one story. Each headline is boiled down to its keywords
+(synonyms folded: smashes/tops/beats -> beat, profit/EPS -> earnings, forecast/estimates -> estimate; the
+company's own name and filler words dropped). Two headlines on the same symbol within STORY_WINDOW (2 hours)
+whose keywords overlap at least STORY_OVERLAP are the same story: the second one only counts as a second
+source, and never costs a second read. `story_key()` gives the (symbol, 2-hour bucket, top 3 keywords) key.
 
 **Two-source check** (as in the JARVIS validation department): a story counts at half strength when the first
 source reports it, and the other half arrives once a second, different source carries the same story. A
@@ -29,6 +36,8 @@ from email.utils import parsedate_to_datetime
 from xml.etree import ElementTree
 
 POLL_SECONDS = 300.0
+STORY_WINDOW = 2 * 3600  # headlines further apart than this are separate stories
+STORY_OVERLAP = 0.5  # keyword overlap (shared / all) that makes two headlines one story
 MAX_AGE_SECONDS = 6 * 3600
 SEEN_MAX = 5000
 LATEST = 8
@@ -109,6 +118,58 @@ def _key(title: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", title.rsplit(" - ", 1)[0].lower()).strip()
 
 
+# Words that say the same thing in a headline, folded to one keyword.
+SYNONYMS = {
+    "beat": "beat", "beats": "beat", "top": "beat", "tops": "beat", "topped": "beat", "smash": "beat",
+    "smashes": "beat", "smashed": "beat", "crush": "beat", "crushes": "beat", "exceed": "beat", "exceeds": "beat",
+    "surpass": "beat", "surpasses": "beat", "outpace": "beat", "outpaces": "beat",
+    "miss": "miss", "misses": "miss", "missed": "miss", "short": "miss", "disappoint": "miss", "disappoints": "miss",
+    "earnings": "earnings", "earning": "earnings", "profit": "earnings", "profits": "earnings", "eps": "earnings",
+    "income": "earnings", "results": "earnings", "quarterly": "earnings",
+    "estimate": "estimate", "estimates": "estimate", "forecast": "estimate", "forecasts": "estimate",
+    "expectations": "estimate", "expected": "estimate", "consensus": "estimate", "views": "estimate",
+    "revenue": "revenue", "revenues": "revenue", "sales": "revenue",
+    "raise": "raise", "raises": "raise", "raised": "raise", "hike": "raise", "hikes": "raise", "lifts": "raise",
+    "cut": "cut", "cuts": "cut", "lowers": "cut", "slashes": "cut", "trims": "cut",
+    "surge": "up", "surges": "up", "soar": "up", "soars": "up", "jump": "up", "jumps": "up", "rally": "up",
+    "rallies": "up", "climbs": "up", "gains": "up", "rises": "up", "spikes": "up",
+    "plunge": "down", "plunges": "down", "tumble": "down", "tumbles": "down", "slump": "down", "slumps": "down",
+    "sink": "down", "sinks": "down", "drop": "down", "drops": "down", "falls": "down", "slides": "down",
+    "shares": "stock", "stock": "stock", "stocks": "stock",
+}
+FILLER = set("a an the and or of to in on for at by with as its it is are was be from after over amid than "
+             "this that new says said report reports reported per vs while into up down out about more just "
+             "inc corp co ltd plc company stock".split()) - {"up", "down"}
+EVENT_WORDS = ("beat", "miss", "raise", "cut", "up", "down", "earnings", "revenue", "estimate")
+
+
+def keywords(title: str, symbol: str | None = None) -> frozenset[str]:
+    """The words that carry a headline's story, synonyms folded, filler and the company's own name dropped."""
+    text = title.rsplit(" - ", 1)[0].lower()
+    own = {w.lower() for name in ([symbol] + NAMES.get(symbol, []) if symbol else []) for w in name.split()}
+    out = set()
+    for w in re.findall(r"[a-z0-9$%.]+", text):
+        w = w.strip(".$")
+        if not w or w in own or w in FILLER:
+            continue
+        w = SYNONYMS.get(w, w)
+        if w not in FILLER:
+            out.add(w)
+    return frozenset(out)
+
+
+def same_story(a: frozenset, b: frozenset) -> bool:
+    if not a or not b:
+        return False
+    return len(a & b) / len(a | b) >= STORY_OVERLAP
+
+
+def story_key(symbol: str, when: float, title: str) -> str:
+    """(symbol, 2-hour bucket, top 3 keywords): the cheap hash of a story. Event words rank first."""
+    words = sorted(keywords(title, symbol), key=lambda w: (EVENT_WORDS.index(w) if w in EVENT_WORDS else 99, w))
+    return f"{symbol}|{int(when // STORY_WINDOW)}|{'-'.join(words[:3])}"
+
+
 def _source(title: str, url: str) -> str:
     """Who reported it: the publisher Google News names after the dash, otherwise the feed's site."""
     host = urllib.parse.urlsplit(url).netloc
@@ -139,6 +200,8 @@ class LiveNewsFeed:
         self.clock = clock
         self.latest: list[dict] = []
         self.seen: dict[str, set] = {}  # headline key -> sources that carried it, insertion-ordered, bounded
+        self.stories: dict[str, deque] = {}  # symbol -> recent (time, keywords, key) to catch reworded repeats
+        self.merged = 0  # reworded repeats folded into a story already seen (reads saved)
         self.queue: deque[dict] = deque(maxlen=500)
         self.polls = 0
         self.feeds_ok = 0
@@ -170,6 +233,7 @@ class LiveNewsFeed:
                 key = _key(title)
                 if s is None or not key:
                     continue
+                key = self._story(s, key, title, when if when is not None else now)
                 source = _source(title, url)
                 sources = self.seen.get(key)
                 if sources is None:
@@ -191,6 +255,19 @@ class LiveNewsFeed:
         self.feeds_ok, self.feeds_failed = ok, failed
         return added
 
+    def _story(self, symbol: str, key: str, title: str, when: float) -> str:
+        """The key of the story this headline belongs to: its own, or an earlier one told in other words."""
+        if key in self.seen:
+            return key
+        words = keywords(title, symbol)
+        recent = self.stories.setdefault(symbol, deque(maxlen=200))
+        for t, w, k in recent:
+            if abs(when - t) <= STORY_WINDOW and k in self.seen and same_story(words, w):
+                self.merged += 1
+                return k
+        recent.append((when, words, key))
+        return key
+
     def _run(self) -> None:
         while True:
             try:
@@ -210,4 +287,5 @@ class LiveNewsFeed:
         return {"news": "live", "sources": len(self.sources()), "feeds_ok": self.feeds_ok,
                 "feeds_failed": self.feeds_failed, "headlines_seen": len(self.seen),
                 "confirmed": sum(1 for v in self.seen.values() if len(v) > 1), "polls": self.polls,
+                "reworded_merged": self.merged,
                 "last_error": self.last_error}
