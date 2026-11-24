@@ -94,3 +94,34 @@ async function load() {
 }
 addEventListener("resize", () => { drawCum(); drawDonut(); drawBySymbol(); });
 load(); setInterval(load, 5000);
+
+// Night Shift: the overnight capsule (trading/night_shift.py), from /api/night-shift.
+async function loadNight() {
+  let ns;
+  try { const r = await fetch("/api/night-shift", {cache: "no-store"}); if (!r.ok) return; ns = await r.json(); } catch (e) { return; }
+  const s = ns.summary, halted = !!(s && s.halted && ns.active), st = $("#ns-state");
+  st.textContent = !ns.enabled ? "OFF" : ns.active ? (halted ? "STOPPED · EXITS ONLY" : "ON NOW") : "WAITING FOR 23:30";
+  st.className = "pg-pill " + (!ns.enabled ? "flat" : ns.active ? (halted ? "loss" : "win") : "flat");
+  if (!s) return;
+  const net = s.net_profit_usd || 0;
+  $("#ns-bal").textContent = "$" + Number(s.ending_balance || 0).toLocaleString(undefined, {maximumFractionDigits: 2});
+  const k = $("#ns-net");
+  k.textContent = money(net) + " from $" + Number(s.starting_balance || 0).toLocaleString();
+  k.className = net >= 0 ? "up" : "dn";
+  $("#ns-n").textContent = (s.total_trades || 0).toLocaleString();
+  $("#ns-wl").textContent = (s.wins || 0) + " won · " + (s.small_cuts_losses || 0) + " cut · " + Number(s.win_rate_pct || 0).toFixed(1) + "%";
+  $("#ns-skip").textContent = (s.toxic_skipped || 0).toLocaleString();
+  $("#ns-best").textContent = (ns.briefing && ns.briefing.best_trade) || "–";
+  $("#ns-stop").textContent = s.halted ? s.halt_reason : "stops at −" + ((ns.stop_pct || 0.05) * 100).toFixed(0) + "% of the capsule";
+  $("#ns-time").innerHTML = (s.timeline_tail || []).slice().reverse().map(line => {
+    const parts = String(line).split(" - ");
+    return '<div class="pg-item"><span class="sym">' + esc(parts[0]) + '</span><span class="t">' + esc(parts.slice(1).join(" - ")) + "</span><span></span></div>";
+  }).join("");
+  const b = ns.briefing;
+  if (b) {
+    $("#ns-brief").textContent = "07:00 briefing (" + b.date + "): " + b.total_trades + " trades, " + b.wins + " won, " +
+      b.small_cuts_losses + " cut, win rate " + b.win_rate_pct + "%, capsule " + money(b.net_profit_usd) + ", " +
+      b.toxic_skipped + " toxic setups skipped" + (b.halted ? ", stopped early: " + b.halt_reason : "") + ". Paper money.";
+  }
+}
+loadNight(); setInterval(loadNight, 15000);

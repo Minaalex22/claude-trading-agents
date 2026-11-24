@@ -1,0 +1,4 @@
+MediaPipe Tasks Vision 0.10.14 (@mediapipe/tasks-vision) and the hand_landmarker.task model
+Copyright The MediaPipe Authors. Licensed under the Apache License, Version 2.0.
+https://www.apache.org/licenses/LICENSE-2.0  ·  https://github.com/google-ai-edge/mediapipe
+Used by apex-hands.js for in-browser pinch detection; served from our own site so the page's CSP stays 'self'.

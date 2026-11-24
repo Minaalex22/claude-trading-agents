@@ -37,6 +37,10 @@
       "identity": "-",
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "JARVIS listens when you press Listen or pinch to wake her.",
+        "NSCameraUsageDescription": "JARVIS can watch for your pinch gesture to wake her. The video stays on this computer."
+      },
       "target": [
         "dmg"
       ]
