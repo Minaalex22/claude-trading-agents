@@ -59,7 +59,9 @@ Configured with environment variables so the same image runs as any shard:
   MINDS         "off" turns off every trader's two-step mind (think, then decide), for comparison
   COACH         "off" keeps the hourly Claude coach off even with ANTHROPIC_API_KEY set
   COACH_MODEL   Claude model for the coach (default claude-opus-5-5)
-  SIGNAL_THRESHOLD  how strong the desk's combined call must be to hold a position (default 0.5)
+  SIGNAL_THRESHOLD  how strong the desk's combined call must be to hold a position (default 0.72; was 0.5)
+  HORIZON_LOCK  "on" (default): fast agents (5-20 bars) need medium/slow agents agreeing (trading/desk.py)
+  LEARN_ON_CLOSE "on" (default): self-trust and minds freeze during a chosen trade and learn once when it closes
   MIN_TRADE     smallest rebalance in dollars the desk will send (default 5000)
   LIVE_MAX_ORDER_USD, LIVE_MAX_DAY_USD, LIVE_SYMBOLS  real-money mirror (shard 0, MARKET=live): each desk
                 order in LIVE_SYMBOLS becomes a capped proposal the owner approves (trading/live_orders.py)
@@ -174,6 +176,9 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     desk_rules.Desk.meta_on = meta_gate.ENABLED
     from . import agents as agent_rules
     agent_rules.NEWS_SPLIT = on("NEWS_SPLIT")
+    agent_rules.LEARN_ON_CLOSE = on("LEARN_ON_CLOSE")
+    desk_rules.HORIZON_LOCK = on("HORIZON_LOCK")
+    desk_rules.SIGNAL_THRESHOLD = float(env.get("SIGNAL_THRESHOLD", 0.72))
     from . import hooks as hook_rules
     hook_rules.DEAD_ZONE = on("DEAD_ZONE")
     desk_rules.TREND_GATE = (float(env["TREND_GATE"]) if env.get("TREND_GATE", "off") not in ("off", "") else None) if "TREND_GATE" in env else 0.25

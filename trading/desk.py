@@ -17,7 +17,12 @@ from .managers import Managers
 from .org import manager_reports, summarize
 from .risk import RiskManager
 
-SIGNAL_THRESHOLD = 0.5  # tuned on real 2024-25 hourly prices; weaker calls cost more than they earned
+SIGNAL_THRESHOLD = 0.72  # mina: A+ multi-cluster calls only (was 0.5); env SIGNAL_THRESHOLD; Sniper mode opens at 0.82
+# Horizon lock (env HORIZON_LOCK): a style's fast agents (5-20 bar look-back) can't move the desk alone. Fast votes
+# (|v| >= 0.30) count only with medium/slow ones (21+ bars, |v| >= 0.25) agreeing: 0.45 fast + 0.55 medium/slow;
+# medium/slow alone count 0.85x; fast alone or the two disagreeing: no call from that style.
+HORIZON_LOCK = True
+FAST_MAX_WINDOW = 20
 MIN_TRADE = 5000.0
 PROVEN_MIN = 3  # proven agents needed on a symbol before their view counts
 LEADERBOARD_EVERY = 20
@@ -65,7 +70,7 @@ PULLBACK_ATR, PULLBACK_ATR_15M, PULLBACK_BARS = 0.25, 0.15, 2
 BUCKET_SIZING = True
 # News pipeline into the desk (env NEWS_TO_DESK, live feeds only): sure (>= 0.8) and two-source confirmed reads add
 # PIPE_WEIGHT x their lean to the desk's score; an open human-queue read under 0.6 halves exposure in that symbol.
-PIPE_CONF, PIPE_DOUBT, PIPE_WEIGHT, PIPE_BRAKE = 0.8, 0.6, 0.3, 0.5
+PIPE_CONF, PIPE_DOUBT, PIPE_WEIGHT, PIPE_BRAKE = 0.8, 0.6, 0.25, 0.5
 MIN_PRACTICE_TRADES = 20  # every strategy trader makes at least this many practice trades per hour
 
 
@@ -157,6 +162,7 @@ class Desk:
         votes = defaultdict(lambda: {"trend": [], "reversion": [], "analyst": [], "risk": [], "macro": []})
         agent_votes: dict[str, float] = {}
         tagged = defaultdict(lambda: {"trend": [], "reversion": []})
+        horizons = defaultdict(lambda: {k: {"fast": [], "higher": []} for k in ("trend", "reversion")})
         proven = defaultdict(list)
         self._set_practice_pace()
         by_symbol = defaultdict(list)
@@ -186,12 +192,14 @@ class Desk:
                 votes[agent.symbol][style].append(vote.value)
                 tag = f"{getattr(agent, 'kind', type(agent).__name__)}:{agent.workspace.get('dual_tag', '').split(':')[-1]}"
                 tagged[agent.symbol][style].append((tag, vote.value))
+                horizons[agent.symbol][style]["fast" if agent.window <= FAST_MAX_WINDOW else "higher"].append(vote.value)
                 if accounts.proven(agent.account):
                     proven[agent.symbol].append(vote.value)
             else:
                 votes[agent.symbol][vote.role].append(vote.value)
 
         self.tagged = tagged
+        self.horizons = horizons
         self.news_view = {s: sum(v["macro"]) / len(v["macro"]) for s, v in votes.items() if v["macro"]}
         self.proven_view = {s: (sum(v) / len(v), len(v)) for s, v in proven.items()}
         risk_votes = [v for sym in votes.values() for v in sym["risk"]]
@@ -209,7 +217,7 @@ class Desk:
                 score = view * exposure if n >= self.proven_min else 0.0
             if abs(score) < self.signal_threshold:
                 score = 0.0
-            if sniper.active(self.bar_seconds) and self.broker.position(symbol) * score <= 0 and abs(score) < sniper.BAR:
+            if sniper.active(self.bar_seconds) and self.broker.position(symbol) * score <= 0 and abs(score) < sniper.bar():
                 score = 0.0  # sniper: opening (or flipping) needs 0.82; holding keeps the 0.5 bar
             if self.risk.killed:
                 score = 0.0  # kill switch: close everything
@@ -620,6 +628,24 @@ class Desk:
         return 1.0
 
     @staticmethod
+    def _horizon_vote(h: dict, value: float) -> float:
+        """mina's fast + medium/slow agreement. With CONSENSUS on, the consensus value stands when it agrees
+        with the horizon-vetted vote, else the style says nothing."""
+        fast = [x for x in h["fast"] if abs(x) >= 0.30]
+        higher = [x for x in h["higher"] if abs(x) >= 0.25]
+        if not higher:
+            return 0.0
+        hi = sum(higher) / len(higher)
+        if not fast:
+            vetted = hi * 0.85
+        else:
+            fa = sum(fast) / len(fast)
+            vetted = 0.45 * fa + 0.55 * hi if fa * hi > 0 else 0.0
+        if not CONSENSUS:
+            return vetted
+        return value if value * vetted > 0 else 0.0
+
+    @staticmethod
     def _cluster(pairs: list) -> float:
         groups: dict[str, list[float]] = defaultdict(list)
         for tag, v in pairs:
@@ -638,6 +664,10 @@ class Desk:
         else:
             trend = sum(v["trend"]) / len(v["trend"]) if v["trend"] else 0.0
             reversion = sum(v["reversion"]) / len(v["reversion"]) if v["reversion"] else 0.0
+        hv = self.horizons.get(symbol) if HORIZON_LOCK and symbol is not None and hasattr(self, "horizons") else None
+        if hv is not None:
+            trend = self._horizon_vote(hv["trend"], trend)
+            reversion = self._horizon_vote(hv["reversion"], reversion)
         # Analysts decide whose advice to trust: trending regime favours
         # trend-followers, choppy regime favours mean-reversion traders.
         regime = sum(v["analyst"]) / len(v["analyst"]) if v["analyst"] else 0.0
@@ -659,6 +689,8 @@ class Desk:
             self.lead_style[symbol] = "reversion" if abs(r_part) > abs(t_part) else "trend"
         # Analysts trained in politics and economics add what the news says.
         macro = sum(v["macro"]) / len(v["macro"]) if v["macro"] else 0.0
+        if getattr(self, "pipeline", None) is not None:
+            macro = 0.0  # live feeds: the analysts' simulated-wire read is dead weight; the pipeline nudge replaces it
         return max(-1.0, min(1.0, score + MACRO_WEIGHT * macro))
 
     def style_pnl(self) -> dict[str, float]:

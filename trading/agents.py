@@ -27,6 +27,9 @@ REVERSION = "reversion"
 # News by style (env NEWS_SPLIT): trend traders need a confident news + chart view that agrees; reversion
 # traders are stopped only by fresh or macro-shock news against them (reading_room.opposing_news).
 NEWS_SPLIT = True
+# Learn on close (env LEARN_ON_CLOSE): while a chosen trade is open, self-trust and the mind's weights stay frozen;
+# the closed trade teaches both once, by its result in R. While flat, agents keep learning every bar as before.
+LEARN_ON_CLOSE = True
 
 
 GATE_BUCKETS = (0.9, 0.8, 0.7, 0.5, 0.0)  # sureness floors, highest first
@@ -88,7 +91,7 @@ class Agent:
             self.pnl += self.position * (price - self.prices[-1])
             # The brain scores the strategy's last raw signal, even while sitting
             # out, so an agent can earn its way back in.
-            if self.workspace["last_signal"] is not None:
+            if self.workspace["last_signal"] is not None and not self._in_chosen_trade():
                 self.brain.learn(self.reward(self.workspace["last_signal"], price))
         self.prices.append(price)
         if self.history is not None:
@@ -98,6 +101,7 @@ class Agent:
         signal = self.decide()
         if self.mind is not None:
             # Step 1, think: its own belief from what it sees (its strategy is one of the things it weighs).
+            self.mind.frozen = self._in_chosen_trade()
             lean = self.mind.think(self, signal)
             self.workspace["sureness"] = abs(lean)
             # Step 2, decide: buy, sell or wait, and how big, by its own patience and appetite.
@@ -168,7 +172,9 @@ class Agent:
         if not d or (d == held and abs(value) <= abs(self.position)):
             return value  # no new exposure: closing, trimming or holding needs no confirmation
         need = max(self.rules["view_need"], CONFIDENT) if NEWS_SPLIT else self.rules["view_need"]
-        if abs(signal) < self.rules["min_edge"] or self._agreement(d) < need:
+        # Trend also needs the chart itself on its side and the news not against it (mina: news >= -0.10).
+        trend_news = NEWS_SPLIT and (self.view.chart * d <= 0 or self.view.news * d < -0.10)
+        if abs(signal) < self.rules["min_edge"] or self._agreement(d) < need or trend_news:
             self._held()
             return self.position if d == held else 0.0
         return value
@@ -187,6 +193,11 @@ class Agent:
             self._held()
             return self.position if d == held else 0.0
         return value
+
+    def _in_chosen_trade(self) -> bool:
+        """An open trade the agent chose (not a practice-quota one): its self-trust and mind stay frozen
+        until it closes (env LEARN_ON_CLOSE), so intra-trade wiggles don't teach it anything."""
+        return LEARN_ON_CLOSE and bool(self.position) and not (self.workspace.get("entry_note") or {}).get("forced")
 
     def _manage_exit(self, value: float) -> float:
         """Exit discipline (trading/exits.py): stop at 1R, breakeven after +1R, target 2.4R, time exit."""
@@ -233,6 +244,8 @@ class Agent:
             self._close_trade()
         if opened:
             self.workspace["entry"] = self.prices[-1]  # a new position: remember where it started (Seykota's R)
+            if self.mind is not None and self.mind._last is not None:
+                self.workspace["mind_x"] = dict(self.mind._last[0])  # what it saw when it chose the trade
             exits.open_trade(self)
             plan = self.workspace.get("exit_plan") or {}
             self.workspace["last_r_pct"] = plan.get("r", 0.0) / self.prices[-1] if self.prices[-1] else 0.0
@@ -277,6 +290,14 @@ class Agent:
             dual_brain.closed(self, won, move, bool(note.get("forced")))
         if self.mind is not None and move and not note.get("forced"):
             self.mind.trade_closed(won, note.get("sure", 0.0))  # step 2 learns from its own trades
+        if LEARN_ON_CLOSE and move and not note.get("forced"):
+            # The trade as one lesson: reward = its result in R / 2, capped at +-1 (practice trades never teach).
+            plan_r = self.workspace.get("last_r_pct") or 0.0
+            r = move / plan_r if plan_r else (1.0 if won else -1.0)
+            reward = max(-1.0, min(1.0, r / 2))
+            self.brain.learn(reward)
+            if self.mind is not None:
+                self.mind.learn_trade(self.workspace.get("mind_x"), side, reward)
         if len(self.journal) > review.JOURNAL_MAX:
             del self.journal[0]
 
