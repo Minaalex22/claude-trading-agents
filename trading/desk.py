@@ -63,7 +63,7 @@ PULLBACK_ATR, PULLBACK_ATR_15M, PULLBACK_BARS = 0.25, 0.15, 2
 BUCKET_SIZING = True
 # News pipeline into the desk (env NEWS_TO_DESK, live feeds only): sure (>= 0.8) and two-source confirmed reads add
 # PIPE_WEIGHT x their lean to the desk's score; an open human-queue read under 0.6 halves exposure in that symbol.
-PIPE_CONF, PIPE_DOUBT, PIPE_WEIGHT, PIPE_BRAKE = 0.8, 0.6, 0.2, 0.5
+PIPE_CONF, PIPE_DOUBT, PIPE_WEIGHT, PIPE_BRAKE = 0.8, 0.6, 0.3, 0.5
 MIN_PRACTICE_TRADES = 20  # every strategy trader makes at least this many practice trades per hour
 
 

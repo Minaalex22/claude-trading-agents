@@ -74,7 +74,21 @@ class PipelineDeskTests(unittest.TestCase):
         from trading.desk import Desk
         pipe = types.SimpleNamespace(desk_lean=lambda s, now, need: 0.5, doubtful=lambda s, now, below: True)
         stub = types.SimpleNamespace(pipeline=pipe, now=0)
-        self.assertAlmostEqual(Desk._pipeline_nudge(stub, "X", 0.4), (0.4 + 0.2 * 0.5) * 0.5)
+        self.assertAlmostEqual(Desk._pipeline_nudge(stub, "X", 0.4), (0.4 + 0.3 * 0.5) * 0.5)
+
+
+class SnapshotTests(unittest.TestCase):
+    def test_macro_shock_weighs_more_and_floor_clears(self):
+        from trading import dual_brain
+        agent = types.SimpleNamespace(workspace={}, view=View(direction=0.1, news=-0.6, news_age_mins=10,
+                                                              is_macro_shock=True))
+        snap = dual_brain.snapshot(agent)
+        self.assertAlmostEqual(snap["news_score"], -0.75)
+        self.assertIs(agent.workspace["dual_snapshot"], snap)
+        room = ReadingRoom(["X"])
+        room.update({"X": 1}, [{"symbol": "X", "text": "X: shares surge"}], 0)
+        room.update({"X": 1}, [], 90 * 60 * 6)  # six half-lives: under the floor
+        self.assertEqual(room.news["X"], 0.0)
 
 
 if __name__ == "__main__":

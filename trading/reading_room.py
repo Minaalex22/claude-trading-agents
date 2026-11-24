@@ -38,6 +38,8 @@ NEWS_HALF_LIFE, MACRO_HALF_LIFE = 90.0, 240.0
 MACRO_WORDS = ("rate decision", "interest rate", "central bank", "fed ", "fomc", "ecb", "rba", "boj", "inflation",
                "cpi", "jobs", "payroll", "unemployment", "gdp", "tariff", "sanction", "war ", "escalat", "ceasefire",
                "stimulus", "election", "default")
+NEWS_FLOOR = 0.03  # a faded read below this counts as no news
+MACRO_BOOST = 1.25  # agents' slow-brain premortem weighs a fresh macro shock 1.25x
 FRESH_MINS = 60  # news younger than this is "fresh"
 SHOCK = 0.35  # a macro read at least this strong, while fresh, is a macro shock
 CHART_SHARE = 0.6  # the view: 60% chart, 40% news
@@ -153,6 +155,9 @@ class ReadingRoom:
                 self.news[s] *= NEWS_KEEP
             elif dt:
                 self.news[s] *= 0.5 ** (dt / (MACRO_HALF_LIFE if self.macro[s] else NEWS_HALF_LIFE))
+                if abs(self.news[s]) < NEWS_FLOOR:  # faded out: clear it and the macro flag
+                    self.news[s] = 0.0
+                    self.macro[s] = False
             if s in prices:
                 self.history[s].append(prices[s])
         for h in headlines or ():
