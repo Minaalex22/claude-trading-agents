@@ -9,15 +9,23 @@ ATAS has no cloud API. Its code runs only inside the ATAS desktop app, so a smal
    "big_trades": [{"price", "size", "side"}],          optional
    "account": {"balance", "pnl", "open_pnl", "positions": [{"symbol", "side", "size", "pnl"}]}}   optional
 
-The token is ATAS_TOKEN (at least 32 characters) set on Render and pasted into the indicator's settings.
-Without it set, the feed is off. The receiver only stores what it is sent; it never places orders.
+The feed token is ATAS_TOKEN (at least 32 characters) when it is set on Render. Without it, the token is derived from
+DASHBOARD_PASSWORD (an HMAC, so the password itself never leaves the app), which means nothing has to be set up.
+The One account page hands out a one-line installer (Mac Terminal or Windows PowerShell) through a short-lived code:
+the installer builds the indicator on the owner's computer and saves the URL and token there, so nothing is typed into
+ATAS. The receiver only stores what it is sent; it never places orders.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import math
+import re
+import secrets
 import threading
 import time
+from pathlib import Path
 
 MIN_TOKEN = 32
 FRESH_SECONDS = 180  # a feed older than this shows as stale
@@ -31,8 +39,82 @@ class FeedError(ValueError):
     pass
 
 
+CODE_SECONDS = 1800  # an install line works for 30 minutes
+INSTALL_DIR = Path(__file__).resolve().parent / "atas_install"
+_HOST = re.compile(r"^[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$")
+
+
+def token(env) -> str:
+    """ATAS_TOKEN when set (32+ characters), else a token derived from DASHBOARD_PASSWORD, else "" (feed off)."""
+    own = env.get("ATAS_TOKEN", "")
+    if len(own) >= MIN_TOKEN:
+        return own
+    pw = env.get("DASHBOARD_PASSWORD", "")
+    if pw:
+        return hmac.new(pw.encode(), b"jarvisfeed-atas-v1", hashlib.sha256).hexdigest()
+    return ""
+
+
 def enabled(env) -> bool:
-    return len(env.get("ATAS_TOKEN", "")) >= MIN_TOKEN
+    return len(token(env)) >= MIN_TOKEN
+
+
+def app_url(host: str | None, proto: str | None) -> str | None:
+    """The app's own address from the request, checked so nothing odd can land inside an installer script."""
+    host = (host or "").strip()
+    if not _HOST.fullmatch(host):
+        return None
+    proto = (proto or "").split(",")[0].strip().lower()
+    if proto not in ("http", "https"):
+        local = host.split(":")[0] in ("localhost", "127.0.0.1")
+        proto = "http" if local else "https"
+    return f"{proto}://{host}"
+
+
+def installer(kind: str, url: str, feed_token: str) -> str:
+    """The Mac (sh) or Windows (ps1) installer with the app URL, the token and the indicator source filled in."""
+    name = {"sh": "install.sh", "ps1": "install.ps1"}[kind]
+    text = (INSTALL_DIR / name).read_text(encoding="utf-8")
+    source = (INSTALL_DIR / "JarvisFeed.cs").read_text(encoding="utf-8").rstrip("\n")
+    # values are checked: url by app_url, token is hex or the owner's own ATAS_TOKEN (no quotes allowed)
+    if any(c in feed_token for c in "'\"`$\\\n\r"):
+        raise FeedError("ATAS_TOKEN can't contain quotes, $, backslashes or line breaks")
+    text = text.replace("__APP_URL__", url).replace("__TOKEN__", feed_token)
+    if kind == "ps1":
+        text = text.replace("\n", "\r\n")
+        source = source.replace("\n", "\r\n")
+    return text.replace("__JARVISFEED_CS__", source)
+
+
+class InstallCodes:
+    """Short-lived codes so the one-line installer can fetch the token without a password in the line."""
+
+    def __init__(self, clock=time.time, ttl: float = CODE_SECONDS):
+        self.clock = clock
+        self.ttl = ttl
+        self.lock = threading.Lock()
+        self.codes: dict[str, float] = {}
+
+    def issue(self) -> str:
+        now = self.clock()
+        code = secrets.token_urlsafe(18)
+        with self.lock:
+            self.codes = {c: t for c, t in self.codes.items() if t > now}
+            if len(self.codes) >= 20:  # keep the newest few
+                for c in sorted(self.codes, key=self.codes.get)[: len(self.codes) - 19]:
+                    del self.codes[c]
+            self.codes[code] = now + self.ttl
+        return code
+
+    def valid(self, code: str | None) -> bool:
+        if not code:
+            return False
+        now = self.clock()
+        with self.lock:
+            for c, t in self.codes.items():
+                if t > now and hmac.compare_digest(c.encode(), code.encode()):
+                    return True
+        return False
 
 
 def _num(v, name: str) -> float | None:
@@ -62,6 +144,13 @@ class AtasFeed:
         self.account: dict | None = None
         self.last = 0.0
         self.posts = 0
+        self.hello: dict | None = None  # the installer said hi from the owner's computer
+
+    def say_hello(self, body) -> dict:
+        system = str((body or {}).get("installer") or "") if isinstance(body, dict) else ""
+        with self.lock:
+            self.hello = {"system": system if system in ("mac", "windows") else "computer", "at": self.clock()}
+            return dict(self.hello)
 
     def ingest(self, body: dict) -> dict:
         if not isinstance(body, dict):
@@ -138,5 +227,7 @@ class AtasFeed:
             return {"state": state, "enabled": enabled(env), "posts": self.posts,
                     "age_s": round(now - self.last) if self.last else None, "books": books,
                     "account": dict(self.account) if self.account else None,
-                    "help": None if enabled(env) else "Add ATAS_TOKEN (32+ random characters) on Render, then paste the same "
-                                                    "token into the JarvisFeed indicator in ATAS."}
+                    "installed": ({"system": self.hello["system"], "age_s": round(now - self.hello["at"])}
+                                  if self.hello else None),
+                    "help": None if enabled(env) else "The feed needs a token: set DASHBOARD_PASSWORD or ATAS_TOKEN "
+                                                    "(32+ characters) on Render."}

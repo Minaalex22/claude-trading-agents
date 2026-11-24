@@ -158,6 +158,52 @@ class AtasFeedTests(unittest.TestCase):
         self.assertEqual(row["positions"][0]["side"], "buy")
 
 
+class AtasInstallerTests(unittest.TestCase):
+    def test_token_comes_from_the_password_when_atas_token_is_not_set(self):
+        self.assertEqual(A.token({"ATAS_TOKEN": TOKEN}), TOKEN)
+        derived = A.token({"DASHBOARD_PASSWORD": "a long password here"})
+        self.assertEqual(len(derived), 64)
+        self.assertNotIn("password", derived)
+        self.assertEqual(derived, A.token({"DASHBOARD_PASSWORD": "a long password here", "ATAS_TOKEN": "short"}))
+        self.assertTrue(A.enabled({"DASHBOARD_PASSWORD": "a long password here"}))
+        self.assertFalse(A.enabled({}))
+
+    def test_app_url_refuses_odd_hosts(self):
+        self.assertEqual(A.app_url("ats.example.com", "https"), "https://ats.example.com")
+        self.assertEqual(A.app_url("ats.example.com", None), "https://ats.example.com")
+        self.assertEqual(A.app_url("localhost:8000", None), "http://localhost:8000")
+        for bad in ("a'b.com", "x.com; rm -rf /", "$(id).com", "", "a b"):
+            self.assertIsNone(A.app_url(bad, "https"))
+
+    def test_scripts_are_filled_in(self):
+        for kind in ("sh", "ps1"):
+            text = A.installer(kind, "https://ats.example.com", TOKEN)
+            self.assertNotIn("__APP_URL__", text)
+            self.assertNotIn("__TOKEN__", text)
+            self.assertNotIn("__JARVISFEED_CS__", text)
+            self.assertIn("class JarvisFeed : Indicator", text)
+            self.assertIn("https://ats.example.com", text)
+            self.assertNotIn("read -s", text)  # never prompts for a password
+        with self.assertRaises(A.FeedError):
+            A.installer("sh", "https://ats.example.com", "x" * 30 + "'; rm")
+
+    def test_codes_expire(self):
+        t = [0.0]
+        c = A.InstallCodes(clock=lambda: t[0])
+        code = c.issue()
+        self.assertTrue(c.valid(code))
+        self.assertFalse(c.valid("nope"))
+        self.assertFalse(c.valid(""))
+        t[0] += A.CODE_SECONDS + 1
+        self.assertFalse(c.valid(code))
+
+    def test_hello_shows_installed(self):
+        f = A.AtasFeed(clock=lambda: 50.0)
+        self.assertIsNone(f.status({"ATAS_TOKEN": TOKEN})["installed"])
+        f.say_hello({"installer": "mac"})
+        self.assertEqual(f.status({"ATAS_TOKEN": TOKEN})["installed"]["system"], "mac")
+
+
 class AccountWebTests(unittest.TestCase):
     request = test_web.ServerTests.request
     login = test_web.ServerTests.login
@@ -218,6 +264,31 @@ class AccountWebTests(unittest.TestCase):
         self.assertEqual(resp.status, 200, body)
         resp, body = self.request("GET", "/api/atas", cookie=cookie)
         self.assertEqual(json.loads(body)["state"], "live")
+        # Connect ATAS: install line only when signed in, script only with a fresh code
+        resp, _ = self.request("GET", "/api/atas/install")
+        self.assertEqual(resp.status, 401)
+        resp, body = self.request("GET", "/api/atas/install", cookie=cookie)
+        line = json.loads(body)
+        self.assertEqual(resp.status, 200, body)
+        self.assertIn("/atas/install.sh?c=", line["mac"])
+        self.assertIn("| bash", line["mac"])
+        self.assertIn("install.ps1?c=", line["windows"])
+        resp, body = self.request("GET", "/atas/install.sh?c=wrong")
+        self.assertEqual(resp.status, 403)
+        self.assertNotIn(TOKEN.encode(), body)
+        resp, body = self.request("GET", f"/atas/install.sh?c={line['code']}")
+        self.assertEqual(resp.status, 200)
+        self.assertIn(TOKEN.encode(), body)
+        self.assertIn(b"class JarvisFeed", body)
+        resp, body = self.request("GET", f"/atas/install.ps1?c={line['code']}")
+        self.assertEqual(resp.status, 200)
+        self.assertIn(b"$Token = '" + TOKEN.encode(), body)
+        resp, _ = self.post("/api/atas/hello", {"installer": "windows"})
+        self.assertEqual(resp.status, 401)
+        resp, _ = self.post("/api/atas/hello", {"installer": "windows"}, headers={"Authorization": f"Bearer {TOKEN}"})
+        self.assertEqual(resp.status, 200)
+        resp, body = self.request("GET", "/api/atas", cookie=cookie)
+        self.assertEqual(json.loads(body)["installed"]["system"], "windows")
         # orders on platforms that aren't connected are refused clearly
         resp, body = self.post("/api/account/order", {"platform": "etoro", "side": "buy", "instrument_id": 1, "amount": 10}, cookie)
         self.assertEqual(resp.status, 403)
