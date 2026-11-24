@@ -151,6 +151,8 @@ def handbook() -> str:
         "bet, 1% of balance, A$50 a day, 2 open bets, odds 1.1 to 20). It also lines up the agents' Polymarket picks "
         "with the same Betfair markets. /calculator does position size, pip value, reward-to-risk, margin and "
         "half-Kelly with the money rules. /btcc is the BTCC practice desk (BTCC paused its API on 13 Feb 2026). "
+        "/mitrade shows Mitrade's own live bid/ask and a practice desk that fills at Mitrade's prices (Mitrade has "
+        "no API, so nothing is sent to Mitrade). "
         "/wallet shows paper money, every desk's profit, platforms and watched crypto addresses.",
         "",
         "SECURITY: password login with rate limits and signed cookies; JARVIS needs a second passphrase; strict "
