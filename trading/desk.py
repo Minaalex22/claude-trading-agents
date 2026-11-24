@@ -2,6 +2,8 @@
 
 from collections import defaultdict, deque
 
+from . import agents as agents_mod
+
 from . import academy, accounts, coach as coaching, hooks, review, sessions
 from . import mind as mindmod
 
@@ -218,7 +220,7 @@ class Desk:
                                      streak=self.journal.streak(symbol), clock=self.clock,
                                      cooling=self.journal.cooling(symbol, self.ticks, self.now, max(1, (self.hour_ticks or 7200) // 12)),
                                      session_avg=self.session_avg.get(symbol) if self.clock else None,
-                                     style=self.lead_style.get(symbol, ""))
+                                     style=self.lead_style.get(symbol, "") if agents_mod.NEWS_SPLIT else "")
             desired, notes = hooks.run_hooks(check)
             if notes:
                 self.checks["blocked" if abs(desired * prices[symbol]) < self.min_trade else "shrunk"] += 1
