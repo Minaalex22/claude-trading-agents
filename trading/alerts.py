@@ -4,6 +4,10 @@ Set TELEGRAM_BOT_TOKEN (from @BotFather) and TELEGRAM_CHAT_ID (your chat with th
 - a real-money proposal waiting for your approval (with DASHBOARD_URL, a link to approve it),
 - each bridge result (filled or failed),
 - a stop switching on or off: the daily loss stop, the drawdown halt, the kill switch.
+- the 07:00 Night Shift briefing (trading/night_shift.py).
+
+Quiet hours (`quiet`, set by the app to Night Shift's sleep window): single-trade results are held, not sent, and go
+out together in the first result message after 07:00.
 
 Messages go out on a background thread, so trading never waits on Telegram. The same text is not sent twice
 within REPEAT_SECONDS, and at most MAX_PER_HOUR messages go out an hour, so a fault can't flood your phone. The
@@ -43,6 +47,8 @@ class Alerts:
         self.sent = 0
         self.failed = 0
         self.q: queue.Queue = queue.Queue(maxsize=100)
+        self.quiet = None  # callable: True during quiet hours (no single-trade alerts)
+        self.held: list[str] = []
         if self.on and start_thread:
             threading.Thread(target=self._run, name="alerts", daemon=True).start()
 
@@ -93,8 +99,15 @@ class Alerts:
                          f"(${order['qty'] * order['price']:,.0f}). Waiting for your approval for 5 minutes.{link}")
 
     def result(self, order: dict) -> bool:
-        return self.send(f"Real money {order['status']}: {order['side']} {order['qty']} {order['symbol']}. "
-                         f"{order.get('detail', '')}"[:600])
+        text = (f"Real money {order['status']}: {order['side']} {order['qty']} {order['symbol']}. "
+                f"{order.get('detail', '')}"[:600])
+        if self.quiet and self.quiet():
+            self.held = (self.held + [text])[-20:]  # quiet hours: keep it for the morning
+            return False
+        if self.held:
+            text = ("While you slept: " + " | ".join(self.held) + "\n" + text)[:3500]
+            self.held = []
+        return self.send(text)
 
     def stop(self, shard, reason: str | None) -> bool:
         if reason:

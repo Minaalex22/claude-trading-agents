@@ -4,6 +4,7 @@ from collections import defaultdict, deque
 
 from . import academy, accounts, coach as coaching, hooks, review, sessions
 from . import mind as mindmod
+from . import night_shift
 
 from .agents import REVERSION, Agent, Trader
 from .brains import BrainAlpha, BrainBeta
@@ -158,7 +159,7 @@ class Desk:
         self.proven_view = {s: (sum(v) / len(v), len(v)) for s, v in proven.items()}
         risk_votes = [v for sym in votes.values() for v in sym["risk"]]
         exposure = sum(risk_votes) / len(risk_votes) if risk_votes else 1.0
-        self.risk.update(prices)
+        self.risk.update(prices, now=self.now)
 
         orders = 0
         for symbol in self.symbols:
@@ -193,7 +194,8 @@ class Desk:
                               notes=notes)
             if abs(desired * prices[symbol]) < self.min_trade and not (self.risk.killed and desired):
                 continue
-            qty, reason = self.risk.approve(symbol, desired, prices)
+            qty, reason = self.risk.approve(symbol, desired, prices, audit=night_shift.audit_from_prices(
+                symbol, self.price_hist[symbol], self.broker.fee_bps / 10_000) if self.risk.night_active else None)
             if reason:
                 self.log.emit("risk", symbol=symbol, wanted=round(desired, 4), allowed=round(qty, 4), reason=reason)
             if qty and self.beta:
@@ -211,6 +213,9 @@ class Desk:
                                   entry=round(closed["entry"], 4), exit=round(closed["exit"], 4),
                                   move=round(closed["move"], 5), won=closed["won"],
                                   pnl=round(closed["qty"] * closed["entry"] * closed["move"], 2))
+                    if self.risk.night_active:  # the overnight capsule (trading/night_shift.py)
+                        self.risk.night_shift.record_closed_trade(
+                            symbol, closed["qty"] * closed["entry"] * closed["move"], closed["move"])
                 orders += 1
                 why = hooks.why(votes[symbol], views.get(symbol), exposure)
                 self.log.emit("order", symbol=symbol, qty=round(qty, 4), price=round(prices[symbol], 4),
