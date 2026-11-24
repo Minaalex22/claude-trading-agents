@@ -96,9 +96,11 @@ class Mind:
         self.thought = f"{p_up:.0%} chance it goes up ({why})"
         return lean
 
+    frozen = False  # set by the agent while a chosen trade is open (agents.LEARN_ON_CLOSE)
+
     def learn(self, price: float) -> None:
         """Check the last belief against what the price did, and adjust what it pays attention to."""
-        if self._last is None:
+        if self._last is None or self.frozen:
             return
         x, lean, before = self._last
         if price == before:
@@ -110,6 +112,17 @@ class Mind:
         for f, v in x.items():
             self.weights[f] = _clip(self.weights[f] + step * v, MAX_WEIGHT)
         self.bias = _clip(self.bias + step * 0.1, 0.5)
+
+    def learn_trade(self, x: dict | None, side: float, reward: float) -> None:
+        """A closed chosen trade, as one lesson: what it saw at entry, nudged toward the side that paid."""
+        if not x:
+            return
+        up = 1.0 if side * reward > 0 else 0.0 if side * reward < 0 else 0.5
+        z = self.bias + sum(self.weights.get(f, 0.0) * v for f, v in x.items())
+        step = self.learning_rate * abs(reward) * (up - (1 + math.tanh(z)) / 2)
+        for f, v in x.items():
+            if f in self.weights:
+                self.weights[f] = _clip(self.weights[f] + step * v, MAX_WEIGHT)
 
     # ---- step 2: decide -----------------------------------------------------------------------------
     def decide(self, lean: float) -> float:

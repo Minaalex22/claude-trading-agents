@@ -45,6 +45,9 @@ class TeamTests(unittest.TestCase):
         from trading import exits
         self.addCleanup(setattr, exits, "ENABLED", exits.ENABLED)
         exits.ENABLED = False  # this test is about the strategies' signals, not taking profit
+        from trading import agents as agents_mod
+        self.addCleanup(setattr, agents_mod, "LEARN_ON_CLOSE", agents_mod.LEARN_ON_CLOSE)
+        agents_mod.LEARN_ON_CLOSE = False  # per-bar learning; learning on close has its own test (test_mina_fixes.py)
         up = [100 + i for i in range(30)]
         momentum, breakout, reversion = Momentum("m", "X", 10), Breakout("b", "X", 10), MeanReversion("r", "X", 10)
         for p in up:

@@ -40,7 +40,7 @@ MACRO_WORDS = ("rate decision", "interest rate", "central bank", "fed ", "fomc",
                "stimulus", "election", "default")
 NEWS_FLOOR = 0.03  # a faded read below this counts as no news
 MACRO_BOOST = 1.25  # agents' slow-brain premortem weighs a fresh macro shock 1.25x
-FRESH_MINS = 60  # news younger than this is "fresh"
+FRESH_MINS = 90  # news younger than this is "fresh" (mina: 90 minutes)
 SHOCK = 0.35  # a macro read at least this strong, while fresh, is a macro shock
 CHART_SHARE = 0.6  # the view: 60% chart, 40% news
 CONFIDENT = 0.25  # a view at least this strong blocks trades against it

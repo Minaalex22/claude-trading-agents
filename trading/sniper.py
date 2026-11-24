@@ -28,6 +28,12 @@ SWEEP_BARS, SWEEP_LOOKBACK = 3, 20
 STOP_R, FIRST_TP_R, FIRST_TP_SHARE, RUNNER_STOP_R, RUNNER_TP_R = 1.35, 0.9, 0.8, 0.10, 2.0
 
 
+def bar() -> float:
+    """Sniper's opening bar: 0.82, or the desk's own threshold if that is set higher (one setting to raise)."""
+    from . import desk
+    return max(BAR, desk.SIGNAL_THRESHOLD)
+
+
 def active(bar_seconds) -> bool:
     """Sniper mode needs real bars with a known length (backtests, live): the simulator has no clock."""
     return SNIPER and bar_seconds is not None
@@ -51,8 +57,8 @@ def gate(symbol: str, style: str, side: float, score: float, hist: dict, view, b
     """Why sniper mode doesn't take this new entry, or None."""
     if not active(bar_seconds):
         return None
-    if abs(score) < BAR:
-        return f"sniper: score {abs(score):.2f} under {BAR}"
+    if abs(score) < bar():
+        return f"sniper: score {abs(score):.2f} under {bar()}"
     if not MIN_BAR <= bar_seconds <= MAX_BAR:
         return "sniper: 1h-4h bars only"
     if hour is None or not HOURS[0] <= hour < HOURS[1]:

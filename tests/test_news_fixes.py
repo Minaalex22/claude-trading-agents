@@ -20,7 +20,9 @@ class FadeTests(unittest.TestCase):
         self.assertAlmostEqual(room.news["SPY"], s0 * 0.5 ** (90 / 240))
         self.assertAlmostEqual(views["AAPL"].news_age_mins, 90)
         self.assertTrue(room.macro["SPY"])
-        self.assertFalse(views["SPY"].is_macro_shock)  # 90 minutes old: no longer fresh
+        self.assertTrue(views["SPY"].is_macro_shock)  # 90 minutes old: still inside the 90-minute fresh window
+        views = room.update({"AAPL": 1, "SPY": 1}, [], t0 + 120 * 60)
+        self.assertFalse(views["SPY"].is_macro_shock)  # two hours: no longer fresh
 
     def test_fresh_macro_is_a_shock(self):
         room = ReadingRoom(["SPY"])
@@ -74,7 +76,7 @@ class PipelineDeskTests(unittest.TestCase):
         from trading.desk import Desk
         pipe = types.SimpleNamespace(desk_lean=lambda s, now, need: 0.5, doubtful=lambda s, now, below: True)
         stub = types.SimpleNamespace(pipeline=pipe, now=0)
-        self.assertAlmostEqual(Desk._pipeline_nudge(stub, "X", 0.4), (0.4 + 0.3 * 0.5) * 0.5)
+        self.assertAlmostEqual(Desk._pipeline_nudge(stub, "X", 0.4), (0.4 + 0.25 * 0.5) * 0.5)
 
 
 class SnapshotTests(unittest.TestCase):
