@@ -265,6 +265,31 @@ class PassiveEntryTests(unittest.TestCase):
         self.assertEqual(st["filled"], kinds.count("filled"))
 
 
+class BrokerDriftTests(unittest.TestCase):
+    def test_names_and_gap(self):
+        self.assertEqual(execution_guard.broker_symbol("BTC"), "BTCUSD")
+        self.assertEqual(execution_guard.broker_symbol("GOLD"), "XAUUSD")
+        self.assertEqual(execution_guard.broker_symbol("EURUSD=X"), "EURUSD")
+        self.assertEqual(execution_guard.broker_symbol("ETH-USDT"), "ETHUSD")
+        self.assertEqual(execution_guard.broker_mids(["BTC", "MSFT"], {"BTCUSD": {"mid": 90000.0}}),
+                         {"BTC": 90000.0})
+        self.assertEqual(execution_guard.quote_drift(100.0, 100.1), (True, 0.1))
+        self.assertEqual(execution_guard.quote_drift(100.0, 100.2), (False, 0.2))
+
+    def test_desk_blocks_new_risk_on_drift(self):
+        desk = engine.run({"AGENT_COUNT": "100", "TICKS": "5", "TICK_SECONDS": "0"}, stream=io.StringIO())
+        desk.broker_mids = {"BTC": 101.0}
+        self.assertIn("drift", desk._quote_drift("BTC", 100.0))
+        self.assertIsNone(desk._quote_drift("BTC", 100.9))
+        self.assertIsNone(desk._quote_drift("ETH", 100.0))  # no broker quote: nothing to compare
+        self.assertEqual(desk.drift["blocked"], 1)
+        execution_guard.DRIFT_CHECK = False
+        try:
+            self.assertIsNone(desk._quote_drift("BTC", 100.0))
+        finally:
+            execution_guard.DRIFT_CHECK = True
+
+
 class PromotionTests(unittest.TestCase):
     def trades(self, n, win_rate, symbol="EURUSD"):
         wins = int(n * win_rate)

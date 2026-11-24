@@ -23,6 +23,8 @@ Configured with environment variables so the same image runs as any shard:
   READING_ROOM_PREFILTER "off": ask Claude about every headline, even ones the free word list is sure of (default on)
   VOL_SIZING    "off": flat dollar limits only; on (default) a symbol's position is also capped so its stop loses at most
                 VOL_RISK_PCT of equity (default 0.0075 = 0.75%; trading/ops_guard.py)
+  BROKER_DRIFT "off": live desk skips the broker parity check (no new risk when Mitrade's mid is >0.15% from the
+                desk's price; trading/execution_guard.py; default on)
   PASSIVE_ENTRIES "off": Scalper (reversion-led) entries cross the spread at once instead of resting a limit at the
                 touch for up to 2 bars (cancelled if price runs 0.35R away; trading/execution_guard.py; default on)
   INDICATOR_CACHE "off": every agent works out its own rolling numbers instead of sharing them per symbol (default on)
@@ -231,6 +233,7 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
         room.prefilter = env.get("READING_ROOM_PREFILTER", "on").lower() not in ("off", "0", "false", "no")
     from . import execution_guard, indicators
     execution_guard.ENABLED = env.get("PASSIVE_ENTRIES", "on").lower() not in ("off", "0", "false", "no")
+    execution_guard.DRIFT_CHECK = env.get("BROKER_DRIFT", "on").lower() not in ("off", "0", "false", "no")
     indicators.ENABLED = env.get("INDICATOR_CACHE", "on").lower() not in ("off", "0", "false", "no")
     # Night Shift (trading/night_shift.py): the overnight capsule; on by default, NIGHT_SHIFT_ENABLED=false turns it off.
     night = NightShiftEngine(NightShiftConfig.from_env(env))
@@ -336,8 +339,13 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
                     prices, market.updated_at() if hasattr(market, "updated_at") else None, desk.bar_seconds,
                     news.status() if news else None, getattr(market, "poll_seconds", None),
                     getattr(market, "last_poll_seconds", None))
+                if execution_guard.DRIFT_CHECK:
+                    # Broker parity: Mitrade's live mids (cached 5s, never raises) for the drift check in desk.py
+                    from . import mitrade
+                    desk.broker_mids = execution_guard.broker_mids(prices, mitrade.FEED.quotes())
                 if desk.ticks % 20 == 0:
-                    log.emit("market", **feed_status(market, news), watchdog=watch.status())
+                    log.emit("market", **feed_status(market, news), watchdog=watch.status(), broker_drift={
+                        k: v for k, v in desk.drift.items() if k != "last"})
             now = market.now() if hasattr(market, "now") else (time.time() if live else None)
             desk.step(prices, news.tick(market.drift, desk.ticks + 1) if news else [], now=now)
             if desk.risk.stop_reason != last_stop:

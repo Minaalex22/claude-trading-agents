@@ -24,6 +24,36 @@ MAX_BARS = 2  # bars a limit may rest before it is cancelled
 RUNAWAY_ATR = 0.35  # price moving this many 1R away from the limit cancels it
 ENABLED = True  # PASSIVE_ENTRIES=off sends every entry at once
 
+# Broker quote check (mina, 24 Nov 2026): before new risk, the broker's live mid must be within DRIFT_MAX of the
+# price the desk decided on. A bigger gap means one of the two feeds is wrong or late, so the entry waits.
+# Live desk only, using Mitrade's public quotes (trading/mitrade.py). Exits are never blocked. BROKER_DRIFT=off.
+DRIFT_MAX = 0.0015  # 0.15%
+DRIFT_CHECK = True
+BROKER_NAMES = {"BTC": "BTCUSD", "ETH": "ETHUSD", "GOLD": "XAUUSD", "XAU": "XAUUSD", "SILVER": "XAGUSD",
+                "XAG": "XAGUSD", "SPX": "US500", "SPY": "US500", "NDX": "NAS100", "QQQ": "NAS100", "DJI": "US30",
+                "OIL": "USOIL", "WTI": "USOIL", "BRENT": "UKOIL", "ASX": "AUS200", "NIKKEI": "JPN225"}
+
+
+def broker_symbol(symbol: str) -> str:
+    s = str(symbol).upper().replace("-", "").replace("/", "").replace("=X", "")
+    return BROKER_NAMES.get(s, s[:-4] + "USD" if s.endswith("USDT") else s)
+
+
+def broker_mids(symbols, quotes: dict) -> dict[str, float]:
+    """Desk symbol -> broker mid, for the symbols the broker quotes."""
+    out = {}
+    for sym in symbols:
+        q = quotes.get(broker_symbol(sym))
+        if q and q.get("mid"):
+            out[sym] = float(q["mid"])
+    return out
+
+
+def quote_drift(desk_price: float, broker_mid: float) -> tuple[bool, float]:
+    """(within DRIFT_MAX, gap in %)."""
+    gap = abs(broker_mid - desk_price) / max(1e-12, abs(desk_price))
+    return gap <= DRIFT_MAX, round(gap * 100, 4)
+
 
 @dataclass
 class Parked:

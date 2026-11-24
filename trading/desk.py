@@ -130,6 +130,8 @@ class Desk:
         self.checks = {"blocked": 0, "shrunk": 0}  # pre-order checks (trading/hooks.py)
         self.sizing = {"shrunk": 0}  # times constant-R sizing cut a symbol's cap below the flat limit
         self.passive = execution_guard.PassiveBook()  # resting Scalper limits (trading/execution_guard.py)
+        self.broker_mids: dict[str, float] = {}  # live broker mids (engine fills these from Mitrade's quotes)
+        self.drift = {"checked": 0, "blocked": 0, "last": {}}
         self.hour_start = 0
         self.hour_stats: dict[str, dict] = {}
         self.price_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=ROUTER_SLOW + 1))
@@ -285,7 +287,7 @@ class Desk:
             if abs(desired * prices[symbol]) < self.min_trade and not (self.risk.killed and desired):
                 continue
             if not self.risk.killed and self._adds_risk(symbol, desired):
-                why = self._entry_gate(symbol, desired, prices, score)
+                why = self._quote_drift(symbol, prices[symbol]) or self._entry_gate(symbol, desired, prices, score)
                 if why:
                     self.checks["blocked"] += 1
                     self.log.emit("check", symbol=symbol, wanted=round(desired, 4), allowed=0.0, notes=[why])
@@ -558,6 +560,19 @@ class Desk:
         if er < ROUTER_CHOP and ratio < 1.0:
             return "chop"
         return "transition"
+
+    def _quote_drift(self, symbol: str, price: float) -> str | None:
+        """Broker parity: no new risk when the broker's live mid is more than 0.15% from the desk's price."""
+        mid = self.broker_mids.get(symbol)
+        if not execution_guard.DRIFT_CHECK or not mid or not price:
+            return None
+        ok, gap = execution_guard.quote_drift(price, mid)
+        self.drift["checked"] += 1
+        self.drift["last"][symbol] = gap
+        if ok:
+            return None
+        self.drift["blocked"] += 1
+        return f"broker quote drift: broker mid {mid:g} is {gap:.3f}% from the desk price {price:g} (max 0.15%)"
 
     def _entry_gate(self, symbol: str, qty: float, prices: dict, score: float) -> str | None:
         """New desk risk: sister-pair SMT, the parent-timeframe lock, then the meta-label gate.
