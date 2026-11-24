@@ -6,6 +6,7 @@ from collections import defaultdict, deque
 from . import agents as agents_mod
 
 from . import academy, accounts, coach as coaching, exits, hooks, review, sessions, smt_filter, sniper
+from . import execution_integrity as integrity, option_flows
 from .meta_gate import MetaGate
 from . import mind as mindmod
 
@@ -132,6 +133,8 @@ class Desk:
         self.pipeline = None  # live feeds: a NewsPipeline whose sure, confirmed reads nudge the desk (engine)
         self.lead_style: dict[str, str] = {}
         self.pending: dict[str, dict] = {}  # pullback entries waiting for their price
+        self.queued: dict[str, dict] = {}  # orders decided last bar, filled on this bar's real price
+        self.integrity = integrity.FillAudit()
         self.pending_cool: dict[str, int] = {}
         self.bucket: dict[str, deque] = defaultdict(lambda: deque(maxlen=40))  # closed desk trade moves per symbol
         self.tagged: dict[str, dict[str, list]] = {}
@@ -206,11 +209,12 @@ class Desk:
         exposure = sum(risk_votes) / len(risk_votes) if risk_votes else 1.0
         self.risk.update(prices)
 
-        orders = 0
+        orders = self._fill_queued(prices)
         for symbol in self.symbols:
             if symbol not in votes:
                 continue
             score = self._score(votes[symbol], symbol) * exposure
+            score = option_flows.FEED.boost(symbol, score, self.now)  # 0DTE whale prints agreeing: x1.12-1.25
             if self.proven_only:
                 # Only agents with a proven record steer: no trade on a symbol without enough of them.
                 view, n = self.proven_view.get(symbol, (0.0, 0))
@@ -237,7 +241,8 @@ class Desk:
                                      streak=self.journal.streak(symbol), clock=self.clock,
                                      cooling=self.journal.cooling(symbol, self.ticks, self.now, max(1, (self.hour_ticks or 7200) // 12)),
                                      session_avg=self.session_avg.get(symbol) if self.clock else None,
-                                     style=self.lead_style.get(symbol, "") if agents_mod.NEWS_SPLIT else "")
+                                     style=self.lead_style.get(symbol, "") if agents_mod.NEWS_SPLIT else "",
+                                     now=self.now)
             desired, notes = hooks.run_hooks(check)
             if notes:
                 self.checks["blocked" if abs(desired * prices[symbol]) < self.min_trade else "shrunk"] += 1
@@ -267,23 +272,13 @@ class Desk:
                     self.log.emit("jev", symbol=symbol, decision="rejected", codes=[decision.code], legs=1)
                     continue
             if qty:
-                before = self.broker.position(symbol)
-                self.broker.fill(symbol, qty, prices[symbol])
-                closed = self.journal.fill(symbol, before, qty, prices[symbol], self.ticks, self.now)
-                if closed:
-                    self.bucket[symbol].append(closed["move"])
-                if closed:
-                    # One closed round trip, for the Trades page: what it was, and did it make or lose money.
-                    self.log.emit("closed", symbol=symbol, side=closed["side"], qty=round(closed["qty"], 4),
-                                  entry=round(closed["entry"], 4), exit=round(closed["exit"], 4),
-                                  move=round(closed["move"], 5), won=closed["won"],
-                                  pnl=round(closed["qty"] * closed["entry"] * closed["move"], 2))
-                orders += 1
                 why = hooks.why(votes[symbol], views.get(symbol), exposure)
-                self.log.emit("order", symbol=symbol, qty=round(qty, 4), price=round(prices[symbol], 4),
-                              score=round(score, 3), why=why, checks=notes)
-                if self.on_order:
-                    self.on_order(symbol, qty, prices[symbol], why)
+                if integrity.EXEC_NEXT_BAR and self.now is not None:
+                    # Decided on this bar's close: fill on the NEXT bar's real price, plus spread and slippage.
+                    self.queued[symbol] = {"qty": qty, "tick": self.ticks, "score": score, "why": why, "notes": notes}
+                    continue
+                orders += self._book(symbol, qty, prices[symbol], score, why, notes, self.ticks, prices[symbol],
+                                     prices[symbol])
 
         advice = self.coach.take_advice() if self.coach else None
         if advice:
@@ -564,11 +559,49 @@ class Desk:
         p = list(self.price_hist.get(symbol, ()))[-(ROUTER_FAST + 1):]
         return sum(abs(b - a) for a, b in zip(p, p[1:])) / (len(p) - 1) if len(p) > 1 else 0.0
 
+    def _fill_queued(self, prices: dict[str, float]) -> int:
+        """Fill last bar's orders at this bar's real price (EXEC_NEXT_BAR), paying half the spread plus slippage."""
+        done = 0
+        for symbol in list(self.queued):
+            order = self.queued.pop(symbol)
+            if symbol not in prices:
+                continue
+            want = order["qty"]
+            if self.risk.killed and self._adds_risk(symbol, want):
+                continue  # kill switch tripped since the decision: no new risk
+            qty, _ = self.risk.approve(symbol, want, prices)
+            if not qty:
+                continue
+            real = prices[symbol]
+            done += self._book(symbol, qty, integrity.fill_price(qty, real), order["score"], order["why"],
+                               order["notes"], order["tick"], real, real)
+        return done
+
+    def _book(self, symbol: str, qty: float, px: float, score: float, why: str, notes, decided: int,
+              low: float, high: float) -> int:
+        """Book one desk fill: broker, journal, Trades page, audit."""
+        self.integrity.check(symbol, decided, self.ticks, px, low, high, qty)
+        before = self.broker.position(symbol)
+        self.broker.fill(symbol, qty, px)
+        closed = self.journal.fill(symbol, before, qty, px, self.ticks, self.now)
+        if closed:
+            self.bucket[symbol].append(closed["move"])
+            # One closed round trip, for the Trades page: what it was, and did it make or lose money.
+            self.log.emit("closed", symbol=symbol, side=closed["side"], qty=round(closed["qty"], 4),
+                          entry=round(closed["entry"], 4), exit=round(closed["exit"], 4),
+                          move=round(closed["move"], 5), won=closed["won"],
+                          pnl=round(closed["qty"] * closed["entry"] * closed["move"], 2))
+        self.log.emit("order", symbol=symbol, qty=round(qty, 4), price=round(px, 4),
+                      score=round(score, 3), why=why, checks=notes)
+        if self.on_order:
+            self.on_order(symbol, qty, px, why)
+        return 1
+
     def _stage(self, symbol: str, qty: float, price: float, why: str = "") -> None:
         mult = PULLBACK_ATR_15M if self.bar_seconds == 900 else PULLBACK_ATR
         offset = mult * self._bar_move(symbol)
         limit = price - offset if qty > 0 else price + offset
-        self.pending[symbol] = {"qty": qty, "limit": limit, "left": PULLBACK_BARS, "why": why}
+        self.pending[symbol] = {"qty": qty, "limit": limit, "left": PULLBACK_BARS, "why": why, "tick": self.ticks}
         self.log.emit("staged", symbol=symbol, qty=round(qty, 4), limit=round(limit, 4), bars=PULLBACK_BARS)
 
     def _work_pending(self, symbol: str, prices: dict, score: float) -> int:
@@ -588,21 +621,10 @@ class Desk:
                 return 0
             if not qty:
                 return 0
-            before = self.broker.position(symbol)
-            self.broker.fill(symbol, qty, fill_px)
-            closed = self.journal.fill(symbol, before, qty, fill_px, self.ticks, self.now)
-            if closed:
-                self.bucket[symbol].append(closed["move"])
-                self.log.emit("closed", symbol=symbol, side=closed["side"], qty=round(closed["qty"], 4),
-                              entry=round(closed["entry"], 4), exit=round(closed["exit"], 4),
-                              move=round(closed["move"], 5), won=closed["won"],
-                              pnl=round(closed["qty"] * closed["entry"] * closed["move"], 2))
-            why = f"{order['why']} (pullback entry)"
-            self.log.emit("order", symbol=symbol, qty=round(qty, 4), price=round(fill_px, 4),
-                          score=round(score, 3), why=why, checks=[])
-            if self.on_order:
-                self.on_order(symbol, qty, fill_px, why)
-            return 1
+            prev = self.price_hist[symbol][-2] if len(self.price_hist[symbol]) > 1 else price
+            # A resting limit: it fills at its own price once the real price trades through it (no spread paid).
+            return self._book(symbol, qty, fill_px, score, f"{order['why']} (pullback entry)", [],
+                              order.get("tick", self.ticks - 1), min(prev, price), max(prev, price))
         order["left"] -= 1
         if order["left"] <= 0:
             self.pending.pop(symbol)  # the price ran away: no chasing

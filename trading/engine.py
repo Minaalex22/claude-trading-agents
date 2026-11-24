@@ -32,11 +32,16 @@ Configured with environment variables so the same image runs as any shard:
                 it opens a trade (trading/entry_filters.py)
   SESSION_RHYTHM "on": Asia calm (trust reversion), London breaks it (trust trend), New York finishes (default off)
   OPEN_FAKE     how to treat the first 30 minutes after London and New York open: "wait" (default), "fade" or "off"
+  HA_SHARE      share of the Entry (trend) department trading Heikin Ashi colour flips (signal only; fills real), default 0.25
   RSI2_SHARE    share of the Reversion department trading Larry Connors' RSI(2), 0..1 (default 0: tested, lower win rate)
   DUAL_BRAIN    "on" (default): each trader's slow half audits its fast half's setups (trading/dual_brain.py)
   CONSENSUS     "on" (default): desk drops whisper votes and weighs setups by sqrt(group size) (trading/desk.py)
   PULLBACK      "on" (default): new desk risk waits up to 2 bars for a 0.25 x bar-move pullback, no chasing
   BUCKET_SIZING "on" (default): each symbol's last 40 desk trades scale its size 0.25x-1.4x (risk limits still cap)
+  EXEC_NEXT_BAR "on" (default): orders decided on a bar fill on the NEXT bar's real price plus half the spread and
+                slippage (never on the close the signal read, never on a smoothed price) / "off": same-bar close
+  OPTION_FLOWS  "on" (default): 0DTE whale option prints (POST /api/option-flow) veto trades against them and
+                boost agreeing calls on SPY, QQQ and Big Tech; no effect until prints are sent in
   SNIPER        "off" (default, mina 2026-11-24: it made zero trades) / "on": A+ entries only: score 0.82, 1h-4h bars in 12-17 UTC, reversion sweep + reclaim
                 + SMT divergence + news not against; reversion agents bank 80% at +0.9R (trading/sniper.py)
   SCALE_OUT     "on" (default): agents bank half at +1.2R and lift the rest's stop to +0.15R (trading/exits.py)
@@ -173,6 +178,10 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     meta_gate.ENABLED = on("META_GATE")
     from . import sniper
     sniper.SNIPER = env.get("SNIPER", "off").lower() in ("on", "1", "true", "yes")
+    from . import execution_integrity
+    execution_integrity.EXEC_NEXT_BAR = on("EXEC_NEXT_BAR")
+    from . import option_flows
+    option_flows.OPTION_FLOWS = on("OPTION_FLOWS")
     desk_rules.Desk.meta_on = meta_gate.ENABLED
     from . import agents as agent_rules
     agent_rules.NEWS_SPLIT = on("NEWS_SPLIT")
@@ -188,6 +197,7 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     signal_gate.ENABLED = env.get("SIGNAL_GATE", "off").lower() in ("on", "1", "true", "yes")
     signal_gate.reset()
     agent_types.RSI2_SHARE = float(env.get("RSI2_SHARE", agent_types.RSI2_SHARE))
+    agent_types.HA_SHARE = float(env.get("HA_SHARE", "0.25"))
     sessions.RHYTHM_ON = env.get("SESSION_RHYTHM", "off").lower() in ("on", "1", "true", "yes")
     sessions.OPEN_FAKE = env.get("OPEN_FAKE", "wait").lower()
     entry_filters.reset()

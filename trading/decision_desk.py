@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from . import fast_gate as fg
 from . import money_rules
+from . import option_flows
 from . import smart_money
 from .atlas_sources import SYMBOL_TO_MARKET
 
@@ -54,8 +55,13 @@ def build(org: dict, trades: dict, prices: dict, sources, smart=None, pipeline_l
             fv = sources.flow.view(sym) if sources else {"ready": False}
         except Exception:  # noqa: BLE001 - a missing feed abstains, it never breaks the page
             fv = {"ready": False}
-        heads.append(fg.head_from_value("flow", fv["direction"] * max(fv["confidence"], 0.2) if fv.get("ready") else None,
-                                        1.0, why="; ".join(fv.get("reasons", [])[:2]) or "order flow"))
+        flow = fv["direction"] * max(fv["confidence"], 0.2) if fv.get("ready") else None
+        why = "; ".join(fv.get("reasons", [])[:2]) or "order flow"
+        whale, at_key = option_flows.FEED.bias(sym)
+        if whale:  # 0DTE whale option prints (SPX steers SPY, QQQ, Big Tech) join the order-flow read
+            flow = max(-1.0, min(1.0, (flow or 0.0) + whale))
+            why = f"0DTE whales {whale:+.2f}{' at key level' if at_key else ''}; {why}"
+        heads.append(fg.head_from_value("flow", flow, 1.0, why=why))
         try:
             sv = sources.street.view(SYMBOL_TO_MARKET.get(sym, sym)) if sources else {"ready": False}
         except Exception:  # noqa: BLE001
