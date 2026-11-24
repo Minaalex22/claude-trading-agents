@@ -194,6 +194,7 @@ class Coach:
         for turn in range(MAX_TURNS):
             response = self.client.beta.messages.create(
                 model=self.model, max_tokens=4096, system=SYSTEM, messages=messages, tools=TOOLS,
+                cache_control={"type": "ephemeral"},  # each turn re-reads the last one's prefix from cache
                 output_config={"effort": "medium"},
                 betas=["server-side-fallback-2026-07-01"], fallbacks="default")
             with self._lock:

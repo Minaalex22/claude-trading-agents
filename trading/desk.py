@@ -5,7 +5,7 @@ from collections import defaultdict, deque
 
 from . import agents as agents_mod
 
-from . import academy, accounts, coach as coaching, event_guard, exits, hooks, review, sessions, smt_filter, sniper
+from . import academy, accounts, coach as coaching, event_guard, execution_guard, exits, hooks, indicators, review, sessions, smt_filter, sniper
 from . import execution_integrity as integrity, option_flows
 from .meta_gate import MetaGate
 from . import mind as mindmod
@@ -128,6 +128,8 @@ class Desk:
         self.last_report: dict | None = None
         self.memory: dict | None = None  # set by the engine: {"remembered": n, "saved_tick": t}
         self.checks = {"blocked": 0, "shrunk": 0}  # pre-order checks (trading/hooks.py)
+        self.sizing = {"shrunk": 0}  # times constant-R sizing cut a symbol's cap below the flat limit
+        self.passive = execution_guard.PassiveBook()  # resting Scalper limits (trading/execution_guard.py)
         self.hour_start = 0
         self.hour_stats: dict[str, dict] = {}
         self.price_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=ROUTER_SLOW + 1))
@@ -149,6 +151,7 @@ class Desk:
     def step(self, prices: dict[str, float], headlines: list[dict] | None = None, now: float | None = None) -> None:
         """One tick. `now` is the market time (unix seconds) for live prices and backtests; None in the simulator."""
         self.ticks += 1
+        indicators.begin_tick(self.ticks)  # each symbol's rolling numbers are worked out once this tick
         if now is not None and self.now is not None and now > self.now:
             self.bar_seconds = now - self.now
         self.now = now
@@ -216,9 +219,26 @@ class Desk:
         self.risk.update(prices, now=self.now)
 
         orders = self._fill_queued(prices)
+        filled, cancelled = self.passive.step(prices) if self.passive.parked else ([], [])
+        for o in filled:  # resting Scalper limits that the price came back to: filled at the limit price
+            qty, _ = self.risk.approve(o.symbol, o.qty, {**prices, o.symbol: o.limit})
+            if qty and self._jev_ok(o.symbol, qty, o.limit):
+                prev = self.price_hist[o.symbol][-2] if len(self.price_hist[o.symbol]) > 1 else prices[o.symbol]
+                orders += self._book(o.symbol, qty, o.limit, o.score, f"{o.why} (passive limit)",
+                                     (o.notes or []) + ["passive limit filled"], self.ticks - 1,
+                                     min(prev, prices[o.symbol]), max(prev, prices[o.symbol]))
+            self.log.emit("limit", symbol=o.symbol, qty=round(o.qty, 4), limit=round(o.limit, 4), event="filled")
+        for o, reason in cancelled:
+            self.log.emit("limit", symbol=o.symbol, qty=round(o.qty, 4), limit=round(o.limit, 4), event="cancelled",
+                          reason=reason)
         for symbol in self.symbols:
             if symbol not in votes:
                 continue
+            if symbol in self.passive.parked:
+                if self.risk.killed or self.risk.stop_reason:
+                    self.passive.cancel(symbol)  # a stop or the kill switch: never leave new risk resting
+                else:
+                    continue  # a resting limit is working this symbol; wait for it to fill or cancel
             score = self._score(votes[symbol], symbol) * exposure
             score = option_flows.FEED.boost(symbol, score, self.now)  # 0DTE whale prints agreeing: x1.12-1.25
             if self.proven_only:
@@ -234,7 +254,11 @@ class Desk:
             orders += self._work_pending(symbol, prices, score)
             if self.pipeline is not None and not self.risk.killed:
                 score = self._pipeline_nudge(symbol, score)
-            target_value = score * self.risk.limits.max_position_value * self._bucket_mult(symbol) * self.orbit.heat(symbol)
+            # Constant R (trading/ops_guard.py): wide-stop markets get a smaller cap, so a stop costs the same anywhere.
+            cap = self.risk.position_cap(prices[symbol], exits.risk_unit(self.price_hist[symbol]), self.broker.equity(prices))
+            if cap < self.risk.limits.max_position_value and score:
+                self.sizing["shrunk"] += 1
+            target_value = score * cap * self._bucket_mult(symbol) * self.orbit.heat(symbol)
             desired = target_value / prices[symbol] - self.broker.position(symbol)
             if self._hurdle() and abs(target_value) > abs(self.broker.position(symbol) * prices[symbol]) \
                     and not self.risk.killed and not self._clears_costs(symbol):
@@ -285,6 +309,16 @@ class Desk:
                 symbol, self.price_hist[symbol], self.broker.fee_bps / 10_000) if self.risk.night_active else None)
             if reason:
                 self.log.emit("risk", symbol=symbol, wanted=round(desired, 4), allowed=round(qty, 4), reason=reason)
+            if (qty and execution_guard.ENABLED and not self.risk.killed and self._adds_risk(symbol, qty)
+                    and execution_guard.scalper_led(votes[symbol], qty)):
+                # A Scalper fade: rest a limit at the touch for up to 2 bars instead of crossing the spread
+                # (trading/execution_guard.py). Trend entries keep the pullback rule below.
+                o = self.passive.place(symbol, qty, prices[symbol], exits.risk_unit(self.price_hist[symbol]),
+                                       why=hooks.why(votes[symbol], views.get(symbol), exposure), score=score,
+                                       notes=notes)
+                self.log.emit("limit", symbol=symbol, qty=round(qty, 4), limit=round(o.limit, 4),
+                              price=round(prices[symbol], 4), event="placed")
+                continue
             if qty and PULLBACK and not self.risk.killed and self._adds_risk(symbol, qty):
                 # Wait for a pullback instead of chasing the bar's close. One order at a time; after one expires
                 # the desk waits as many bars again before it stages another (no chasing a runaway price).
@@ -349,6 +383,14 @@ class Desk:
                           reading_room=self.room.snapshot() if self.room else None)
         if self.ticks % LEADERBOARD_EVERY == 0:
             self.log.emit("leaderboard", tick=self.ticks, top=self.leaderboard(5))
+
+    def _jev_ok(self, symbol: str, qty: float, price: float) -> bool:
+        if not self.beta:
+            return True
+        decision = self.beta.jev.validate(self._proposal(symbol, qty, price))
+        if not decision.approved:
+            self.log.emit("jev", symbol=symbol, decision="rejected", codes=[decision.code], legs=1)
+        return decision.approved
 
     def _set_practice_pace(self) -> None:
         """Flag every trader that is behind the pace for MIN_PRACTICE_TRADES this hour."""

@@ -91,7 +91,7 @@ class ClaudeReaderTests(unittest.TestCase):
 
     def test_claude_reads_each_wording_once_and_never_blocks(self):
         fake = FakeClaude()
-        reader = ClaudeReader(fake)
+        reader = ClaudeReader(fake, batch_seconds=0)
         self.assertIsNone(reader.headline("AAPL: Trade deal signed"))  # not read yet: built-in stands in
         self.wait(lambda: reader.headline("MSFT: Trade deal signed") is not None)
         self.assertEqual(reader.headline("NVDA: Trade deal signed"), -0.9)  # same wording, other ticker: cached
@@ -100,7 +100,7 @@ class ClaudeReaderTests(unittest.TestCase):
 
     def test_claude_chart_read_is_blended_in(self):
         fake = FakeClaude()
-        reader = ClaudeReader(fake)
+        reader = ClaudeReader(fake, batch_seconds=0)
         reader.request_charts({"AAPL": trend(120, 0.0)})
         self.wait(lambda: "AAPL" in reader.charts())
         room = ReadingRoom(["AAPL"], claude=reader)
@@ -112,7 +112,7 @@ class ClaudeReaderTests(unittest.TestCase):
     def test_failed_call_keeps_the_desk_running(self):
         def boom(**kw):
             raise RuntimeError("network down")
-        reader = ClaudeReader(SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=boom))))
+        reader = ClaudeReader(SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=boom))), batch_seconds=0)
         reader.headline("AAPL: New tariffs announced")
         self.wait(lambda: reader.errors == 1)
         self.assertLess(reader.headline("AAPL: New tariffs announced"), 0)  # built-in read remembered

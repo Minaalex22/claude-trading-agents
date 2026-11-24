@@ -20,6 +20,9 @@ The checks:
 - **dead_zone**: thin-liquidity windows: no new forex or metals risk in the 21:00-23:00 UTC rollover (spreads
   widen several times), and no new US stock or index risk in the last 10 minutes before the New York close (the
   first 15 minutes are already blocked by market_clock). Crypto trades 24/7 with no rollover. DEAD_ZONE switch.
+- **rollover**: mina's spread shield (trading/ops_guard.py): no new forex, gold, index or oil risk in the NY-to-Asia
+  rollover, 21:55-23:05 UTC (07:55-09:05 AEDT), or in the last 90 minutes before the Friday close, when brokers
+  widen spreads. Stops and exits are never blocked.
 - **chasing**: no chasing: new risk more than 1.5% away from the session average, in the direction of the move,
   goes in at half size (banks and funds buy near the day's average, not far above it).
 
@@ -153,7 +156,14 @@ def against_whale(c: OrderCheck) -> tuple[float, str | None]:
     return (0.0, why) if why else (1.0, None)
 
 
-HOOKS = (symbol_paused, against_the_room, losing_streak, market_clock, dead_zone, event_guard, chasing, against_whale)
+def rollover(c: OrderCheck) -> tuple[float, str | None]:
+    from .ops_guard import rollover_blocked
+    why = rollover_blocked(c.symbol, c.now)
+    return (0.0, f"blocked: {why}") if why else (1.0, None)
+
+
+HOOKS = (symbol_paused, against_the_room, losing_streak, market_clock, dead_zone, rollover, event_guard, chasing,
+         against_whale)
 
 
 def run_hooks(c: OrderCheck, hooks=HOOKS) -> tuple[float, list[str]]:

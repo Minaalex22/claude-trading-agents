@@ -12,6 +12,7 @@ Endpoints:
   /api/state    latest tick, leaderboard, agent count per shard, ring heatmap
                 and the Jev decision desk totals (JSON)
   /jarvis       JARVIS, the owner's voice assistant with the hologram (trading/jarvis.py)
+  /api/promotion  the 3-gate live-promotion check per arm (trading/strategy_lab.py); say "sign off <arm>" to JARVIS
   /api/jarvis   GET her status; POST /api/jarvis/unlock {"passphrase"} and /api/jarvis/ask {"question"}
   /api/platforms  real platform connectors: mode and whether keys are set (names only)
   /api/mt5      MetaTrader 5 account and open positions (read only, via MetaApi cloud)
@@ -374,7 +375,9 @@ class EventHub:
                     "approval_rate": round(approved / (approved + rejected), 4) if approved + rejected else None,
                     "session_pnl": round(sum(t.get("pnl", 0) for t in ticks), 2)}
             return {"shards": shards, "agents_reporting": total, "events_seen": self.seq,
-                    "heatmap": heatmap, "jev_desk": desk, "night_shift": self.night_shift()}
+                    "heatmap": heatmap, "jev_desk": desk, "night_shift": self.night_shift(),
+                    "feed_watchdog": sorted({p for v in shards.values()
+                                             for p in ((v.get("market") or {}).get("watchdog") or {}).get("problems", [])})}
 
     def night_shift(self) -> dict | None:
         """Every shard's overnight capsule as one view (trading/night_shift.py), or None before the first report."""
@@ -808,6 +811,12 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._json(200, hub.night_shift() or {"enabled": night_clock.cfg.enabled, "active": False,
                                                       "window": "23:30 - 07:00 Melbourne", "summary": None,
                                                       "briefing": None, "budget": night_clock.cfg.budget_usd})
+            elif path == "/api/promotion":
+                from . import strategy_lab
+                self._json(200, {"arms": strategy_lab.check(list(hub.closed), hub.events_dir),
+                                 "rules": {"min_trades": strategy_lab.MIN_TRADES, "min_win_rate": strategy_lab.MIN_WIN_RATE,
+                                           "min_profit_factor": strategy_lab.MIN_PROFIT_FACTOR,
+                                           "max_drift": strategy_lab.MAX_DRIFT, "cost_bps": strategy_lab.COST_BPS}})
             elif path == "/api/trades":
                 self._send(200, json.dumps(hub.trades()).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/api/org":
@@ -1490,6 +1499,12 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             if not jarvis.questions.allowed(client):
                 return self._json(429, {"error": "Slow down a little: too many questions this minute."})
             jarvis.questions.hit(client)
+            signoff = re.fullmatch(r"\s*(sign off|withdraw)\s+([a-z]+)\s*[.!]?\s*", question.lower())
+            if signoff:  # the live-promotion check's gate 3: only the signed-in, unlocked owner can say it
+                from . import strategy_lab
+                reply = (strategy_lab.sign_off(hub.events_dir, signoff.group(2), list(hub.closed))
+                         if signoff.group(1) == "sign off" else strategy_lab.withdraw(hub.events_dir, signoff.group(2)))
+                return self._json(200, {"reply": reply, "brain": "promotion"})
             snap = snapshot(hub.org(), hub.state())
             with briefs_lock:
                 if briefs["brief"]:

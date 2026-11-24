@@ -16,7 +16,7 @@ import statistics
 from collections import deque
 from dataclasses import dataclass
 
-from . import academy, accounts, dual_brain, entry_filters, execution_integrity, exits, loss_audit, masters, mind, review, signal_gate
+from . import academy, accounts, indicators, dual_brain, entry_filters, execution_integrity, exits, loss_audit, masters, mind, review, signal_gate
 from .brain import AgentBrain
 from .reading_room import CONFIDENT
 from .org import department_sizes
@@ -393,10 +393,11 @@ class MeanReversion(Trader):
 
     def decide(self):
         prices = list(self.prices)
-        stdev = statistics.pstdev(prices)
+        st = indicators.series(self.symbol, prices)
+        stdev = st["sd"]
         if stdev == 0:
             return 0.0
-        z = (prices[-1] - statistics.fmean(prices)) / stdev
+        z = (prices[-1] - st["mean"]) / stdev
         return max(-1.0, min(1.0, -z / 2 * self.reversion_trust()))
 
 
@@ -457,7 +458,7 @@ class RegimeAnalyst(Agent):
 
     def decide(self):
         prices = list(self.prices)
-        path = sum(abs(b - a) for a, b in zip(prices, prices[1:]))
+        path = indicators.series(self.symbol, prices)["path"]
         if path == 0:
             return 0.0
         efficiency = abs(prices[-1] - prices[0]) / path
@@ -481,9 +482,7 @@ class VolatilityMonitor(Agent):
         self.vol_limit = vol_limit
 
     def decide(self):
-        prices = list(self.prices)
-        returns = [b / a - 1 for a, b in zip(prices, prices[1:])]
-        vol = statistics.pstdev(returns)
+        vol = indicators.series(self.symbol, list(self.prices))["ret_sd"]
         return max(0.0, min(1.0, self.vol_limit / vol)) if vol else 1.0
 
 

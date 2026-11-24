@@ -39,6 +39,9 @@ class RiskLimits:
     max_gross_exposure: float = 80_000.0
     max_drawdown: float = 0.10  # fraction of starting equity; breach halts trading
     max_daily_loss: float = 0.02  # fraction of the day's starting equity; breach stops new risk until tomorrow
+    # Constant-R sizing (trading/ops_guard.py): a position's stop may lose at most this share of equity. The flat
+    # dollar limits above stay as ceilings. None = flat dollar limits only (VOL_SIZING=off).
+    risk_per_trade: float | None = 0.0075
 
 
 class RiskManager:
@@ -92,6 +95,17 @@ class RiskManager:
             self.day_stopped = True
         self.killed = bool(self.kill_path and (self.kill_path.exists()
                                                or self.kill_path.with_name("STOP_TRADING").exists()))
+
+    def position_cap(self, price: float, stop_distance: float, equity: float) -> float:
+        """Largest position in dollars on a symbol: the flat limit, or less when its stop is wide (constant R).
+
+        BTC and TSLA have wider stops than EUR/USD or gold, so the same 1R loss buys them a smaller position."""
+        cap = self.limits.max_position_value
+        if not self.limits.risk_per_trade or stop_distance <= 0 or price <= 0:
+            return cap
+        from .ops_guard import compute_volatility_parity_notional
+        return compute_volatility_parity_notional(equity, price, price - stop_distance,
+                                                  self.limits.risk_per_trade, 1.0, cap)
 
     def approve(self, symbol: str, qty: float, prices: dict[str, float], audit=None) -> tuple[float, str | None]:
         """Return the allowed quantity (possibly reduced to 0) and a reason if changed.

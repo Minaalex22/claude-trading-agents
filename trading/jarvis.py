@@ -185,7 +185,8 @@ def snapshot(org: dict | None, state: dict | None) -> dict:
             "practice": org.get("practice"), "session_pnl": desk.get("session_pnl"),
             "jev": {"approved": desk.get("approved", 0), "rejected": desk.get("rejected", 0),
                     "approval_rate": desk.get("approval_rate")},
-            "platforms": platforms.status(), **_night(state.get("night_shift"))}
+            "platforms": platforms.status(), "feed_problems": state.get("feed_watchdog") or [],
+            **_night(state.get("night_shift"))}
 
 
 def _night(ns: dict | None) -> dict:
@@ -240,6 +241,11 @@ class BuiltinBrain:
             return snap.get("daily_close") or "No daily close yet. It is written at 08:15 Melbourne time. See /brief."
         if has("night shift", "overnight", "last night", "while i slept", "morning briefing", "briefing"):
             return night_answer(snap.get("night_shift"))
+        if has("feed", "stale", "frozen", "watchdog", "data ok", "prices ok"):
+            problems = snap.get("feed_problems") or []
+            if not problems:
+                return "All price and news feeds look fresh. Nothing is blocked for old prices."
+            return f"{len(problems)} feed problem{'s' if len(problems) > 1 else ''}: " + "; ".join(problems[:3]) + "."
         if has("good morning") and snap.get("night_shift_alarm_due"):
             return night_answer(snap.get("night_shift"))
         if has("hello", "hi\\b", "hey", "good morning", "good evening"):

@@ -75,6 +75,7 @@ class LiveMarket:
                  start_thread: bool = True, wait_first: float = 20.0, clock=time.time):
         self.symbols = list(symbols)
         self.poll_seconds = poll_seconds
+        self.last_poll_seconds: float | None = None
         self.fetch = fetch
         self.clock = clock
         self.prices: dict[str, float] = {}
@@ -94,6 +95,15 @@ class LiveMarket:
                 time.sleep(0.5)
 
     def poll_once(self) -> None:
+        started = time.time()
+        self._poll_once()
+        self.last_poll_seconds = time.time() - started  # the feed watchdog flags a slow feed (trading/watchdog.py)
+
+    def updated_at(self) -> dict[str, float]:
+        with self._lock:
+            return dict(self.updated)
+
+    def _poll_once(self) -> None:
         for s in self.symbols:
             try:
                 quote = self.fetch(s)

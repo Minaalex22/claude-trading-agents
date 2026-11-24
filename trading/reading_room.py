@@ -15,6 +15,15 @@ The room turns both into one view per symbol: a direction from -1 (down) to 1 (u
 filter (trading/agents.py `Agent._confirm`): no new position against a confident view, and practice trades
 open the way the view points. That is what lifts the win rate: fewer trades fighting the market's real lean.
 
+**Cheaper reads** (mina's cost fix):
+- *Free first*: when the built-in reader is already sure of a headline (|push| >= PREFILTER_SURE: routine
+  beats, misses, upgrades, plunges), its read stands and Claude is never asked. Claude only gets the unsure ones.
+- *One batch per cycle*: new headlines wait up to BATCH_SECONDS so one feed refresh becomes one Claude call.
+- *Prompt caching*: the long fixed instructions are cached for an hour (they are read at a tenth of the price on
+  every later call), and the token counts are kept in `status()["tokens"]`.
+- *Same story, other words*: a headline whose keywords match one Claude already read (trading/news_feed.py
+  `keywords`) reuses that read.
+
 Claude runs on a background thread, so a slow or failed call never holds up a tick; until Claude answers,
 the built-in reads stand. Without ANTHROPIC_API_KEY (or the `anthropic` package) only the built-in reads
 run. Paper only: nothing here can place an order.
@@ -47,6 +56,9 @@ CONFIDENT = 0.25  # a view at least this strong blocks trades against it
 CLAUDE_CHART_EVERY = 1800  # ticks between Claude's chart reads, all symbols in one call (15 min at 0.5 s ticks)
 CLAUDE_CHART_SHARE = 0.5  # how much of the chart read is Claude's, when Claude has read it
 DEFAULT_MODEL = "claude-opus-5-5"
+PREFILTER_SURE = 0.5  # the built-in read is trusted on its own at or above this strength (READING_ROOM_PREFILTER=off)
+BATCH_SECONDS = 20.0  # new headlines wait this long so they go to Claude in one call
+CACHE_TTL = "1h"  # feeds refresh every 5 minutes: a 5-minute cache would just miss
 
 # The built-in reader's finance lexicon: how the wire's phrases push a stock market. Positive is bullish.
 PHRASES = {
@@ -142,7 +154,8 @@ class ReadingRoom:
         self.now: float | None = None
         self.news_at: dict[str, float | None] = {s: None for s in self.symbols}  # when news last moved each read
         self.macro = {s: False for s in self.symbols}
-        self.read = {"headlines": 0, "by_claude": 0, "unread": 0, "claude_charts": 0}
+        self.read = {"headlines": 0, "by_claude": 0, "unread": 0, "claude_charts": 0, "free": 0}
+        self.prefilter = True  # the engine turns it off with READING_ROOM_PREFILTER=off
 
     def update(self, prices: dict[str, float], headlines: list[dict] | None = None,
                now: float | None = None) -> dict[str, View]:
@@ -196,6 +209,11 @@ class ReadingRoom:
         return self.views
 
     def _read_news(self, text: str) -> tuple[float | None, bool]:
+        if self.claude and self.prefilter:
+            built = read_headline(text)
+            if built is not None and abs(built) >= PREFILTER_SURE:
+                self.read["free"] += 1  # a routine headline: the word list is sure, no Claude tokens spent
+                return built, False
         if self.claude:
             read = self.claude.headline(text)
             if read is not None:
@@ -225,6 +243,26 @@ NEWS_SYSTEM = (
     "direction; a low base rate or a strong pre-mortem means a small direction. Examples: 'CPI hotter than "
     "forecast' -> base_rate 0.7, premortem 'already priced in after the leak', direction -0.6. 'CEO to speak at "
     "conference' -> base_rate 0.1, premortem 'routine appearance', direction 0.")
+NEWS_GUIDE = (
+    "\n\nDESK GUIDE (fixed; applies to every batch).\n"
+    "You only see the headlines our free word-list reader could not settle, so expect ambiguous, macro and "
+    "geopolitical stories rather than routine earnings beats and misses.\n"
+    "Scale: 0.8 to 1.0 only for a large genuine surprise that changes the outlook (surprise rate decision, war "
+    "breaking out or ending, a default, a major exchange hack). 0.4 to 0.7 for a clear surprise of normal size "
+    "(CPI or payrolls well away from forecast, guidance cut, big regulatory decision). 0.1 to 0.3 for a mild "
+    "tilt. 0 for opinion pieces, previews, lists, 'what to watch', interviews, price recaps of moves that "
+    "already happened, and anything the headline does not tie to the named market.\n"
+    "Asset rules: stocks and indices like growth, lower yields, trade deals and stimulus; they dislike hot "
+    "inflation, hawkish central banks, tariffs, sanctions and war. Gold rises on fear, falling real yields and "
+    "a weaker dollar. Oil rises on supply cuts, OPEC restraint and Middle East risk; falls on demand worries. "
+    "The Australian and Canadian dollars follow risk appetite and commodities (iron ore, oil) and their own "
+    "central banks. Bitcoin and other coins react to ETF flows, regulation, exchange failures and hacks, and "
+    "to global risk appetite.\n"
+    "Repeats: if two headlines in the batch tell the same story, give them the same direction; never count a "
+    "story twice by making one of them stronger.\n"
+    "Rumours: a single unnamed source, 'reportedly', 'could', 'considers' or 'in talks' halves the size.\n"
+    "Old news: a headline about something announced days ago is mostly priced in; keep it small.\n"
+    "Keep each reason under 15 words and plain. Answer every id you were given, in any order.")
 CHART_SYSTEM = (
     "You are the chart reader of a paper-trading team. For each symbol you get its recent closes (oldest "
     "first, sampled evenly) and its volatility. Read the chart like a seasoned technician: trend on the short "
@@ -298,10 +336,16 @@ class ClaudeReader:
 
     MAX_BATCH = 40
 
-    def __init__(self, client, model: str = DEFAULT_MODEL):
+    def __init__(self, client, model: str = DEFAULT_MODEL, batch_seconds: float = BATCH_SECONDS):
         self.client = client
         self.model = model
+        self.batch_seconds = batch_seconds
         self.cache: dict[str, float] = {}
+        self.by_words: dict[tuple, float] = {}  # (symbol, keywords) -> read: reworded repeats reuse it
+        self._first_pending = 0.0  # when the oldest waiting headline arrived
+        self.tokens = {"input": 0, "cache_read": 0, "cache_write": 0, "output": 0}
+        self.reused = 0
+        self._pending_words: dict[str, frozenset] = {}
         self.reasons: dict[str, str] = {}
         self._pending: list[str] = []
         self._charts: dict[str, dict] = {}
@@ -319,11 +363,19 @@ class ClaudeReader:
     # Called from the tick loop: never blocks.
     def headline(self, text: str) -> float | None:
         key = text.split(":", 1)[-1].strip()  # the wording, not the ticker: "Inflation above forecast"
+        words = _words(text)
         with self._lock:
             if key in self.cache:
                 return self.cache[key]
+            if len(words) >= 2 and words in self.by_words:
+                self.reused += 1  # the same story in other words: Claude already read it
+                self.cache[key] = self.by_words[words]
+                return self.cache[key]
             if key not in self._pending:
+                if not self._pending:
+                    self._first_pending = time.time()
                 self._pending.append(key)
+                self._pending_words[key] = words
                 self._wake.set()
         return None
 
@@ -339,6 +391,7 @@ class ClaudeReader:
     def status(self) -> dict:
         with self._lock:
             return {"claude": True, "model": self.model, "headlines_known": len(self.cache),
+                    "tokens": dict(self.tokens), "reused_reworded": self.reused,
                     "waiting": len(self._pending), "calls": self.calls, "errors": self.errors,
                     "last_error": self.last_error, "breaker_trips": self.breaker_trips,
                     "breaker_open": time.time() < self.breaker_until}
@@ -349,9 +402,20 @@ class ClaudeReader:
             self._wake.wait(timeout=5)
             self._wake.clear()
             with self._lock:
+                wait = self._first_pending + self.batch_seconds - time.time()
+                if self._pending and len(self._pending) < self.MAX_BATCH and wait > 0 and not self._chart_job:
+                    pending_wait = min(wait, 5.0)
+                else:
+                    pending_wait = 0.0
+            if pending_wait > 0:
+                time.sleep(pending_wait)  # let the rest of this feed refresh arrive: one call, not fifteen
+                self._wake.set()
+                continue
+            with self._lock:
                 batch, self._pending = self._pending[:self.MAX_BATCH], self._pending[self.MAX_BATCH:]
                 charts, self._chart_job = self._chart_job, None
                 if self._pending:
+                    self._first_pending = 0.0  # the overflow goes straight out in the next call
                     self._wake.set()
             if batch:
                 self._safely(self._read_news, batch)
@@ -392,12 +456,19 @@ class ClaudeReader:
 
     def _call(self, system: str, content: str, schema: dict) -> dict:
         response = self.client.beta.messages.create(
-            model=self.model, max_tokens=4096, system=system,
+            model=self.model, max_tokens=4096,
+            # The fixed instructions are cached: later calls read them at a tenth of the price.
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral", "ttl": CACHE_TTL}}],
             messages=[{"role": "user", "content": content}],
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema}},
             betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+        usage = getattr(response, "usage", None)
         with self._lock:
             self.calls += 1
+            if usage is not None:
+                for k, attr in (("input", "input_tokens"), ("cache_read", "cache_read_input_tokens"),
+                                ("cache_write", "cache_creation_input_tokens"), ("output", "output_tokens")):
+                    self.tokens[k] += int(getattr(usage, attr, 0) or 0)
         if response.stop_reason == "refusal":
             raise RuntimeError("refused")
         text = next(b.text for b in response.content if b.type == "text")
@@ -408,15 +479,19 @@ class ClaudeReader:
 
     def _read_news(self, batch: list[str]) -> None:
         lines = "\n".join(f"{i}. {t}" for i, t in enumerate(batch))
-        data = self._ask(NEWS_SYSTEM, f"Headlines:\n{lines}", NEWS_SCHEMA)
+        data = self._ask(NEWS_SYSTEM + NEWS_GUIDE, f"Headlines:\n{lines}", NEWS_SCHEMA)
         with self._lock:
             for r in data.get("reads", []):
                 if 0 <= r.get("id", -1) < len(batch):
                     key = batch[r["id"]]
                     self.cache[key] = max(-1.0, min(1.0, float(r["direction"])))
                     self.reasons[key] = str(r.get("why", ""))[:160]
+                    words = self._pending_words.pop(key, frozenset())
+                    if len(words) >= 2:
+                        self.by_words[words] = self.cache[key]
             for key in batch:
                 self.cache.setdefault(key, read_headline(key) or 0.0)
+                self._pending_words.pop(key, None)
 
     def _read_charts(self, histories: dict[str, list[float]]) -> None:
         rows = []
@@ -437,6 +512,13 @@ class ClaudeReader:
                                                  "support": r.get("support"), "resistance": r.get("resistance"),
                                                  "pattern": str(r.get("pattern", ""))[:40],
                                                  "why": str(r.get("why", ""))[:160]}
+
+
+def _words(text: str) -> frozenset:
+    """A headline's story keywords (ticker prefix dropped), so reworded repeats share one read."""
+    from .news_feed import keywords
+    symbol, _, rest = text.partition(":") if ":" in text else ("", "", text)
+    return keywords(rest or text, symbol.strip() or None)
 
 
 def make_reader(env=os.environ) -> ClaudeReader | None:
