@@ -8,6 +8,8 @@ from . import agents as agents_mod
 from . import academy, accounts, coach as coaching, exits, hooks, review, sessions, smt_filter, sniper
 from .meta_gate import MetaGate
 from . import mind as mindmod
+from . import night_shift
+from .orbit_portfolio import OrbitPortfolioCoordinator
 
 from .agents import REVERSION, Agent, Trader
 from .brains import BrainAlpha, BrainBeta
@@ -95,6 +97,8 @@ class Desk:
         self.proven_only = False
         self.proven_min = PROVEN_MIN
         self.proven_view: dict[str, tuple[float, int]] = {}
+        # Orbit heat (trading/orbit_portfolio.py): each arm's size follows its own recent results. ORBIT_HEAT=off.
+        self.orbit = OrbitPortfolioCoordinator.from_env(account_equity=broker.starting_cash)
         self.on_order = None  # called with (symbol, qty, price, why) after each paper fill (real-money mirror)
         self.ticks = 0
         self.news_view: dict[str, float] = {}  # per symbol, last tick's analysts' news read
@@ -204,7 +208,7 @@ class Desk:
         self.proven_view = {s: (sum(v) / len(v), len(v)) for s, v in proven.items()}
         risk_votes = [v for sym in votes.values() for v in sym["risk"]]
         exposure = sum(risk_votes) / len(risk_votes) if risk_votes else 1.0
-        self.risk.update(prices)
+        self.risk.update(prices, now=self.now)
 
         orders = 0
         for symbol in self.symbols:
@@ -224,7 +228,7 @@ class Desk:
             orders += self._work_pending(symbol, prices, score)
             if self.pipeline is not None and not self.risk.killed:
                 score = self._pipeline_nudge(symbol, score)
-            target_value = score * self.risk.limits.max_position_value * self._bucket_mult(symbol)
+            target_value = score * self.risk.limits.max_position_value * self._bucket_mult(symbol) * self.orbit.heat(symbol)
             desired = target_value / prices[symbol] - self.broker.position(symbol)
             if self._hurdle() and abs(target_value) > abs(self.broker.position(symbol) * prices[symbol]) \
                     and not self.risk.killed and not self._clears_costs(symbol):
@@ -252,7 +256,8 @@ class Desk:
                     self.log.emit("check", symbol=symbol, wanted=round(desired, 4), allowed=0.0, notes=[why])
                     continue
                 desired *= self._meta_size
-            qty, reason = self.risk.approve(symbol, desired, prices)
+            qty, reason = self.risk.approve(symbol, desired, prices, audit=night_shift.audit_from_prices(
+                symbol, self.price_hist[symbol], self.broker.fee_bps / 10_000) if self.risk.night_active else None)
             if reason:
                 self.log.emit("risk", symbol=symbol, wanted=round(desired, 4), allowed=round(qty, 4), reason=reason)
             if qty and PULLBACK and not self.risk.killed and self._adds_risk(symbol, qty):
@@ -278,6 +283,10 @@ class Desk:
                                   entry=round(closed["entry"], 4), exit=round(closed["exit"], 4),
                                   move=round(closed["move"], 5), won=closed["won"],
                                   pnl=round(closed["qty"] * closed["entry"] * closed["move"], 2))
+                    self.orbit.record_arm_result(symbol, "1h", closed["qty"] * closed["entry"] * closed["move"])
+                    if self.risk.night_active:  # the overnight capsule (trading/night_shift.py)
+                        self.risk.night_shift.record_closed_trade(
+                            symbol, closed["qty"] * closed["entry"] * closed["move"], closed["move"])
                 orders += 1
                 why = hooks.why(votes[symbol], views.get(symbol), exposure)
                 self.log.emit("order", symbol=symbol, qty=round(qty, 4), price=round(prices[symbol], 4),

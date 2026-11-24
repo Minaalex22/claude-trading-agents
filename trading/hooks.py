@@ -24,6 +24,9 @@ The checks:
 `DeskJournal` is the desk's own trade record per symbol (the agents keep their own). A trade closes when the
 desk's position goes flat or flips side. Sentinel and the Claude coach read it.
 
+`should_suppress_alert`: mina's Night Shift rule #4. No phone alert for a single trade between 23:30 and 07:00
+Melbourne time; the night is reported once, in the 07:00 briefing (trading/night_shift.py).
+
 Every order also carries `why`: one short line saying which departments pushed it and what the news and the
 chart said, so every decision can be explained afterwards. Paper only.
 """
@@ -220,3 +223,8 @@ def why(v: dict, view, exposure: float) -> str:
     if view is not None:
         parts.append(f"room {view.direction:+.2f}" + (f" ({view.why})" if getattr(view, "why", "") else ""))
     return ", ".join(parts)
+
+
+def should_suppress_alert(night_shift, now=None) -> bool:
+    """Rule #4: never wake mina for individual trades during Night Shift sleep hours."""
+    return bool(night_shift is not None and night_shift.cfg.enabled and night_shift.is_sleep_window(now))
