@@ -50,6 +50,16 @@ services:
         sync: false
       - key: METAAPI_ACCOUNT_ID  # optional: found from the token when empty
         sync: false
+      - key: METAAPI_LIVE_ACCOUNT_ID  # optional: your REAL MT5 account's id in MetaApi, used only when One account is on Live
+        sync: false
+      - key: ETORO_API_KEY       # optional: eToro public API keys (demo + real portfolio, orders by the Demo/Live switch)
+        sync: false
+      - key: ETORO_USER_KEY
+        sync: false
+      - key: LIVE_MONEY          # "on" arms the Live button on One account (you still type GO LIVE to switch)
+        sync: false
+      - key: ATAS_TOKEN          # 32+ random characters; paste the same into the JarvisFeed indicator in ATAS
+        sync: false
       - key: MT5_MODE            # demo = agents' MT5 orders go to the demo account; anything else = paper
         value: demo
       # JARVIS: set these in the Render dashboard (Environment tab). They are never in the repo.
