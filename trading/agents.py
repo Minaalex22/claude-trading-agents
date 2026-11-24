@@ -16,7 +16,7 @@ import statistics
 from collections import deque
 from dataclasses import dataclass
 
-from . import academy, accounts, entry_filters, exits, loss_audit, masters, mind, review, signal_gate
+from . import academy, accounts, dual_brain, entry_filters, exits, loss_audit, masters, mind, review, signal_gate
 from .brain import AgentBrain
 from .org import department_sizes
 
@@ -123,6 +123,7 @@ class Agent:
             value = self._confirm(value, signal)
             value = entry_filters.check(self, value, signal)  # regime, higher timeframe, volatility, meta-label
             value = signal_gate.check(self, value, signal)  # triage -> gate 0.8 -> deep read (SIGNAL_GATE=on)
+            value = dual_brain.check(self, value, signal)  # the slow half audits the fast half's setup
             self.workspace["last_vote"] = value
         if self.role == "trader" and self.must_practice:
             value = self._practice(value)
@@ -201,6 +202,8 @@ class Agent:
         if opened:
             self.workspace["entry"] = self.prices[-1]  # a new position: remember where it started (Seykota's R)
             exits.open_trade(self)
+            plan = self.workspace.get("exit_plan") or {}
+            self.workspace["last_r_pct"] = plan.get("r", 0.0) / self.prices[-1] if self.prices[-1] else 0.0
             signal = self.workspace.get("last_signal") or 0.0
             self.workspace["entry_note"] = {"edge": abs(signal), "agree": self._agreement(position),
                                             "forced": self.must_practice,
@@ -238,6 +241,8 @@ class Agent:
             row = self.workspace.setdefault("by_sure", {}).setdefault(b, [0, 0])
             row[0] += won
             row[1] += 1
+        if move:
+            dual_brain.closed(self, won, move, bool(note.get("forced")))
         if self.mind is not None and move and not note.get("forced"):
             self.mind.trade_closed(won, note.get("sure", 0.0))  # step 2 learns from its own trades
         if len(self.journal) > review.JOURNAL_MAX:

@@ -33,6 +33,7 @@ Configured with environment variables so the same image runs as any shard:
   SESSION_RHYTHM "on": Asia calm (trust reversion), London breaks it (trust trend), New York finishes (default off)
   OPEN_FAKE     how to treat the first 30 minutes after London and New York open: "wait" (default), "fade" or "off"
   RSI2_SHARE    share of the Reversion department trading Larry Connors' RSI(2), 0..1 (default 0: tested, lower win rate)
+  DUAL_BRAIN    "on" (default): each trader's slow half audits its fast half's setups (trading/dual_brain.py)
   REGIME_ROUTER "on": per symbol, mute Trend in chop and lean on it in breakouts (trading/desk.py; default on)
   TREND_EXITS   "trail": Trend trades have no 2.4R target and trail their stop 1.5R behind the best point (default; "fixed" = 2.4R target)
   ATLAS_DEEP    "on": Atlas may bench up to 60% of a department that won under 45% of its trades that hour (default on)
@@ -142,6 +143,9 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     from . import sessions
     from . import agents as agent_types, signal_gate
     desk_rules.REGIME_ROUTER = env.get("REGIME_ROUTER", "on").lower() in ("on", "1", "true", "yes")
+    from . import dual_brain
+    dual_brain.ENABLED = env.get("DUAL_BRAIN", "on").lower() in ("on", "1", "true", "yes")
+    dual_brain.reset()
     exits.TREND_TRAIL = env.get("TREND_EXITS", "trail").lower() == "trail"
     managers_rules.ATLAS_DEEP = env.get("ATLAS_DEEP", "on").lower() in ("on", "1", "true", "yes")
     desk_rules.TREND_GATE = (float(env["TREND_GATE"]) if env.get("TREND_GATE", "off") not in ("off", "") else None) if "TREND_GATE" in env else 0.25
