@@ -8,12 +8,18 @@
 <link rel="stylesheet" href="/holo-pages.css">
 <link rel="stylesheet" href="/theme.css">
 </head><body>
-<header class="ats-bar"><a class="ats-brand" href="/news"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav" aria-label="Main menu"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/btcc">BTCC</a><a href="/mitrade">Mitrade</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/jarvis">JARVIS</a><details class="ats-more"><summary>Tools</summary><div><a href="/decision">Decision</a><a href="/smart">Smart money</a><a href="/wallet">Wallet</a><a href="/calculator">Calculator</a><a href="/timemachine">Time Machine</a><a href="/audit">Audit log</a><a href="/newslab">News Lab</a><a href="/desks">24/7 desks</a></div></details><details class="ats-more"><summary>More</summary><div><a href="/">Command desk</a><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<header class="ats-bar"><a class="ats-brand" href="/news"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav" aria-label="Main menu"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/btcc">BTCC</a><a href="/mitrade">Mitrade</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/jarvis">JARVIS</a><details class="ats-more"><summary>Tools</summary><div><a href="/decision">Decision</a><a href="/smart">Smart money</a><a href="/account">One account</a><a href="/wallet">Wallet</a><a href="/calculator">Calculator</a><a href="/timemachine">Time Machine</a><a href="/audit">Audit log</a><a href="/newslab">News Lab</a><a href="/desks">24/7 desks</a></div></details><details class="ats-more"><summary>More</summary><div><a href="/">Command desk</a><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
 <script src="/nav.js"></script>
 <div class="pg pg-top"><div class="pg-head slim"><div><small>Your assistant · voice</small><h1><b>J.A.R.V.I.S.</b></h1></div><span class="pg-badge">PRACTICE MONEY · REAL MONEY LOCKED</span></div></div>
 <main>
  <section id="stage" aria-label="JARVIS hologram HUD">
   <div id="holo"></div>
+  <div id="viewbar" role="group" aria-label="Look">
+   <button type="button" data-view="avatar" aria-pressed="true">Avatar</button>
+   <button type="button" data-view="hud" aria-pressed="false">HUD</button>
+   <button type="button" id="camBtn" aria-pressed="false" title="Turn on the webcam, then pinch thumb and finger to wake JARVIS. Runs only in this browser, nothing is uploaded.">✋ Pinch to wake</button>
+  </div>
+  <div id="camPreview" aria-hidden="true"></div>
   <div id="state" class="mut">starting…</div>
  </section>
  <section id="panel">
@@ -47,5 +53,7 @@
   </div>
  </section>
 </main>
+<script src="/apex.js"></script>
 <script src="/jarvis.js"></script>
+<script type="module" src="/apex-hands.js"></script>
 </body></html>

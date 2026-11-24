@@ -2,9 +2,9 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-  const ORDER = ['sydney', 'asia', 'london', 'newyork'];
-  const NAMES = { sydney: 'Sydney', asia: 'Asia', london: 'London', newyork: 'New York' };
-  const one = (location.pathname.match(/^\/desks\/(sydney|asia|london|newyork)$/) || [])[1];
+  const ORDER = ['sydney', 'asia', 'europe', 'london', 'newyork'];
+  const NAMES = { sydney: 'Sydney', asia: 'Asia', europe: 'Europe', london: 'London', newyork: 'New York' };
+  const one = (location.pathname.match(/^\/desks\/(sydney|asia|europe|london|newyork)$/) || [])[1];
   const money = (v) => (v == null ? '–' : (v >= 0 ? '+' : '−') + '$' + Math.abs(v).toFixed(2));
   const pct = (v) => (v == null ? '–' : Math.round(v * 100) + '%');
   const mins = (m) => (m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min');

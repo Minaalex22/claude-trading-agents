@@ -99,3 +99,20 @@ class Checker(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+from tests.test_timemachine import Page as _TmPage  # noqa: E402
+
+
+class AuditPage(_TmPage):
+    test_page_api_and_ticket = None
+
+    def test_audit_page_and_api(self):
+        r, html = self.req("GET", "/audit", cookie=self.cookie)
+        self.assertEqual(r.status, 200)
+        self.assertIn(b"Audit <b>log</b>", html)
+        r, body = self.req("GET", "/api/audit", cookie=self.cookie)
+        b = json.loads(body)
+        self.assertEqual(r.status, 200)
+        for k in ("rows", "passed", "failed", "calendar", "calendar_status", "guard_on", "checker_on"):
+            self.assertIn(k, b)
