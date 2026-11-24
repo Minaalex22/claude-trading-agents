@@ -14,6 +14,12 @@
 <main>
  <section id="stage" aria-label="JARVIS hologram HUD">
   <div id="holo"></div>
+  <div id="viewbar" role="group" aria-label="Look">
+   <button type="button" data-view="avatar" aria-pressed="true">Avatar</button>
+   <button type="button" data-view="hud" aria-pressed="false">HUD</button>
+   <button type="button" id="camBtn" aria-pressed="false" title="Turn on the webcam, then pinch thumb and finger to wake JARVIS. Runs only in this browser, nothing is uploaded.">✋ Pinch to wake</button>
+  </div>
+  <div id="camPreview" aria-hidden="true"></div>
   <div id="state" class="mut">starting…</div>
  </section>
  <section id="panel">
@@ -47,5 +53,7 @@
   </div>
  </section>
 </main>
+<script src="/apex.js"></script>
 <script src="/jarvis.js"></script>
+<script type="module" src="/apex-hands.js"></script>
 </body></html>
