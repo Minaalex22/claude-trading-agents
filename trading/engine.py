@@ -37,6 +37,12 @@ Configured with environment variables so the same image runs as any shard:
   CONSENSUS     "on" (default): desk drops whisper votes and weighs setups by sqrt(group size) (trading/desk.py)
   PULLBACK      "on" (default): new desk risk waits up to 2 bars for a 0.25 x bar-move pullback, no chasing
   BUCKET_SIZING "on" (default): each symbol's last 40 desk trades scale its size 0.25x-1.4x (risk limits still cap)
+  SCALE_OUT     "on" (default): agents bank half at +1.2R and lift the rest's stop to +0.15R (trading/exits.py)
+  STALL_STOP    "on" (default): close a trade that hasn't reached +0.4R in 8 bars (12 on 15m)
+  BUCKET_CAP    "on" (default): at most 2 open positions per macro bucket (USD bloc, US tech beta, crypto)
+  SMT_FILTER    "on" (default): sister-pair divergence for reversion, confirmation for trend (trading/smt_filter.py)
+  PARENT_LOCK   "on" (default): 15m/1h entries follow the parent timeframe (4x bars)
+  META_GATE     "on" (default): walk-forward meta-label gate on desk entries (trading/meta_gate.py)
   NEWS_SPLIT    "on" (default): trend traders need agreeing news + chart; reversion is stopped only by fresh/macro news
   NEWS_TO_DESK  "on" (default, MARKET=live only): sure, two-source news pipeline reads nudge the desk; doubtful ones brake it
   DEAD_ZONE     "on" (default): no new forex/metals risk 21-23 UTC, no new US stock risk in the last 10 minutes
@@ -156,6 +162,12 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     managers_rules.ATLAS_DEEP = env.get("ATLAS_DEEP", "on").lower() in ("on", "1", "true", "yes")
     on = lambda k: env.get(k, "on").lower() in ("on", "1", "true", "yes")
     desk_rules.CONSENSUS, desk_rules.PULLBACK, desk_rules.BUCKET_SIZING = on("CONSENSUS"), on("PULLBACK"), on("BUCKET_SIZING")
+    from . import exits as exit_rules, meta_gate, risk as risk_rules, smt_filter
+    exit_rules.SCALE_OUT, exit_rules.STALL_STOP = on("SCALE_OUT"), on("STALL_STOP")
+    risk_rules.BUCKET_CAP = on("BUCKET_CAP")
+    smt_filter.SMT_FILTER, smt_filter.PARENT_LOCK = on("SMT_FILTER"), on("PARENT_LOCK")
+    meta_gate.ENABLED = on("META_GATE")
+    desk_rules.Desk.meta_on = meta_gate.ENABLED
     from . import agents as agent_rules
     agent_rules.NEWS_SPLIT = on("NEWS_SPLIT")
     from . import hooks as hook_rules

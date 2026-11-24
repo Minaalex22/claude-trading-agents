@@ -1,10 +1,12 @@
 """The coordinator: turns hundreds of agent votes into one risk-checked order per symbol."""
 
+import math
 from collections import defaultdict, deque
 
 from . import agents as agents_mod
 
-from . import academy, accounts, coach as coaching, hooks, review, sessions
+from . import academy, accounts, coach as coaching, exits, hooks, review, sessions, smt_filter
+from .meta_gate import MetaGate
 from . import mind as mindmod
 
 from .agents import REVERSION, Agent, Trader
@@ -119,6 +121,8 @@ class Desk:
         self.hour_start = 0
         self.hour_stats: dict[str, dict] = {}
         self.price_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=ROUTER_SLOW + 1))
+        self.long_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=smt_filter.PARENT_X * 60 + 1))
+        self.meta = MetaGate()  # walk-forward meta-label gate on desk entries (trading/meta_gate.py)
         self.regime: dict[str, str] = {}
         self.pipeline = None  # live feeds: a NewsPipeline whose sure, confirmed reads nudge the desk (engine)
         self.lead_style: dict[str, str] = {}
@@ -142,6 +146,9 @@ class Desk:
         self.last_prices = dict(prices)
         for symbol, price in prices.items():
             self.price_hist[symbol].append(price)
+            self.long_hist[symbol].append(price)
+        exits.BAR_SECONDS = self.bar_seconds
+        self.meta.update(prices)
         if self.beta:
             self.beta.begin()
         views = self.room.update(prices, headlines, now) if self.room else {}
@@ -228,6 +235,13 @@ class Desk:
                               notes=notes)
             if abs(desired * prices[symbol]) < self.min_trade and not (self.risk.killed and desired):
                 continue
+            if not self.risk.killed and self._adds_risk(symbol, desired):
+                why = self._entry_gate(symbol, desired, prices, score)
+                if why:
+                    self.checks["blocked"] += 1
+                    self.log.emit("check", symbol=symbol, wanted=round(desired, 4), allowed=0.0, notes=[why])
+                    continue
+                desired *= self._meta_size
             qty, reason = self.risk.approve(symbol, desired, prices)
             if reason:
                 self.log.emit("risk", symbol=symbol, wanted=round(desired, 4), allowed=round(qty, 4), reason=reason)
@@ -469,6 +483,50 @@ class Desk:
         if er < ROUTER_CHOP and ratio < 1.0:
             return "chop"
         return "transition"
+
+    def _entry_gate(self, symbol: str, qty: float, prices: dict, score: float) -> str | None:
+        """New desk risk: sister-pair SMT, the parent-timeframe lock, then the meta-label gate.
+        Returns why it is blocked; sets self._meta_size (1, or SIZE_UP) when it passes."""
+        self._meta_size = 1.0
+        side = 1.0 if self.broker.position(symbol) + qty > 0 else -1.0
+        style = self.lead_style.get(symbol, "trend")
+        hist = {s: list(d) for s, d in self.long_hist.items()}
+        mine = hist.get(symbol, [])
+        smt_why = smt_filter.smt(symbol, style, side, hist)
+        parent_why = smt_filter.parent(symbol, style, side, mine, self.bar_seconds)
+        if not self.meta_on:
+            return smt_why or parent_why
+        x = self._meta_features(symbol, side, style, score, mine, smt_why, parent_why)
+        if not any(e["symbol"] == symbol for e in self.meta.open):
+            self.meta.note(symbol, side, prices[symbol], exits.risk_unit(mine[-(ROUTER_SLOW + 1):]), x)
+        if smt_why or parent_why:
+            return smt_why or parent_why
+        size = self.meta.size(x)
+        if not size:
+            return f"blocked: meta-label gate, P(+{self.meta_win_r}R first) under {self.meta_veto}"
+        self._meta_size = size
+        return None
+
+    meta_on = True
+    meta_win_r, meta_veto = 1.2, 0.56
+
+    def _meta_features(self, symbol, side, style, score, mine, smt_why, parent_why) -> list[float]:
+        from datetime import datetime, timezone
+
+        moves = [abs(b - a) for a, b in zip(mine, mine[1:])] or [0.0]
+        recent = sum(moves[-14:]) / len(moves[-14:])
+        pct = sum(1 for m in moves if m <= recent) / len(moves)
+        price = mine[-1] if mine else 1.0
+        spread = price * 2 * accounts.COST_BPS / 10_000
+        tv = (self.tagged.get(symbol) or {}).get(style, [])
+        setups = len({t for t, v in tv if abs(v) >= WHISPER})
+        hour = datetime.fromtimestamp(self.now, timezone.utc).hour if self.now is not None else self.ticks % 24
+        seg = mine[-15:]
+        path = sum(abs(b - a) for a, b in zip(seg, seg[1:])) or 1e-12
+        er = abs(seg[-1] - seg[0]) / path if len(seg) > 1 else 0.0
+        return [abs(score), float(setups), pct, spread / recent if recent else 0.0, 0.0 if smt_why else 1.0,
+                0.0 if parent_why else 1.0, math.sin(hour / 24 * 2 * math.pi), math.cos(hour / 24 * 2 * math.pi),
+                1.0 if style == "reversion" else 0.0, er]
 
     def _pipeline_nudge(self, symbol: str, score: float) -> float:
         """Live feeds only: the news pipeline's lean counts when it is sure (>= PIPE_CONF) and two sources

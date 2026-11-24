@@ -192,12 +192,22 @@ class Agent:
         """Exit discipline (trading/exits.py): stop at 1R, breakeven after +1R, target 2.4R, time exit."""
         exits.tick_cooldown(self)
         reason = exits.check(self)
+        if reason == "scale":
+            # Bank half: keep SCALE_SHARE of the position (less, if the vote already wants less).
+            w = self.workspace
+            w["exits"] = {**w.get("exits", {}), "scale": w.get("exits", {}).get("scale", 0) + 1}
+            keep = self.position * (1 - exits.SCALE_SHARE)
+            w["exit_plan"]["cap"] = abs(keep)
+            return keep if value * self.position > 0 and abs(value) >= abs(keep) else value
         if reason:
             exits.record(self, reason)
             self.workspace["exit_reason"] = reason
             return 0.0
         if exits.ENABLED and not self.position and exits.blocked(self, value):
             return 0.0  # cooling down after a stop: no revenge trade on the same side
+        cap = (self.workspace.get("exit_plan") or {}).get("cap")
+        if cap is not None and not self.must_practice and self.position and value * self.position > 0 and abs(value) > cap:
+            return cap if value > 0 else -cap  # after banking half, don't build the position back up
         return value
 
     def _held(self) -> None:

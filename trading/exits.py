@@ -39,7 +39,16 @@ TREND_BREAKEVEN_R = 1.5  # ... and breakeven, then the trail, only from +1.5R
 COOLDOWNS = {"trend": 3, "reversion": 2}  # bars before reopening the same side after a stop
 MIN_R = 1e-4  # as a fraction of price, so a flat window still gives a usable stop
 
-REASONS = ("stop", "breakeven", "target", "time")
+# Bank half at +1.2R (env SCALE_OUT): close 50% and lift the stop on the rest to +0.15R (fees + slippage), so a
+# trade that reached +1.2R ends a winner. Stall stop (env STALL_STOP): a trade that hasn't reached +0.4R after
+# STALL_BARS bars (12 on 15-minute bars) is closed. BAR_SECONDS is set by the desk from the feed's bar length.
+SCALE_OUT = True
+SCALE_AT_R, SCALE_SHARE, SCALE_STOP_R = 1.2, 0.5, 0.15
+STALL_STOP = True
+STALL_R, STALL_BARS, STALL_BARS_15M = 0.4, 8, 12
+BAR_SECONDS: float | None = None
+
+REASONS = ("stop", "breakeven", "target", "time", "stall")
 
 
 def risk_unit(prices) -> float:
@@ -79,12 +88,19 @@ def check(agent) -> str | None:
         plan["stop_r"] = 0.0  # breakeven: this trade can no longer lose
     if trail and plan["best_r"] >= TREND_BREAKEVEN_R:
         plan["stop_r"] = max(plan["stop_r"], plan["best_r"] - TRAIL_R)
+    if SCALE_OUT and not agent.must_practice and not plan.get("scaled") and now_r >= SCALE_AT_R:
+        plan["scaled"] = True
+        plan["stop_r"] = max(plan["stop_r"], SCALE_STOP_R)
+        return "scale"  # bank half (agents.py keeps the other half)
     if not trail and now_r >= TARGET_R:
         return "target"
     if now_r <= plan["stop_r"]:
         return "breakeven" if plan["stop_r"] >= 0 else "stop"
     if plan["held"] >= MAX_HOLD_WINDOWS * agent.window and now_r <= 0:
         return "time"
+    if STALL_STOP and plan["held"] >= (STALL_BARS_15M if BAR_SECONDS == 900 else STALL_BARS) \
+            and plan["best_r"] < STALL_R:
+        return "stall"
     return None
 
 

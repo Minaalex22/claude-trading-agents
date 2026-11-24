@@ -10,6 +10,9 @@ class ExitTests(unittest.TestCase):
         self.addCleanup(setattr, exits, "TREND_TRAIL", exits.TREND_TRAIL)
         exits.ENABLED = True
         exits.TREND_TRAIL = False  # the fixed template; the trend trail has its own test
+        for k in ("SCALE_OUT", "STALL_STOP"):  # batch 5 exits have their own tests (tests/test_batch5.py)
+            self.addCleanup(setattr, exits, k, getattr(exits, k))
+            setattr(exits, k, False)
 
     def _long(self, prices):
         t = Momentum("m", "X", 5)
