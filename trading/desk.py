@@ -1,8 +1,13 @@
 """The coordinator: turns hundreds of agent votes into one risk-checked order per symbol."""
 
+import math
 from collections import defaultdict, deque
 
-from . import academy, accounts, coach as coaching, event_guard, hooks, review, sessions
+from . import agents as agents_mod
+
+from . import academy, accounts, coach as coaching, event_guard, exits, hooks, review, sessions, smt_filter, sniper
+from . import execution_integrity as integrity, option_flows
+from .meta_gate import MetaGate
 from . import mind as mindmod
 from . import night_shift
 from .orbit_portfolio import OrbitPortfolioCoordinator
@@ -15,7 +20,12 @@ from .managers import Managers
 from .org import manager_reports, summarize
 from .risk import RiskManager
 
-SIGNAL_THRESHOLD = 0.5  # tuned on real 2024-25 hourly prices; weaker calls cost more than they earned
+SIGNAL_THRESHOLD = 0.72  # mina: A+ multi-cluster calls only (was 0.5); env SIGNAL_THRESHOLD; Sniper mode opens at 0.82
+# Horizon lock (env HORIZON_LOCK): a style's fast agents (5-20 bar look-back) can't move the desk alone. Fast votes
+# (|v| >= 0.30) count only with medium/slow ones (21+ bars, |v| >= 0.25) agreeing: 0.45 fast + 0.55 medium/slow;
+# medium/slow alone count 0.85x; fast alone or the two disagreeing: no call from that style.
+HORIZON_LOCK = True
+FAST_MAX_WINDOW = 20
 MIN_TRADE = 5000.0
 PROVEN_MIN = 3  # proven agents needed on a symbol before their view counts
 LEADERBOARD_EVERY = 20
@@ -48,6 +58,22 @@ FRICTION_SIM = 2.0  # the simulator has no clock
 # Analysts' trend gate (env TREND_GATE, default 0.25; "off" disables): when the analysts' regime vote is below it,
 # the desk doesn't listen to Trend at all on that symbol and Reversion drives.
 TREND_GATE: float | None = 0.25
+# Diverse consensus (env CONSENSUS): whisper votes (under WHISPER) are dropped, the rest are grouped by setup
+# (strategy kind + market type) and each group counts sqrt(its size), so 200 clones of one idea can't outvote
+# independent strategies agreeing; a single-setup call is cut to SINGLE_SETUP.
+CONSENSUS = True
+WHISPER = 0.35
+SINGLE_SETUP = 0.72
+# Pullback entries (env PULLBACK): new desk risk waits for a pullback of PULLBACK_ATR x the average bar move
+# (0.15 on 15-minute bars) for PULLBACK_BARS bars; if the price runs away, the desk doesn't chase.
+PULLBACK = True
+PULLBACK_ATR, PULLBACK_ATR_15M, PULLBACK_BARS = 0.25, 0.15, 2
+# Bucket sizing (env BUCKET_SIZING): each symbol's last 40 closed desk trades set its size: under 8 trades x0.75,
+# expectancy at or under 0.05R x0.25, at least 0.35R with a 58%+ win rate x1.4, else x1. Risk limits still cap it.
+BUCKET_SIZING = True
+# News pipeline into the desk (env NEWS_TO_DESK, live feeds only): sure (>= 0.8) and two-source confirmed reads add
+# PIPE_WEIGHT x their lean to the desk's score; an open human-queue read under 0.6 halves exposure in that symbol.
+PIPE_CONF, PIPE_DOUBT, PIPE_WEIGHT, PIPE_BRAKE = 0.8, 0.6, 0.25, 0.5
 MIN_PRACTICE_TRADES = 20  # every strategy trader makes at least this many practice trades per hour
 
 
@@ -105,7 +131,17 @@ class Desk:
         self.hour_start = 0
         self.hour_stats: dict[str, dict] = {}
         self.price_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=ROUTER_SLOW + 1))
+        self.long_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=smt_filter.PARENT_X * 60 + 1))
+        self.meta = MetaGate()  # walk-forward meta-label gate on desk entries (trading/meta_gate.py)
         self.regime: dict[str, str] = {}
+        self.pipeline = None  # live feeds: a NewsPipeline whose sure, confirmed reads nudge the desk (engine)
+        self.lead_style: dict[str, str] = {}
+        self.pending: dict[str, dict] = {}  # pullback entries waiting for their price
+        self.queued: dict[str, dict] = {}  # orders decided last bar, filled on this bar's real price
+        self.integrity = integrity.FillAudit()
+        self.pending_cool: dict[str, int] = {}
+        self.bucket: dict[str, deque] = defaultdict(lambda: deque(maxlen=40))  # closed desk trade moves per symbol
+        self.tagged: dict[str, dict[str, list]] = {}
         self.bar_seconds: float | None = None  # time between market ticks, for the cost hurdle
         self.calendar = None  # event_guard.Calendar (live markets): earnings + big economic news
         self.checker = None  # trade_checker.TradeChecker: Sentinel's written PASS/FAIL + audit log
@@ -124,11 +160,18 @@ class Desk:
         self.last_prices = dict(prices)
         for symbol, price in prices.items():
             self.price_hist[symbol].append(price)
+            self.long_hist[symbol].append(price)
+        exits.BAR_SECONDS = self.bar_seconds
+        self.meta.update(prices)
         if self.beta:
             self.beta.begin()
-        views = self.room.update(prices, headlines) if self.room else {}
+        views = self.room.update(prices, headlines, now) if self.room else {}
+        if self.pipeline is not None and headlines:
+            self.pipeline.feed(headlines, {k: {"news": v.news, "chart": v.chart} for k, v in views.items()}, now)
         votes = defaultdict(lambda: {"trend": [], "reversion": [], "analyst": [], "risk": [], "macro": []})
         agent_votes: dict[str, float] = {}
+        tagged = defaultdict(lambda: {"trend": [], "reversion": []})
+        horizons = defaultdict(lambda: {k: {"fast": [], "higher": []} for k in ("trend", "reversion")})
         proven = defaultdict(list)
         self._set_practice_pace()
         by_symbol = defaultdict(list)
@@ -154,32 +197,44 @@ class Desk:
                 continue  # benched by its manager: it keeps practising, but its vote doesn't count this hour
             agent_votes[agent.agent_id] = vote.value
             if isinstance(agent, Trader):
-                votes[agent.symbol]["reversion" if agent.style == REVERSION else "trend"].append(vote.value)
+                style = "reversion" if agent.style == REVERSION else "trend"
+                votes[agent.symbol][style].append(vote.value)
+                tag = f"{getattr(agent, 'kind', type(agent).__name__)}:{agent.workspace.get('dual_tag', '').split(':')[-1]}"
+                tagged[agent.symbol][style].append((tag, vote.value))
+                horizons[agent.symbol][style]["fast" if agent.window <= FAST_MAX_WINDOW else "higher"].append(vote.value)
                 if accounts.proven(agent.account):
                     proven[agent.symbol].append(vote.value)
             else:
                 votes[agent.symbol][vote.role].append(vote.value)
 
+        self.tagged = tagged
+        self.horizons = horizons
         self.news_view = {s: sum(v["macro"]) / len(v["macro"]) for s, v in votes.items() if v["macro"]}
         self.proven_view = {s: (sum(v) / len(v), len(v)) for s, v in proven.items()}
         risk_votes = [v for sym in votes.values() for v in sym["risk"]]
         exposure = sum(risk_votes) / len(risk_votes) if risk_votes else 1.0
         self.risk.update(prices, now=self.now)
 
-        orders = 0
+        orders = self._fill_queued(prices)
         for symbol in self.symbols:
             if symbol not in votes:
                 continue
             score = self._score(votes[symbol], symbol) * exposure
+            score = option_flows.FEED.boost(symbol, score, self.now)  # 0DTE whale prints agreeing: x1.12-1.25
             if self.proven_only:
                 # Only agents with a proven record steer: no trade on a symbol without enough of them.
                 view, n = self.proven_view.get(symbol, (0.0, 0))
                 score = view * exposure if n >= self.proven_min else 0.0
             if abs(score) < self.signal_threshold:
                 score = 0.0
+            if sniper.active(self.bar_seconds) and self.broker.position(symbol) * score <= 0 and abs(score) < sniper.bar():
+                score = 0.0  # sniper: opening (or flipping) needs 0.82; holding keeps the 0.5 bar
             if self.risk.killed:
                 score = 0.0  # kill switch: close everything
-            target_value = score * self.risk.limits.max_position_value * self.orbit.heat(symbol)
+            orders += self._work_pending(symbol, prices, score)
+            if self.pipeline is not None and not self.risk.killed:
+                score = self._pipeline_nudge(symbol, score)
+            target_value = score * self.risk.limits.max_position_value * self._bucket_mult(symbol) * self.orbit.heat(symbol)
             desired = target_value / prices[symbol] - self.broker.position(symbol)
             if self._hurdle() and abs(target_value) > abs(self.broker.position(symbol) * prices[symbol]) \
                     and not self.risk.killed and not self._clears_costs(symbol):
@@ -193,6 +248,7 @@ class Desk:
                                      cooling=self.journal.cooling(symbol, self.ticks, self.now, max(1, (self.hour_ticks or 7200) // 12)),
                                      session_avg=self.session_avg.get(symbol) if self.clock else None,
                                      events=self.calendar.snapshot() if self.calendar and self.now else None,
+                                     style=self.lead_style.get(symbol, "") if agents_mod.NEWS_SPLIT else "",
                                      now=self.now)
             desired, notes = hooks.run_hooks(check)
             if notes:
@@ -201,9 +257,13 @@ class Desk:
                               notes=notes)
             if abs(desired * prices[symbol]) < self.min_trade and not (self.risk.killed and desired):
                 continue
-            if self.checker and not self.risk.killed:
-                after = check.position + desired
-                if abs(after) > abs(check.position) or (after and check.position and (after > 0) != (check.position > 0)):
+            if not self.risk.killed and self._adds_risk(symbol, desired):
+                why = self._entry_gate(symbol, desired, prices, score)
+                if why:
+                    self.checks["blocked"] += 1
+                    self.log.emit("check", symbol=symbol, wanted=round(desired, 4), allowed=0.0, notes=[why])
+                    continue
+                if self.checker:
                     ev_ok, ev_reason = True, "PASS"
                     if check.events and self.now is not None:
                         from datetime import datetime, timezone
@@ -220,35 +280,30 @@ class Desk:
                         self.checks["blocked"] += 1
                         self.log.emit("checker", symbol=symbol, wanted=round(desired, 4), verdict=rec.verdict)
                         continue
+                desired *= self._meta_size
             qty, reason = self.risk.approve(symbol, desired, prices, audit=night_shift.audit_from_prices(
                 symbol, self.price_hist[symbol], self.broker.fee_bps / 10_000) if self.risk.night_active else None)
             if reason:
                 self.log.emit("risk", symbol=symbol, wanted=round(desired, 4), allowed=round(qty, 4), reason=reason)
+            if qty and PULLBACK and not self.risk.killed and self._adds_risk(symbol, qty):
+                # Wait for a pullback instead of chasing the bar's close. One order at a time; after one expires
+                # the desk waits as many bars again before it stages another (no chasing a runaway price).
+                if symbol not in self.pending and self.ticks >= self.pending_cool.get(symbol, 0):
+                    self._stage(symbol, qty, prices[symbol], hooks.why(votes[symbol], views.get(symbol), exposure))
+                continue
             if qty and self.beta:
                 decision = self.beta.jev.validate(self._proposal(symbol, qty, prices[symbol]))
                 if not decision.approved:
                     self.log.emit("jev", symbol=symbol, decision="rejected", codes=[decision.code], legs=1)
                     continue
             if qty:
-                before = self.broker.position(symbol)
-                self.broker.fill(symbol, qty, prices[symbol])
-                closed = self.journal.fill(symbol, before, qty, prices[symbol], self.ticks, self.now)
-                if closed:
-                    # One closed round trip, for the Trades page: what it was, and did it make or lose money.
-                    self.log.emit("closed", symbol=symbol, side=closed["side"], qty=round(closed["qty"], 4),
-                                  entry=round(closed["entry"], 4), exit=round(closed["exit"], 4),
-                                  move=round(closed["move"], 5), won=closed["won"],
-                                  pnl=round(closed["qty"] * closed["entry"] * closed["move"], 2))
-                    self.orbit.record_arm_result(symbol, "1h", closed["qty"] * closed["entry"] * closed["move"])
-                    if self.risk.night_active:  # the overnight capsule (trading/night_shift.py)
-                        self.risk.night_shift.record_closed_trade(
-                            symbol, closed["qty"] * closed["entry"] * closed["move"], closed["move"])
-                orders += 1
                 why = hooks.why(votes[symbol], views.get(symbol), exposure)
-                self.log.emit("order", symbol=symbol, qty=round(qty, 4), price=round(prices[symbol], 4),
-                              score=round(score, 3), why=why, checks=notes)
-                if self.on_order:
-                    self.on_order(symbol, qty, prices[symbol], why)
+                if integrity.EXEC_NEXT_BAR and self.now is not None:
+                    # Decided on this bar's close: fill on the NEXT bar's real price, plus spread and slippage.
+                    self.queued[symbol] = {"qty": qty, "tick": self.ticks, "score": score, "why": why, "notes": notes}
+                    continue
+                orders += self._book(symbol, qty, prices[symbol], score, why, notes, self.ticks, prices[symbol],
+                                     prices[symbol])
 
         advice = self.coach.take_advice() if self.coach else None
         if advice:
@@ -459,9 +514,211 @@ class Desk:
             return "chop"
         return "transition"
 
+    def _entry_gate(self, symbol: str, qty: float, prices: dict, score: float) -> str | None:
+        """New desk risk: sister-pair SMT, the parent-timeframe lock, then the meta-label gate.
+        Returns why it is blocked; sets self._meta_size (1, or SIZE_UP) when it passes."""
+        self._meta_size = 1.0
+        side = 1.0 if self.broker.position(symbol) + qty > 0 else -1.0
+        style = self.lead_style.get(symbol, "trend")
+        hist = {s: list(d) for s, d in self.long_hist.items()}
+        mine = hist.get(symbol, [])
+        if sniper.active(self.bar_seconds):
+            from datetime import datetime, timezone
+            hour = datetime.fromtimestamp(self.now, timezone.utc).hour if self.now is not None else None
+            view = self.room.views.get(symbol) if self.room else None
+            why = sniper.gate(symbol, style, side, score, hist, view, self.bar_seconds, hour)
+            if why:
+                return why
+        smt_why = smt_filter.smt(symbol, style, side, hist)
+        parent_why = smt_filter.parent(symbol, style, side, mine, self.bar_seconds)
+        if not self.meta_on:
+            return smt_why or parent_why
+        x = self._meta_features(symbol, side, style, score, mine, smt_why, parent_why)
+        if not any(e["symbol"] == symbol for e in self.meta.open):
+            self.meta.note(symbol, side, prices[symbol], exits.risk_unit(mine[-(ROUTER_SLOW + 1):]), x)
+        if smt_why or parent_why:
+            return smt_why or parent_why
+        size = self.meta.size(x)
+        if not size:
+            return f"blocked: meta-label gate, P(+{self.meta_win_r}R first) under {self.meta_veto}"
+        self._meta_size = size
+        return None
+
+    meta_on = True
+    meta_win_r, meta_veto = 1.2, 0.56
+
+    def _meta_features(self, symbol, side, style, score, mine, smt_why, parent_why) -> list[float]:
+        from datetime import datetime, timezone
+
+        moves = [abs(b - a) for a, b in zip(mine, mine[1:])] or [0.0]
+        recent = sum(moves[-14:]) / len(moves[-14:])
+        pct = sum(1 for m in moves if m <= recent) / len(moves)
+        price = mine[-1] if mine else 1.0
+        spread = price * 2 * accounts.COST_BPS / 10_000
+        tv = (self.tagged.get(symbol) or {}).get(style, [])
+        setups = len({t for t, v in tv if abs(v) >= WHISPER})
+        hour = datetime.fromtimestamp(self.now, timezone.utc).hour if self.now is not None else self.ticks % 24
+        seg = mine[-15:]
+        path = sum(abs(b - a) for a, b in zip(seg, seg[1:])) or 1e-12
+        er = abs(seg[-1] - seg[0]) / path if len(seg) > 1 else 0.0
+        return [abs(score), float(setups), pct, spread / recent if recent else 0.0, 0.0 if smt_why else 1.0,
+                0.0 if parent_why else 1.0, math.sin(hour / 24 * 2 * math.pi), math.cos(hour / 24 * 2 * math.pi),
+                1.0 if style == "reversion" else 0.0, er]
+
+    def _pipeline_nudge(self, symbol: str, score: float) -> float:
+        """Live feeds only: the news pipeline's lean counts when it is sure (>= PIPE_CONF) and two sources
+        confirmed the story; while a doubtful read (< PIPE_DOUBT) waits for a human, exposure is halved."""
+        lean = self.pipeline.desk_lean(symbol, self.now, PIPE_CONF)
+        if lean is not None:
+            score = max(-1.0, min(1.0, score + PIPE_WEIGHT * lean))
+        if self.pipeline.doubtful(symbol, self.now, PIPE_DOUBT):
+            score *= PIPE_BRAKE
+        return score
+
+    def _adds_risk(self, symbol: str, qty: float) -> bool:
+        before = self.broker.position(symbol)
+        after = before + qty
+        return abs(after) > abs(before) or bool(after and before and (after > 0) != (before > 0))
+
+    def _bar_move(self, symbol: str) -> float:
+        p = list(self.price_hist.get(symbol, ()))[-(ROUTER_FAST + 1):]
+        return sum(abs(b - a) for a, b in zip(p, p[1:])) / (len(p) - 1) if len(p) > 1 else 0.0
+
+    def _fill_queued(self, prices: dict[str, float]) -> int:
+        """Fill last bar's orders at this bar's real price (EXEC_NEXT_BAR), paying half the spread plus slippage."""
+        done = 0
+        for symbol in list(self.queued):
+            order = self.queued.pop(symbol)
+            if symbol not in prices:
+                continue
+            want = order["qty"]
+            if self.risk.killed and self._adds_risk(symbol, want):
+                continue  # kill switch tripped since the decision: no new risk
+            qty, _ = self.risk.approve(symbol, want, prices)
+            if not qty:
+                continue
+            real = prices[symbol]
+            done += self._book(symbol, qty, integrity.fill_price(qty, real), order["score"], order["why"],
+                               order["notes"], order["tick"], real, real)
+        return done
+
+    def _book(self, symbol: str, qty: float, px: float, score: float, why: str, notes, decided: int,
+              low: float, high: float) -> int:
+        """Book one desk fill: broker, journal, Trades page, audit."""
+        self.integrity.check(symbol, decided, self.ticks, px, low, high, qty)
+        before = self.broker.position(symbol)
+        self.broker.fill(symbol, qty, px)
+        closed = self.journal.fill(symbol, before, qty, px, self.ticks, self.now)
+        if closed:
+            self.bucket[symbol].append(closed["move"])
+            # One closed round trip, for the Trades page: what it was, and did it make or lose money.
+            self.log.emit("closed", symbol=symbol, side=closed["side"], qty=round(closed["qty"], 4),
+                          entry=round(closed["entry"], 4), exit=round(closed["exit"], 4),
+                          move=round(closed["move"], 5), won=closed["won"],
+                          pnl=round(closed["qty"] * closed["entry"] * closed["move"], 2))
+            self.orbit.record_arm_result(symbol, "1h", closed["qty"] * closed["entry"] * closed["move"])
+            if self.risk.night_active:  # the overnight capsule (trading/night_shift.py)
+                self.risk.night_shift.record_closed_trade(
+                    symbol, closed["qty"] * closed["entry"] * closed["move"], closed["move"])
+        self.log.emit("order", symbol=symbol, qty=round(qty, 4), price=round(px, 4),
+                      score=round(score, 3), why=why, checks=notes)
+        if self.on_order:
+            self.on_order(symbol, qty, px, why)
+        return 1
+
+    def _stage(self, symbol: str, qty: float, price: float, why: str = "") -> None:
+        mult = PULLBACK_ATR_15M if self.bar_seconds == 900 else PULLBACK_ATR
+        offset = mult * self._bar_move(symbol)
+        limit = price - offset if qty > 0 else price + offset
+        self.pending[symbol] = {"qty": qty, "limit": limit, "left": PULLBACK_BARS, "why": why, "tick": self.ticks}
+        self.log.emit("staged", symbol=symbol, qty=round(qty, 4), limit=round(limit, 4), bars=PULLBACK_BARS)
+
+    def _work_pending(self, symbol: str, prices: dict, score: float) -> int:
+        """Fill a staged pullback entry if the price came to it; drop it when it expires or the call flips."""
+        order = self.pending.get(symbol)
+        if not order:
+            return 0
+        price = prices[symbol]
+        if self.risk.killed or score * order["qty"] <= 0:
+            self.pending.pop(symbol)
+            return 0
+        if (order["qty"] > 0 and price <= order["limit"]) or (order["qty"] < 0 and price >= order["limit"]):
+            self.pending.pop(symbol)
+            fill_px = order["limit"]
+            qty, _ = self.risk.approve(symbol, order["qty"], {**prices, symbol: fill_px})
+            if qty and self.beta and not self.beta.jev.validate(self._proposal(symbol, qty, fill_px)).approved:
+                return 0
+            if not qty:
+                return 0
+            prev = self.price_hist[symbol][-2] if len(self.price_hist[symbol]) > 1 else price
+            # A resting limit: it fills at its own price once the real price trades through it (no spread paid).
+            return self._book(symbol, qty, fill_px, score, f"{order['why']} (pullback entry)", [],
+                              order.get("tick", self.ticks - 1), min(prev, price), max(prev, price))
+        order["left"] -= 1
+        if order["left"] <= 0:
+            self.pending.pop(symbol)  # the price ran away: no chasing
+            self.pending_cool[symbol] = self.ticks + PULLBACK_BARS
+        return 0
+
+    def _bucket_mult(self, symbol: str) -> float:
+        if not BUCKET_SIZING:
+            return 1.0
+        moves = list(self.bucket.get(symbol, ()))
+        if len(moves) < 8:
+            return 0.75
+        wins = [m for m in moves if m > 0]
+        losses = [-m for m in moves if m <= 0]
+        p = len(wins) / len(moves)
+        avg_win = sum(wins) / len(wins) if wins else 0.0
+        avg_loss = sum(losses) / len(losses) if losses and sum(losses) else (avg_win or 1e-9)
+        exp_r = (p * avg_win - (1 - p) * avg_loss) / avg_loss
+        if exp_r <= 0.05:
+            return 0.25
+        if exp_r >= 0.35 and p >= 0.58:
+            return 1.4
+        return 1.0
+
+    @staticmethod
+    def _horizon_vote(h: dict, value: float) -> float:
+        """mina's fast + medium/slow agreement. With CONSENSUS on, the consensus value stands when it agrees
+        with the horizon-vetted vote, else the style says nothing."""
+        fast = [x for x in h["fast"] if abs(x) >= 0.30]
+        higher = [x for x in h["higher"] if abs(x) >= 0.25]
+        if not higher:
+            return 0.0
+        hi = sum(higher) / len(higher)
+        if not fast:
+            vetted = hi * 0.85
+        else:
+            fa = sum(fast) / len(fast)
+            vetted = 0.45 * fa + 0.55 * hi if fa * hi > 0 else 0.0
+        if not CONSENSUS:
+            return vetted
+        return value if value * vetted > 0 else 0.0
+
+    @staticmethod
+    def _cluster(pairs: list) -> float:
+        groups: dict[str, list[float]] = defaultdict(list)
+        for tag, v in pairs:
+            if abs(v) >= WHISPER:
+                groups[tag].append(v)
+        if not groups:
+            return 0.0
+        total = sum(len(g) ** 0.5 for g in groups.values())
+        value = sum(sum(g) / len(g) * len(g) ** 0.5 for g in groups.values()) / total
+        return value * (1.0 if len(groups) >= 2 else SINGLE_SETUP)
+
     def _score(self, v: dict, symbol: str | None = None) -> float:
-        trend = sum(v["trend"]) / len(v["trend"]) if v["trend"] else 0.0
-        reversion = sum(v["reversion"]) / len(v["reversion"]) if v["reversion"] else 0.0
+        tv = self.tagged.get(symbol) if CONSENSUS and symbol is not None and hasattr(self, "tagged") else None
+        if tv is not None:
+            trend, reversion = self._cluster(tv["trend"]), self._cluster(tv["reversion"])
+        else:
+            trend = sum(v["trend"]) / len(v["trend"]) if v["trend"] else 0.0
+            reversion = sum(v["reversion"]) / len(v["reversion"]) if v["reversion"] else 0.0
+        hv = self.horizons.get(symbol) if HORIZON_LOCK and symbol is not None and hasattr(self, "horizons") else None
+        if hv is not None:
+            trend = self._horizon_vote(hv["trend"], trend)
+            reversion = self._horizon_vote(hv["reversion"], reversion)
         # Analysts decide whose advice to trust: trending regime favours
         # trend-followers, choppy regime favours mean-reversion traders.
         regime = sum(v["analyst"]) / len(v["analyst"]) if v["analyst"] else 0.0
@@ -478,8 +735,13 @@ class Desk:
             self.regime[symbol] = self.regime_of(symbol)
             t_mult, r_mult = ROUTER_WEIGHTS[self.regime[symbol]]
         score = trend_weight * t_mult * trend + (1 - trend_weight) * r_mult * reversion
+        if symbol is not None and hasattr(self, "lead_style"):
+            t_part, r_part = trend_weight * t_mult * trend, (1 - trend_weight) * r_mult * reversion
+            self.lead_style[symbol] = "reversion" if abs(r_part) > abs(t_part) else "trend"
         # Analysts trained in politics and economics add what the news says.
         macro = sum(v["macro"]) / len(v["macro"]) if v["macro"] else 0.0
+        if getattr(self, "pipeline", None) is not None:
+            macro = 0.0  # live feeds: the analysts' simulated-wire read is dead weight; the pipeline nudge replaces it
         return max(-1.0, min(1.0, score + MACRO_WEIGHT * macro))
 
     def style_pnl(self) -> dict[str, float]:

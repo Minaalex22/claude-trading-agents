@@ -123,7 +123,7 @@ class ConfirmationTests(unittest.TestCase):
         a = Momentum("trend-0001-momentum", "AAPL", 5)
         a.department = "trend"
         a.rules = review.starting_rules("trend")
-        a.view = View(direction=view)
+        a.view = View(direction=view, chart=view)  # the chart leans the same way as the combined view
         a.prices.extend([100, 101, 102, 103, 104, 105])
         return a
 

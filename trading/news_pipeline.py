@@ -119,13 +119,15 @@ class NewsPipeline:
         self.cost = {"hybrid": 0.0, "cheap_only": 0.0, "deep_only": 0.0}
         self.gate_moves: deque[dict] = deque(maxlen=20)
 
-    def feed(self, headlines: list[dict], views: dict | None = None) -> None:
+    def feed(self, headlines: list[dict], views: dict | None = None, now: float | None = None) -> None:
         for h in headlines or []:
-            self.run(h, (views or {}).get(h.get("symbol")))
+            self.run(h, (views or {}).get(h.get("symbol")), now)
 
-    def run(self, h: dict, view: dict | None = None) -> dict | None:
+    def run(self, h: dict, view: dict | None = None, now: float | None = None) -> dict | None:
         key = _key(h)
         if key in self.cache:
+            if h.get("confirmed"):  # the same story from a second source: the earlier read is now confirmed
+                self.cache[key]["confirmed"] = True
             return None  # seen it: no model is called, nothing is billed
         self.n["read"] += 1
         t = cheap_read(h)
@@ -169,7 +171,9 @@ class NewsPipeline:
                "gate": round(self.gate, 2), "route": route, "overrule": overrule, "audit": audit, "human": human,
                "deep": deep if route == "deep" or audit else None, "final_lean": final["lean"],
                "call": "BUY" if final["lean"] > 0.15 else "SELL" if final["lean"] < -0.15 else "WAIT",
-               "topic": topic(h), "cost": round(cost, 4)}
+               "topic": topic(h), "cost": round(cost, 4),
+               "final_conf": deep["confidence"] if route == "deep" else conf,
+               "confirmed": bool(h.get("confirmed")), "at": now}
         self.cache[key] = rec
         if len(self.cache) > 5000:
             self.cache.pop(next(iter(self.cache)))
@@ -199,6 +203,26 @@ class NewsPipeline:
             return None, 0
         w = [0.9 ** i for i in range(len(recs))]
         return sum(r["final_lean"] * wi for r, wi in zip(recs, w)) / sum(w), len(recs)
+
+    def desk_lean(self, symbol: str, now: float | None, need: float = 0.8, half_life_mins: float = 90.0) -> float | None:
+        """The lean the desk may use: only reads at least `need` sure AND confirmed by a second source, faded
+        by time (half every `half_life_mins`). None when no read qualifies."""
+        best = None
+        for r in reversed(self.log):
+            if r.get("symbol") != symbol or not r.get("confirmed") or r.get("final_conf", 0) < need:
+                continue
+            age = (now - r["at"]) / 60 if now is not None and r.get("at") is not None else 0.0
+            best = r["final_lean"] * 0.5 ** (max(0.0, age) / half_life_mins)
+            break
+        return best
+
+    def doubtful(self, symbol: str, now: float | None, below: float = 0.6, open_mins: float = 60.0) -> bool:
+        """An unsure read on this symbol is still in the human queue (filed in the last `open_mins`)."""
+        for r in self.human:
+            if r.get("symbol") == symbol and r.get("final_conf", 1) < below and (
+                    now is None or r.get("at") is None or now - r["at"] <= open_mins * 60):
+                return True
+        return False
 
     def snapshot(self) -> dict:
         c = {k: round(v, 4) for k, v in self.cost.items()}

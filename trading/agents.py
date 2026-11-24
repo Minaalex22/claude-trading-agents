@@ -16,13 +16,20 @@ import statistics
 from collections import deque
 from dataclasses import dataclass
 
-from . import academy, accounts, entry_filters, exits, loss_audit, masters, mind, review, signal_gate
+from . import academy, accounts, dual_brain, entry_filters, execution_integrity, exits, loss_audit, masters, mind, review, signal_gate
 from .brain import AgentBrain
+from .reading_room import CONFIDENT
 from .org import department_sizes
 
 TREND = "trend"
 TRADE_STEP = 0.25  # a position change at least this big counts as a practice trade
 REVERSION = "reversion"
+# News by style (env NEWS_SPLIT): trend traders need a confident news + chart view that agrees; reversion
+# traders are stopped only by fresh or macro-shock news against them (reading_room.opposing_news).
+NEWS_SPLIT = True
+# Learn on close (env LEARN_ON_CLOSE): while a chosen trade is open, self-trust and the mind's weights stay frozen;
+# the closed trade teaches both once, by its result in R. While flat, agents keep learning every bar as before.
+LEARN_ON_CLOSE = True
 
 
 GATE_BUCKETS = (0.9, 0.8, 0.7, 0.5, 0.0)  # sureness floors, highest first
@@ -84,7 +91,7 @@ class Agent:
             self.pnl += self.position * (price - self.prices[-1])
             # The brain scores the strategy's last raw signal, even while sitting
             # out, so an agent can earn its way back in.
-            if self.workspace["last_signal"] is not None:
+            if self.workspace["last_signal"] is not None and not self._in_chosen_trade():
                 self.brain.learn(self.reward(self.workspace["last_signal"], price))
         self.prices.append(price)
         if self.history is not None:
@@ -94,6 +101,7 @@ class Agent:
         signal = self.decide()
         if self.mind is not None:
             # Step 1, think: its own belief from what it sees (its strategy is one of the things it weighs).
+            self.mind.frozen = self._in_chosen_trade()
             lean = self.mind.think(self, signal)
             self.workspace["sureness"] = abs(lean)
             # Step 2, decide: buy, sell or wait, and how big, by its own patience and appetite.
@@ -123,6 +131,7 @@ class Agent:
             value = self._confirm(value, signal)
             value = entry_filters.check(self, value, signal)  # regime, higher timeframe, volatility, meta-label
             value = signal_gate.check(self, value, signal)  # triage -> gate 0.8 -> deep read (SIGNAL_GATE=on)
+            value = dual_brain.check(self, value, signal)  # the slow half audits the fast half's setup
             self.workspace["last_vote"] = value
         if self.role == "trader" and self.must_practice:
             value = self._practice(value)
@@ -151,6 +160,8 @@ class Agent:
             return value  # no reading room (READING_ROOM=off): nothing to confirm with
         d = 1.0 if value > 0 else -1.0 if value < 0 else 0.0
         held = 1.0 if self.position > 0 else -1.0 if self.position < 0 else 0.0
+        if NEWS_SPLIT and self.style == REVERSION:
+            return self._confirm_reversion(value, signal, d, held)
         if held and self._agreement(held) <= -self.rules["exit_against"]:
             self._held()
             return 0.0  # the news and the chart have turned against the open trade: get out
@@ -160,21 +171,54 @@ class Agent:
             return self.position
         if not d or (d == held and abs(value) <= abs(self.position)):
             return value  # no new exposure: closing, trimming or holding needs no confirmation
-        if abs(signal) < self.rules["min_edge"] or self._agreement(d) < self.rules["view_need"]:
+        need = max(self.rules["view_need"], CONFIDENT) if NEWS_SPLIT else self.rules["view_need"]
+        # Trend also needs the chart itself on its side and the news not against it (mina: news >= -0.10).
+        trend_news = NEWS_SPLIT and (self.view.chart * d <= 0 or self.view.news * d < -0.10)
+        if abs(signal) < self.rules["min_edge"] or self._agreement(d) < need or trend_news:
             self._held()
             return self.position if d == held else 0.0
         return value
+
+    def _confirm_reversion(self, value: float, signal: float, d: float, held: float) -> float:
+        """Reversion fades the chart, so the chart leaning against it is the setup, not a warning. Only fresh
+        (under an hour) or macro-shock news pushing hard the other way blocks it or closes it."""
+        from .reading_room import opposing_news
+
+        if held and opposing_news(self.view, held):
+            self._held()
+            return 0.0
+        if not d or (d == held and abs(value) <= abs(self.position)):
+            return value
+        if abs(signal) < self.rules["min_edge"] or opposing_news(self.view, d):
+            self._held()
+            return self.position if d == held else 0.0
+        return value
+
+    def _in_chosen_trade(self) -> bool:
+        """An open trade the agent chose (not a practice-quota one): its self-trust and mind stay frozen
+        until it closes (env LEARN_ON_CLOSE), so intra-trade wiggles don't teach it anything."""
+        return LEARN_ON_CLOSE and bool(self.position) and not (self.workspace.get("entry_note") or {}).get("forced")
 
     def _manage_exit(self, value: float) -> float:
         """Exit discipline (trading/exits.py): stop at 1R, breakeven after +1R, target 2.4R, time exit."""
         exits.tick_cooldown(self)
         reason = exits.check(self)
+        if reason == "scale":
+            # Bank half: keep SCALE_SHARE of the position (less, if the vote already wants less).
+            w = self.workspace
+            w["exits"] = {**w.get("exits", {}), "scale": w.get("exits", {}).get("scale", 0) + 1}
+            keep = self.position * (1 - w["exit_plan"].get("share", exits.SCALE_SHARE))
+            w["exit_plan"]["cap"] = abs(keep)
+            return keep if value * self.position > 0 and abs(value) >= abs(keep) else value
         if reason:
             exits.record(self, reason)
             self.workspace["exit_reason"] = reason
             return 0.0
         if exits.ENABLED and not self.position and exits.blocked(self, value):
             return 0.0  # cooling down after a stop: no revenge trade on the same side
+        cap = (self.workspace.get("exit_plan") or {}).get("cap")
+        if cap is not None and not self.must_practice and self.position and value * self.position > 0 and abs(value) > cap:
+            return cap if value > 0 else -cap  # after banking half, don't build the position back up
         return value
 
     def _held(self) -> None:
@@ -200,7 +244,11 @@ class Agent:
             self._close_trade()
         if opened:
             self.workspace["entry"] = self.prices[-1]  # a new position: remember where it started (Seykota's R)
+            if self.mind is not None and self.mind._last is not None:
+                self.workspace["mind_x"] = dict(self.mind._last[0])  # what it saw when it chose the trade
             exits.open_trade(self)
+            plan = self.workspace.get("exit_plan") or {}
+            self.workspace["last_r_pct"] = plan.get("r", 0.0) / self.prices[-1] if self.prices[-1] else 0.0
             signal = self.workspace.get("last_signal") or 0.0
             self.workspace["entry_note"] = {"edge": abs(signal), "agree": self._agreement(position),
                                             "forced": self.must_practice,
@@ -238,8 +286,18 @@ class Agent:
             row = self.workspace.setdefault("by_sure", {}).setdefault(b, [0, 0])
             row[0] += won
             row[1] += 1
+        if move:
+            dual_brain.closed(self, won, move, bool(note.get("forced")))
         if self.mind is not None and move and not note.get("forced"):
             self.mind.trade_closed(won, note.get("sure", 0.0))  # step 2 learns from its own trades
+        if LEARN_ON_CLOSE and move and not note.get("forced"):
+            # The trade as one lesson: reward = its result in R / 2, capped at +-1 (practice trades never teach).
+            plan_r = self.workspace.get("last_r_pct") or 0.0
+            r = move / plan_r if plan_r else (1.0 if won else -1.0)
+            reward = max(-1.0, min(1.0, r / 2))
+            self.brain.learn(reward)
+            if self.mind is not None:
+                self.mind.learn_trade(self.workspace.get("mind_x"), side, reward)
         if len(self.journal) > review.JOURNAL_MAX:
             del self.journal[0]
 
@@ -308,6 +366,25 @@ class Breakout(Trader):
         if self.prices[-1] < min(prior):
             return -trust
         return 0.0
+
+
+class HeikinAshiFlip(Trader):
+    """Entry (trend) trader that reads Heikin Ashi candles for its signal only. Fills and P&L always use the
+    real price (the desk fills on the next real bar; see execution_integrity). A fresh colour flip after two
+    candles of the other colour is a full-strength call; a candle that keeps its colour holds at 0.6."""
+    kind = "ha_flip"
+
+    def decide(self):
+        bars = execution_integrity.heikin_ashi([{"close": p} for p in self.prices])
+        if len(bars) < 4:
+            return 0.0
+        colour = [1 if b.ha_close > b.ha_open else -1 if b.ha_close < b.ha_open else 0 for b in bars[-3:]]
+        now = colour[-1]
+        if now == 0:
+            return 0.0
+        trust = min(1.0, self.trend_trust())
+        fresh = colour[0] == colour[1] == -now
+        return now * (1.0 if fresh else 0.6) * trust
 
 
 class MeanReversion(Trader):
@@ -412,13 +489,15 @@ class VolatilityMonitor(Agent):
 
 TREND_TYPES = (Momentum, MovingAverageCross, Breakout)
 REVERSION_TYPES = (MeanReversion, RSI2)
-TRADER_TYPES = TREND_TYPES + REVERSION_TYPES
+TRADER_TYPES = TREND_TYPES + (HeikinAshiFlip,) + REVERSION_TYPES
 RSI2_LOW, RSI2_HIGH, RSI2_EXIT = 10.0, 90.0, 70.0
 # Share of the Reversion department that trades RSI(2); the rest trade the z-score fade. Off by default (env
 # RSI2_SHARE): on unseen practice runs half RSI(2) cut Reversion's win rate from 60.2% to 59.1%, and on real
 # BTC, ETH and SOL bars from 50.4% to 47.6% (15m) and 56.0% to 53.2% (5m). It did cut Reversion's loss on the
 # 5m bars (-41.7k to -7.5k). Stricter entries (RSI below 5 or 2) didn't help.
 RSI2_SHARE = 0.0
+# Share of the Entry (trend) department that trades Heikin Ashi colour flips (env HA_SHARE, default 0).
+HA_SHARE = 0.0  # off by default (mina 2026-11-24): daily test -2.3k -> -5.6k, no win-rate gain
 
 
 def build_team(count: int, symbols: list[str], seed: int = 0) -> list[Agent]:
@@ -439,6 +518,8 @@ def build_team(count: int, symbols: list[str], seed: int = 0) -> list[Agent]:
         return members
 
     def trend(i, symbol):
+        if HA_SHARE and (i * HA_SHARE) % 1 + HA_SHARE >= 1:  # every 1/HA_SHARE-th agent
+            return HeikinAshiFlip(f"trend-{i:04d}-ha_flip", symbol, rng.randint(5, 60))
         cls = TREND_TYPES[i % len(TREND_TYPES)]
         return cls(f"trend-{i:04d}-{cls.kind}", symbol, rng.randint(5, 60))
 

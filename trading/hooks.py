@@ -17,6 +17,9 @@ The checks:
   first 15 minutes after the New York open (the banks set up: mina's rule), half size in the rest of the opening hour and on crypto weekends, 3/4 at midday and in Asia-only crypto hours.
 - **event_guard**: no new risk from 24h before to 1h after a stock's earnings, or from 45 minutes before to 30
   minutes after high-impact economic news; half size from 2 hours before (trading/event_guard.py, mina's rule).
+- **dead_zone**: thin-liquidity windows: no new forex or metals risk in the 21:00-23:00 UTC rollover (spreads
+  widen several times), and no new US stock or index risk in the last 10 minutes before the New York close (the
+  first 15 minutes are already blocked by market_clock). Crypto trades 24/7 with no rollover. DEAD_ZONE switch.
 - **chasing**: no chasing: new risk more than 1.5% away from the session average, in the direction of the move,
   goes in at half size (banks and funds buy near the day's average, not far above it).
 
@@ -34,11 +37,16 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from . import event_guard as guard
-from . import sessions
+from . import option_flows, sessions
 
 STREAK = 2  # this many losing desk trades in a row in a symbol pauses it, then halves the next orders
 PAUSE_SECONDS = 300  # the pause after a losing streak
 RECENT = 50  # trades kept per symbol
+DEAD_ZONE = True  # env DEAD_ZONE
+FX_METALS = {"EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD", "EUR", "GBP", "JPY", "AUD",
+             "GOLD", "SILVER", "XAU", "XAUUSD", "XAG", "XAGUSD"}
+ROLLOVER_UTC = (21, 23)  # hours
+CLOSE_MINUTES = 10
 
 
 @dataclass
@@ -54,7 +62,8 @@ class OrderCheck:
     clock: object = None  # sessions.MarketClock or None (simulator)
     session_avg: float | None = None
     events: list | None = None  # event_guard.ScheduledEvent list (live markets only)
-    now: float | None = None  # market time, unix seconds
+    style: str = ""  # which style drives the desk's call: "trend" or "reversion"
+    now: float | None = None  # market time (unix seconds); None in the simulator
     notes: list = field(default_factory=list)
 
     @property
@@ -64,9 +73,16 @@ class OrderCheck:
 
 
 def against_the_room(c: OrderCheck) -> tuple[float, str | None]:
-    if c.view is None or not getattr(c.view, "confident", False):
+    if c.view is None:
         return 1.0, None
     side = 1.0 if c.position + c.qty > 0 else -1.0
+    if c.style == "reversion":  # a reversion call fades the chart: only fresh or macro news against it blocks
+        from .reading_room import opposing_news
+        if opposing_news(c.view, side):
+            return 0.0, f"blocked: fresh news against a reversion trade ({c.view.news:+.2f})"
+        return 1.0, None
+    if not getattr(c.view, "confident", False):
+        return 1.0, None
     if side * c.view.direction < 0:
         return 0.0, f"blocked: news and chart point the other way ({c.view.direction:+.2f})"
     return 1.0, None
@@ -95,6 +111,21 @@ def market_clock(c: OrderCheck) -> tuple[float, str | None]:
     return 1.0, None
 
 
+def dead_zone(c: OrderCheck) -> tuple[float, str | None]:
+    if not DEAD_ZONE or c.clock is None or c.symbol in sessions.CRYPTO:
+        return 1.0, None
+    from datetime import datetime, timezone
+    utc = datetime.fromtimestamp(c.clock.ts, timezone.utc)
+    if c.symbol in FX_METALS:
+        if ROLLOVER_UTC[0] <= utc.hour < ROLLOVER_UTC[1]:
+            return 0.0, f"blocked: forex/metals rollover {ROLLOVER_UTC[0]}:00-{ROLLOVER_UTC[1]}:00 UTC (wide spreads)"
+        return 1.0, None
+    ny = sessions._ny(c.clock.ts)
+    if ny.weekday() < 5 and (16 * 60 - CLOSE_MINUTES) <= ny.hour * 60 + ny.minute < 16 * 60:
+        return 0.0, f"blocked: last {CLOSE_MINUTES} minutes before the New York close (auction whipsaws)"
+    return 1.0, None
+
+
 def chasing(c: OrderCheck) -> tuple[float, str | None]:
     if c.clock is None or not c.session_avg:
         return 1.0, None
@@ -115,7 +146,14 @@ def event_guard(c: OrderCheck) -> tuple[float, str | None]:
     return (size, reason) if size < 1.0 else (1.0, None)
 
 
-HOOKS = (symbol_paused, against_the_room, losing_streak, market_clock, event_guard, chasing)
+def against_whale(c: OrderCheck) -> tuple[float, str | None]:
+    """Never open against a $3M+ 0DTE whale print at a key level (option_flows; needs prints to be sent in)."""
+    after = c.position + c.qty
+    why = option_flows.FEED.against(c.symbol, 1.0 if after > 0 else -1.0, c.now)
+    return (0.0, why) if why else (1.0, None)
+
+
+HOOKS = (symbol_paused, against_the_room, losing_streak, market_clock, dead_zone, event_guard, chasing, against_whale)
 
 
 def run_hooks(c: OrderCheck, hooks=HOOKS) -> tuple[float, list[str]]:

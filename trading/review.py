@@ -25,6 +25,7 @@ department's best traders (by trade win rate and P&L), then keep learning on the
 Paper only.
 """
 
+from . import dual_brain
 JOURNAL_MAX = 200
 MIN_TRADES = 4  # a review needs at least this many closed trades to say anything
 STEP = 0.05
@@ -142,6 +143,7 @@ def share_best(agents) -> dict[str, int]:
             weak.rules = dict(best.rules)
             weak.trial = None
             weak.brain.weight = max(weak.brain.weight, best.brain.weight)
+            dual_brain.copy(best, weak)  # and what works where (the slow half's ledger, at half weight)
             notes = weak.workspace.setdefault("lessons", [])
             notes.append(f"Copied {best.agent_id}'s rules (one of the department's best).")
             del notes[:-5]

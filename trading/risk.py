@@ -19,6 +19,19 @@ from pathlib import Path
 from .broker import PaperBroker
 
 
+# Macro buckets (env BUCKET_CAP): markets that move as one bet. At most BUCKET_MAX of a bucket may hold a
+# position at once, so a dollar spike or a Fed day can't stop out a dozen "independent" trades together.
+BUCKET_CAP = True
+BUCKET_MAX = 2
+BUCKETS = {
+    "usd_bloc": {"EUR", "GBP", "AUD", "JPY", "NZD", "CAD", "CHF", "EURUSD", "GBPUSD", "AUDUSD", "USDJPY", "NZDUSD",
+                 "USDCAD", "USDCHF", "PAXG", "XAUUSD", "GOLD"},
+    "us_tech_beta": {"SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMD", "META", "AMZN", "TSLA", "GOOGL", "GOOG", "NFLX"},
+    "crypto_beta": {"BTC", "ETH", "SOL", "BTC-USD", "ETH-USD", "SOL-USD"},
+}
+BUCKET_OF = {sym: name for name, syms in BUCKETS.items() for sym in syms}
+
+
 @dataclass
 class RiskLimits:
     max_position_value: float = 20_000.0  # per symbol, absolute
@@ -95,6 +108,11 @@ class RiskManager:
                 return -current, f"{stop.split(':')[0]}: reduced to flatten"
             return qty, None
         reason = None
+        bucket = BUCKET_OF.get(symbol) if BUCKET_CAP else None
+        if bucket and current == 0 and qty:
+            held = sum(1 for s, q in self.broker.positions.items() if abs(q) > 1e-9 and s != symbol and BUCKET_OF.get(s) == bucket)
+            if held >= BUCKET_MAX:
+                return 0.0, f"bucket cap: {held} {bucket} positions already open"
         max_order_qty = self.limits.max_order_value / price
         if abs(qty) > max_order_qty:
             qty, reason = max_order_qty * (1 if qty > 0 else -1), "order size capped"
