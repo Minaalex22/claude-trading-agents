@@ -212,6 +212,9 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     live = live_market
     if market is not None:
         news = None  # a replay of past prices: past headlines aren't available
+        if hasattr(market, "now"):
+            # A replay's day is the bar's day, not today's: the daily loss stop must reset each replayed day.
+            risk.clock = lambda: market.now() or time.time()
     elif live:
         from .live_market import LiveMarket  # real prices, paper money: orders still go to the paper broker
         market = LiveMarket(symbols, poll_seconds=float(env.get("LIVE_POLL_SECONDS", 15)))
