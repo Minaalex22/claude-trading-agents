@@ -9,6 +9,11 @@
   // desk readouts. Cyan is the hologram, orange (#FF5C00) marks the app's accents and alerts.
   const CYAN = "63,224,255", ORANGE = "255,92,0", RED = "255,70,70";
   const hud = { mode: "locked", thinking: 0, data: { pnl: null, win: null, trades: null, agents: null } };
+  // Two looks: "avatar" (APEX humanoid bust, apex.js) or "hud" (the rings). Remembered per browser.
+  let view = "avatar";
+  try { view = localStorage.getItem("jarvis.view") === "hud" ? "hud" : "avatar"; } catch (e) { /* private mode */ }
+  const avatar = window.ApexAvatar ? window.ApexAvatar.create() : null;
+  let hand = null; // tracked hand from apex-hands.js, {x, y, closeness} in stage fractions
 
   function fmtMoney(v) { if (v == null) return "--"; const s = v < 0 ? "-" : "+"; return s + "$" + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
   async function loadHudData() {
@@ -110,6 +115,7 @@
 
       ctx.clearRect(0, 0, W, H);
       const cx = W / 2 + mx * 18, cy = H * 0.47 + my * 12, R = Math.min(W, H) * 0.36;
+      const showAvatar = view === "avatar" && avatar;
 
       // faint grid
       ctx.shadowBlur = 0; stroke(CYAN, 0.05, 1); ctx.beginPath();
@@ -117,6 +123,9 @@
       for (let y = (cy % 40); y < H; y += 40) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
       ctx.stroke();
 
+      if (showAvatar) {
+        avatar.draw(ctx, W, H, dt, { mode, talk: Math.min(1, state.talk), mx, my, hand });
+      } else {
       // core glow
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.42);
       g.addColorStop(0, "rgba(220,250,255," + (live ? 0.95 : 0.5) + ")");
@@ -161,6 +170,7 @@
       ctx.fillText("J.A.R.V.I.S.", cx, cy + R * 1.12);
       ctx.shadowBlur = 0; ctx.font = "600 10px ui-monospace,SFMono-Regular,Menlo,monospace"; ctx.fillStyle = "rgba(" + CYAN + ",0.6)";
       ctx.fillText("ATS MATRIX  //  PRACTICE MODE  //  REAL MONEY LOCKED", cx, cy + R * 1.12 + 18);
+      }
 
       // readouts and brackets (only when there is room)
       const d = hud.data, wide = W > 620;
@@ -317,6 +327,55 @@
   $("askForm").addEventListener("submit", (e) => { e.preventDefault(); const q = $("q").value.trim(); if (q) { $("q").value = ""; ask(q); } });
   $("mic").addEventListener("click", () => (wantListen ? stopListening() : startListening()));
   $("lockBtn").addEventListener("click", async () => { stopListening(); await post("/api/jarvis/lock", {}); refresh(); });
+
+  // ---------- APEX: look switch and pinch to wake ----------
+  function setView(v) {
+    view = v === "hud" ? "hud" : "avatar";
+    try { localStorage.setItem("jarvis.view", view); } catch (e) { /* ignore */ }
+    document.querySelectorAll("#viewbar [data-view]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === view)));
+    if (view === "avatar" && avatar) avatar.replayIntro();
+  }
+  document.querySelectorAll("#viewbar [data-view]").forEach((b) => b.addEventListener("click", () => setView(b.dataset.view)));
+  setView(view);
+
+  function pinchWake() { // what a pinch does depends on where she is
+    if (avatar) avatar.pinch();
+    if (view !== "avatar") setView("avatar");
+    if (!state.enabled) return;
+    if (!state.unlocked) { // the passphrase still has to come from you
+      if ($("lock").classList.contains("hidden")) return;
+      if (Recognition) $("sayPass").click(); else $("pass").focus();
+      return;
+    }
+    if (state.speaking) { speechSynthesis.cancel(); return; } // pinch while she talks = stop talking
+    if (!Recognition) { $("q").focus(); return; }
+    if (wantListen) { pauseListening(true); }
+    const r = makeRecognizer((t) => { if (t) ask(t.replace(/^\s*(jarvis|jervis|travis)\b[\s,.:!?]*/i, "") || "hello"); }, false);
+    r.onstart = () => { state.listening = true; setState("listening"); };
+    r.onend = () => { state.listening = false; if (wantListen) pauseListening(false); else if (!state.speaking && !hud.thinking) setState("ready"); };
+    r.onerror = (e) => { if (e.error === "not-allowed") note("Microphone permission was refused."); };
+    try { r.start(); } catch (e) { /* already listening */ }
+  }
+  window.addEventListener("apex:hand", (e) => { hand = e.detail; });
+  window.addEventListener("apex:hand-lost", () => { hand = null; });
+  window.addEventListener("apex:pinch", pinchWake);
+  window.addEventListener("apex:camera", (e) => {
+    const on = !!(e.detail && e.detail.on);
+    $("camBtn").setAttribute("aria-pressed", String(on));
+    $("camBtn").textContent = on ? "✋ Camera on · pinch" : "✋ Pinch to wake";
+  });
+  $("camBtn").addEventListener("click", async () => {
+    if (!window.ApexHands) { note("Hand tracking is still loading, try again in a moment."); return; }
+    if ($("camBtn").getAttribute("aria-pressed") === "true") { window.ApexHands.stop(); return; }
+    $("camBtn").textContent = "✋ Starting camera…";
+    try { await window.ApexHands.start($("camPreview")); }
+    catch (err) {
+      window.ApexHands.stop();
+      const m = err && err.name === "NotAllowedError" ? "Camera permission was refused. Allow the camera for this site to use pinch to wake."
+        : err && err.name === "NotFoundError" ? "No camera found on this computer." : "Hand tracking couldn't start: " + ((err && err.message) || err);
+      if (!$("talk").classList.contains("hidden")) note(m); else $("state").textContent = m;
+    }
+  });
 
   try { startHologram(); } catch (e) { $("state").textContent = "hologram unavailable"; }
   refresh();

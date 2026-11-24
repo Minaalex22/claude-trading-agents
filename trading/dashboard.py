@@ -57,6 +57,7 @@ from . import news_lab
 from . import decision_desk
 from .smart_money import SmartMoney
 from . import session_desks
+from . import atas_feed, one_account
 from . import night_shift
 from .hooks import should_suppress_alert
 from .org import DEPARTMENTS, finish_school, manager_reports
@@ -77,6 +78,13 @@ STATIC = {
     "/3d.js": ("3d.js", "text/javascript; charset=utf-8"),
     "/jarvis.css": ("jarvis.css", "text/css; charset=utf-8"),
     "/jarvis.js": ("jarvis.js", "text/javascript; charset=utf-8"),
+    "/apex.js": ("apex.js", "text/javascript; charset=utf-8"),
+    "/apex-hands.js": ("apex-hands.js", "text/javascript; charset=utf-8"),
+    # MediaPipe Hands for JARVIS's pinch to wake, served from here so nothing loads from another site.
+    "/vendor/mediapipe/vision_bundle.mjs": ("vendor/mediapipe/vision_bundle.mjs", "text/javascript; charset=utf-8"),
+    "/vendor/mediapipe/vision_wasm_internal.js": ("vendor/mediapipe/vision_wasm_internal.js", "text/javascript; charset=utf-8"),
+    "/vendor/mediapipe/vision_wasm_internal.wasm": ("vendor/mediapipe/vision_wasm_internal.wasm", "application/wasm"),
+    "/vendor/mediapipe/hand_landmarker.task": ("vendor/mediapipe/hand_landmarker.task", "application/octet-stream"),
     "/orderflow.css": ("orderflow.css", "text/css; charset=utf-8"),
     "/orderflow.js": ("orderflow.js", "text/javascript; charset=utf-8"),
     "/markets.css": ("markets.css", "text/css; charset=utf-8"),
@@ -118,6 +126,8 @@ STATIC = {
     "/btcc.js": ("btcc.js", "text/javascript; charset=utf-8"),
     "/btcc.css": ("btcc.css", "text/css; charset=utf-8"),
     "/mitrade.js": ("mitrade.js", "text/javascript; charset=utf-8"),
+    "/account.js": ("account.js", "text/javascript; charset=utf-8"),
+    "/account.css": ("account.css", "text/css; charset=utf-8"),
     # Vendored so the strict CSP (scripts only from this site) holds and the cloud app needs no CDN.
     "/vendor/three.min.js": ("vendor/three.min.js", "text/javascript; charset=utf-8"),
     "/vendor/lightweight-charts.js": ("vendor/lightweight-charts.js", "text/javascript; charset=utf-8"),
@@ -136,13 +146,17 @@ MAX_FORM_BYTES = 4096
 MAX_TRADES_BYTES = 262144  # a batch of real trades for the order flow feed
 KIND_PAGES = ("/crypto", "/forex", "/commodities", "/indices", "/shares")
 CLOSED_KEEP = 500  # closed trades the Trades page can list
-DESK_PAGE = re.compile(r"/desks/(sydney|asia|london|newyork)")
-DESK_API = re.compile(r"/api/desks/(sydney|asia|london|newyork)")
+DESK_PAGE = re.compile(r"/desks/(sydney|asia|europe|london|newyork)")
+DESK_API = re.compile(r"/api/desks/(sydney|asia|europe|london|newyork)")
 MARKET_PAGE = re.compile(r"/markets/[A-Za-z0-9]{1,10}")
 MARKET_API = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}")
 MARKET_FAV = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}/favourite")
 # Only JARVIS's page may use the microphone; nothing may use the camera, location or payment APIs.
 PERMISSIONS = "microphone=(self), camera=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+# The JARVIS page alone may also use the webcam (opt-in pinch to wake, processed in the browser) and run the
+# WebAssembly hand tracker, which needs 'wasm-unsafe-eval' (WebAssembly only; JavaScript eval stays blocked).
+JARVIS_CSP = CSP.replace("script-src 'self';", "script-src 'self' 'wasm-unsafe-eval';")
+JARVIS_PERMISSIONS = PERMISSIONS.replace("camera=()", "camera=(self)")
 
 
 class EventHub:
@@ -470,7 +484,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     pairs_page = _read("pairs.html")
     decision_page = _read("decision.html")
     smart_page = _read("smart.html")
-    desks_page = _read("desks.html")  # the four session desks: /desks and /desks/<sydney|asia|london|newyork>
+    desks_page = _read("desks.html")  # the five session desks: /desks and /desks/<sydney|asia|europe|london|newyork>
     floor = {}  # the six-agent practice floor, started on first use
     floor_lock = threading.Lock()
     market_page = _read("market.html")
@@ -501,6 +515,60 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 btcc_desk["d"] = btcc.PracticeDesk(hub.events_dir)
             return btcc_desk["d"]
 
+    account_page = _read("account.html")  # one account: every platform, desk and ATAS together
+    atas = atas_feed.AtasFeed()
+    atas_token = env.get("ATAS_TOKEN", "")
+    mode_switch = one_account.ModeSwitch(hub.events_dir)
+    broker_cache: dict = {}  # MT5 / eToro reads, kept 20 seconds so the page and order checks don't hammer them
+
+    def _cached(key: str, fn):
+        hit = broker_cache.get(key)
+        if hit and time.time() - hit[0] < 20:
+            return hit[1]
+        try:
+            val = (fn(), None)
+        except Exception as e:  # noqa: BLE001  (a broker that doesn't answer shows as an error, never crashes)
+            val = (None, metaapi.explain(e) if key.startswith("mt5") else f"{type(e).__name__}")
+        broker_cache[key] = (time.time(), val)
+        return val
+
+    def one_rows() -> list[dict]:
+        live = mode_switch.mode == "live" and one_account.armed(env)
+        w = get_wallet()
+        with w.lock:
+            cash = w.data["cash"]
+            dep = sum(e["amount"] for e in w.data["ledger"] if e["kind"] in ("start", "deposit"))
+            wd = sum(e["amount"] for e in w.data["ledger"] if e["kind"] == "withdraw")
+        rows = [one_account.from_desk(hub.trades()), one_account.from_wallet(cash, dep - wd),
+                one_account.from_cfd("mitrade", "Mitrade practice desk", get_mitrade().snapshot()),
+                one_account.from_cfd("btcc", "BTCC practice desk", get_btcc().snapshot()),
+                one_account.from_poly(poly["book"].snapshot() if "book" in poly else None),
+                one_account.from_betfair(poly["bf"].snapshot() if "bf" in poly else None)]
+        if metaapi.configured(env) and (not live or env.get("METAAPI_LIVE_ACCOUNT_ID")):
+            snap, err = _cached(f"mt5-{live}", lambda: metaapi.MetaApi(one_account.mt5_env(env, live)).snapshot())
+            rows.append(one_account.from_mt5(snap, err, live))
+        else:
+            rows.append(one_account.from_mt5(None, live=live))
+        if env.get("ETORO_API_KEY") and env.get("ETORO_USER_KEY"):
+            port, err = _cached(f"etoro-{live}", lambda: one_account.etoro_portfolio(env, live))
+            rows.append(one_account.from_etoro(port, err, live))
+        else:
+            rows.append(one_account.from_etoro(None, live=live))
+        rows.append(one_account.from_atas(atas.status(env)))
+        return rows
+
+    def one_view() -> dict:
+        kill = (Path(hub.events_dir) / "KILL").exists() if hub.events_dir else False
+        acct = one_account.combine(one_rows(), mode_switch.mode, env, kill=kill)
+        acct["since"] = mode_switch.data.get("since")
+        acct["history"] = mode_switch.data["history"][::-1][:10]
+        acct["confirm_word"] = one_account.LIVE_CONFIRM
+        return acct
+
+    def guard(platform: str, symbol: str, notional: float, stop_loss=None, entry=None) -> None:
+        """The one-account limits, checked before any platform opens a new position."""
+        one_account.check_order(one_view(), platform, symbol, notional, mode_switch.mode, stop_loss, entry)
+
     def get_wallet() -> Wallet:
         with wallet_lock:
             if "w" not in wallet:
@@ -526,8 +594,9 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             # "same-origin", not "no-referrer": with no-referrer, browsers send `Origin: null` on our own
             # form posts, and the CSRF check below then refused every sign-in. Nothing leaks cross-site either way.
             self.send_header("Referrer-Policy", "same-origin")
-            self.send_header("Content-Security-Policy", CSP)
-            self.send_header("Permissions-Policy", PERMISSIONS)
+            jarvis_page_req = urllib.parse.urlsplit(self.path).path == "/jarvis"
+            self.send_header("Content-Security-Policy", JARVIS_CSP if jarvis_page_req else CSP)
+            self.send_header("Permissions-Policy", JARVIS_PERMISSIONS if jarvis_page_req else PERMISSIONS)
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
             self.send_header("Cross-Origin-Resource-Policy", "same-origin")
             if auth.enabled and self._secure():  # no HSTS for this computer's own plain-http address
@@ -614,7 +683,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/timemachine", "/newslab") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/timemachine", "/newslab", "/account") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -722,6 +791,12 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 book.feed.markets()
                 book.settle()
                 self._json(200, book.snapshot())
+            elif path == "/account":
+                self._send(200, account_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/account":
+                self._json(200, one_view())
+            elif path == "/api/atas":
+                self._json(200, atas.status(env))
             elif path == "/wallet":
                 self._send(200, wallet_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/wallet":
@@ -853,7 +928,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 length = int(self.headers.get("Content-Length", 0))
             except ValueError:
                 length = MAX_FORM_BYTES + 1
-            limit = MAX_TRADES_BYTES if path == "/api/orderflow/trades" else MAX_FORM_BYTES
+            limit = MAX_TRADES_BYTES if path in ("/api/orderflow/trades", "/api/atas/feed") else MAX_FORM_BYTES
             if length > limit or length < 0:
                 self.close_connection = True
                 return self._send(413, b"too large", "text/plain", {"Connection": "close"})
@@ -870,6 +945,10 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._set_agents(raw)
             if path == "/api/orderflow/trades":
                 return self._orderflow_trades(raw)
+            if path == "/api/atas/feed":
+                return self._atas_feed(raw)
+            if path in ("/api/account/mode", "/api/account/order"):
+                return self._account_post(path, raw)
             if path == "/api/mt5/order":
                 return self._mt5_order(raw)
             if path in ("/api/mitrade/open", "/api/mitrade/close"):
@@ -973,13 +1052,14 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 b = json.loads(raw or b"null")
                 desk = get_mitrade()
                 if path == "/api/mitrade/open":
+                    guard("mitrade", str(b["symbol"])[:12], float(b["margin"]) * float(b["leverage"]))
                     tp = b.get("take_profit")
                     pos = desk.open(str(b["symbol"])[:12], str(b["side"]), float(b["margin"]), float(b["leverage"]),
                                     float(b["stop_loss"]), float(tp) if tp not in (None, "") else None,
                                     live=bool(b.get("live")))
                     return self._json(200, {"position": pos})
                 return self._json(200, {"closed": desk.close(int(b["id"]))})
-            except mitrade.Refused as e:
+            except (mitrade.Refused, one_account.Refused) as e:
                 return self._json(403, {"error": str(e)})
             except KeyError as e:
                 return self._json(400, {"error": f"missing or unknown: {str(e).strip(chr(39))}"})
@@ -996,13 +1076,14 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 b = json.loads(raw or b"null")
                 desk = get_btcc()
                 if path == "/api/btcc/open":
+                    guard("btcc", str(b["symbol"])[:12], float(b["margin"]) * float(b["leverage"]))
                     tp = b.get("take_profit")
                     pos = desk.open(str(b["symbol"])[:12], str(b["side"]), float(b["margin"]), float(b["leverage"]),
                                     float(b["stop_loss"]), float(tp) if tp not in (None, "") else None,
                                     live=bool(b.get("live")))
                     return self._json(200, {"position": pos})
                 return self._json(200, {"closed": desk.close(int(b["id"]))})
-            except btcc.Refused as e:
+            except (btcc.Refused, one_account.Refused) as e:
                 return self._json(403, {"error": str(e)})
             except KeyError as e:
                 return self._json(400, {"error": f"missing or unknown: {str(e).strip(chr(39))}"})
@@ -1114,6 +1195,69 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._json(400, {"error": str(e)})
             self._json(200, {"calls": [{"market": c.market, "direction": c.direction,
                                         "confidence": c.confidence} for c in calls]})
+
+        def _atas_feed(self, raw: bytes):
+            """One bar summary from the JarvisFeed indicator inside ATAS. Bearer ATAS_TOKEN (32+ characters)."""
+            sent = self.headers.get("Authorization", "")
+            token_ok = atas_feed.enabled(env) and hmac.compare_digest(sent.encode(), f"Bearer {atas_token}".encode())
+            if not (token_ok or self._authed()):
+                return self._json(401, {"error": "ATAS token required (ATAS_TOKEN on Render, same value in the indicator)"})
+            try:
+                body = json.loads(raw or b"null")
+                out = atas.ingest(body)
+                big = [{"ts": time.time(), "price": t["price"], "size": t["size"], "side": t["side"]}
+                       for t in body.get("big_trades") or [] if isinstance(t, dict) and t.get("price") and t.get("size")]
+                if big:  # big prints also feed Atlas's own order-flow engine
+                    try:
+                        hub.sources.on_trades(out["symbol"], big)
+                    except Exception:  # noqa: BLE001
+                        pass
+            except (ValueError, TypeError, atas_feed.FeedError) as e:
+                return self._json(400, {"error": str(e)})
+            self._json(200, {"ok": True, **out})
+
+        def _account_post(self, path: str, raw: bytes):
+            """Demo/Live switch and the one-account order ticket (MT5 and eToro). Signed in only."""
+            if not self._authed():
+                return self._json(401, {"error": "sign in required"})
+            if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                return self._json(415, {"error": "send JSON"})
+            try:
+                b = json.loads(raw or b"null")
+                assert isinstance(b, dict)
+                if path == "/api/account/mode":
+                    return self._json(200, mode_switch.set(str(b.get("mode", "")), str(b.get("confirm", "")), env))
+                live = mode_switch.mode == "live" and one_account.armed(env)
+                pf, side = str(b["platform"]), str(b["side"])
+                sl = float(b["stop_loss"]) if b.get("stop_loss") not in (None, "") else None
+                tp = float(b["take_profit"]) if b.get("take_profit") not in (None, "") else None
+                entry = float(b["entry"]) if b.get("entry") not in (None, "") else None
+                if pf == "mt5":
+                    symbol, volume = str(b["symbol"])[:32], float(b["volume"])
+                    if live and not env.get("METAAPI_LIVE_ACCOUNT_ID"):
+                        raise one_account.Refused("Live MT5 needs METAAPI_LIVE_ACCOUNT_ID on Render.")
+                    api = metaapi.MetaApi(one_account.mt5_env(env, live))
+                    notional = float(b.get("notional") or 0)
+                    guard("mt5", symbol, notional, sl, entry)
+                    fill = one_account.mt5_order(api, live, symbol, side, volume, sl, tp)
+                elif pf == "etoro":
+                    if not (env.get("ETORO_API_KEY") and env.get("ETORO_USER_KEY")):
+                        raise one_account.Refused("Add ETORO_API_KEY and ETORO_USER_KEY on Render first.")
+                    amount, lev = float(b["amount"]), int(b.get("leverage") or 1)
+                    guard("etoro", f"#{int(b['instrument_id'])}", amount * lev, sl, entry)
+                    if live and not sl:
+                        raise one_account.Refused("Live orders need a stop loss.")
+                    fill = one_account.etoro_order(env, live, int(b["instrument_id"]), side, amount, lev, sl, tp)
+                else:
+                    raise one_account.Refused("Use the platform's own page for that one (Mitrade, BTCC, Betfair, Polymarket).")
+                broker_cache.clear()
+            except (one_account.Refused, platforms.LiveTradingLocked, metaapi.NotDemo) as e:
+                return self._json(403, {"error": str(e)})
+            except (ValueError, KeyError, TypeError, AssertionError) as e:
+                return self._json(400, {"error": f"check the order: {e}"})
+            except Exception as e:  # noqa: BLE001
+                return self._json(502, {"error": f"broker did not take it: {type(e).__name__}"})
+            self._json(200, {"order": fill, "mode": "live" if live else "demo"})
 
         def _bridge_authed(self) -> bool:
             sent = self.headers.get("Authorization", "")
