@@ -206,6 +206,31 @@ class JarvisServerTests(unittest.TestCase):
         for asset in ("/jarvis.js", "/jarvis.css"):
             self.assertEqual(self.request("GET", asset)[0].status, 200)
 
+    def test_apex_avatar_and_pinch_camera_only_on_jarvis(self):
+        cookie = {"Cookie": f"{COOKIE}={self.session}"}
+        resp, body = self.request("GET", "/jarvis", headers=cookie)
+        for script in (b"/apex.js", b"/apex-hands.js", b'data-view="avatar"', b'id="camBtn"'):
+            self.assertIn(script, body)
+        # the webcam and the WebAssembly hand tracker are allowed on JARVIS's page and nowhere else
+        self.assertIn("camera=(self)", resp.getheader("Permissions-Policy"))
+        self.assertIn("'wasm-unsafe-eval'", resp.getheader("Content-Security-Policy"))
+        self.assertNotIn("unsafe-eval'", resp.getheader("Content-Security-Policy").replace("'wasm-unsafe-eval'", ""))
+        other, _ = self.request("GET", "/news", headers=cookie)
+        self.assertIn("camera=()", other.getheader("Permissions-Policy"))
+        self.assertNotIn("wasm-unsafe-eval", other.getheader("Content-Security-Policy"))
+        # everything the hand tracker needs comes from this site, nothing from a CDN
+        for path, ctype in (("/apex.js", "text/javascript"), ("/apex-hands.js", "text/javascript"),
+                            ("/vendor/mediapipe/vision_bundle.mjs", "text/javascript"),
+                            ("/vendor/mediapipe/vision_wasm_internal.js", "text/javascript"),
+                            ("/vendor/mediapipe/vision_wasm_internal.wasm", "application/wasm"),
+                            ("/vendor/mediapipe/hand_landmarker.task", "application/octet-stream")):
+            r, data = self.request("GET", path)
+            self.assertEqual(r.status, 200, path)
+            self.assertTrue(r.getheader("Content-Type").startswith(ctype), path)
+            self.assertGreater(len(data), 1000, path)
+        hands = self.request("GET", "/apex-hands.js")[1].decode()
+        self.assertIn('const BASE = "/vendor/mediapipe/";', hands)
+
     def test_unlock_then_ask(self):
         resp, body = self.api("/api/jarvis/ask", {"question": "status"})
         self.assertEqual(resp.status, 403)  # logged in but not unlocked

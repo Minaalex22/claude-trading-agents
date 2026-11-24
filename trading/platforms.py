@@ -58,6 +58,8 @@ PLATFORMS = (
     Platform("moomoo", "moomoo", "US and HK stocks, options", (), True),
     # BTCC paused its Futures API on 13 Feb 2026; read-only bridge + practice desk in trading/btcc.py
     Platform("btcc", "BTCC", "crypto futures (USDT perpetuals)", ("BTCC_API_KEY", "BTCC_SECRET_KEY"), False),
+    # Mitrade has no API or MT4/MT5; live bid/ask from its public site feed + practice desk in trading/mitrade.py
+    Platform("mitrade", "Mitrade", "CFDs: forex, gold, oil, indices, crypto, shares", (), False),
     # Legal in Australia. Paper by default; real bets only via trading/betfair.py with BETFAIR_REAL_MONEY=on + confirm + money rules
     Platform("betfair", "Betfair Exchange (AU)", "sports, racing, politics (exchange)", ("BETFAIR_APP_KEY", "BETFAIR_USERNAME", "BETFAIR_PASSWORD"), False),
 )
@@ -265,8 +267,20 @@ class BtccConnector(Connector):
         return live_market.fetch_price(symbol.upper().replace("USDT", ""))
 
 
+class MitradeConnector(Connector):
+    """Paper only: Mitrade has no trading API. Prices are Mitrade's own, from its public site feed."""
+    platform = BY_KEY["mitrade"]
+
+    def quote(self, symbol: str) -> float:
+        from . import mitrade
+        p = mitrade.price(symbol)
+        if p is None:
+            raise RuntimeError("no Mitrade price right now")
+        return p
+
+
 CONNECTORS = {c.platform.key: c for c in (PolymarketConnector, EToroConnector, MT5Connector, MoomooConnector,
-                                          BtccConnector)}
+                                          BtccConnector, MitradeConnector)}
 
 
 def connect(key: str, env=os.environ, http=get_json) -> Connector:
@@ -291,6 +305,8 @@ def status(env=os.environ) -> list[dict]:
             note = "no demo account on this platform; running paper"
         if p.key == "betfair" and note is None:
             note = "bridge on /polymarket; real money only with BETFAIR_REAL_MONEY=on, a typed confirm and the money rules"
+        if p.key == "mitrade" and note is None:
+            note = "no Mitrade API; Mitrade's live prices + practice desk on /mitrade"
         if p.key == "btcc" and note is None:
             note = "BTCC paused its Futures API on 13 Feb 2026; practice desk on /btcc"
         rows.append({"key": p.key, "name": p.name, "markets": p.markets, "mode": mode, "configured": not missing,
