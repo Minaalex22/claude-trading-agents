@@ -16,7 +16,7 @@ import statistics
 from collections import deque
 from dataclasses import dataclass
 
-from . import academy, accounts, dual_brain, entry_filters, exits, loss_audit, masters, mind, review, signal_gate
+from . import academy, accounts, dual_brain, entry_filters, execution_integrity, exits, loss_audit, masters, mind, review, signal_gate
 from .brain import AgentBrain
 from .reading_room import CONFIDENT
 from .org import department_sizes
@@ -368,6 +368,25 @@ class Breakout(Trader):
         return 0.0
 
 
+class HeikinAshiFlip(Trader):
+    """Entry (trend) trader that reads Heikin Ashi candles for its signal only. Fills and P&L always use the
+    real price (the desk fills on the next real bar; see execution_integrity). A fresh colour flip after two
+    candles of the other colour is a full-strength call; a candle that keeps its colour holds at 0.6."""
+    kind = "ha_flip"
+
+    def decide(self):
+        bars = execution_integrity.heikin_ashi([{"close": p} for p in self.prices])
+        if len(bars) < 4:
+            return 0.0
+        colour = [1 if b.ha_close > b.ha_open else -1 if b.ha_close < b.ha_open else 0 for b in bars[-3:]]
+        now = colour[-1]
+        if now == 0:
+            return 0.0
+        trust = min(1.0, self.trend_trust())
+        fresh = colour[0] == colour[1] == -now
+        return now * (1.0 if fresh else 0.6) * trust
+
+
 class MeanReversion(Trader):
     kind = "mean_reversion"
     style = REVERSION
@@ -470,13 +489,15 @@ class VolatilityMonitor(Agent):
 
 TREND_TYPES = (Momentum, MovingAverageCross, Breakout)
 REVERSION_TYPES = (MeanReversion, RSI2)
-TRADER_TYPES = TREND_TYPES + REVERSION_TYPES
+TRADER_TYPES = TREND_TYPES + (HeikinAshiFlip,) + REVERSION_TYPES
 RSI2_LOW, RSI2_HIGH, RSI2_EXIT = 10.0, 90.0, 70.0
 # Share of the Reversion department that trades RSI(2); the rest trade the z-score fade. Off by default (env
 # RSI2_SHARE): on unseen practice runs half RSI(2) cut Reversion's win rate from 60.2% to 59.1%, and on real
 # BTC, ETH and SOL bars from 50.4% to 47.6% (15m) and 56.0% to 53.2% (5m). It did cut Reversion's loss on the
 # 5m bars (-41.7k to -7.5k). Stricter entries (RSI below 5 or 2) didn't help.
 RSI2_SHARE = 0.0
+# Share of the Entry (trend) department that trades Heikin Ashi colour flips (env HA_SHARE, default 0).
+HA_SHARE = 0.0  # off by default (mina 2026-11-24): daily test -2.3k -> -5.6k, no win-rate gain
 
 
 def build_team(count: int, symbols: list[str], seed: int = 0) -> list[Agent]:
@@ -497,6 +518,8 @@ def build_team(count: int, symbols: list[str], seed: int = 0) -> list[Agent]:
         return members
 
     def trend(i, symbol):
+        if HA_SHARE and (i * HA_SHARE) % 1 + HA_SHARE >= 1:  # every 1/HA_SHARE-th agent
+            return HeikinAshiFlip(f"trend-{i:04d}-ha_flip", symbol, rng.randint(5, 60))
         cls = TREND_TYPES[i % len(TREND_TYPES)]
         return cls(f"trend-{i:04d}-{cls.kind}", symbol, rng.randint(5, 60))
 

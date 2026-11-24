@@ -34,7 +34,7 @@ chart said, so every decision can be explained afterwards. Paper only.
 from collections import deque
 from dataclasses import dataclass, field
 
-from . import sessions
+from . import option_flows, sessions
 
 STREAK = 2  # this many losing desk trades in a row in a symbol pauses it, then halves the next orders
 PAUSE_SECONDS = 300  # the pause after a losing streak
@@ -59,6 +59,7 @@ class OrderCheck:
     clock: object = None  # sessions.MarketClock or None (simulator)
     session_avg: float | None = None
     style: str = ""  # which style drives the desk's call: "trend" or "reversion"
+    now: float | None = None  # market time (unix seconds); None in the simulator
     notes: list = field(default_factory=list)
 
     @property
@@ -131,7 +132,14 @@ def chasing(c: OrderCheck) -> tuple[float, str | None]:
     return 1.0, None
 
 
-HOOKS = (symbol_paused, against_the_room, losing_streak, market_clock, dead_zone, chasing)
+def against_whale(c: OrderCheck) -> tuple[float, str | None]:
+    """Never open against a $3M+ 0DTE whale print at a key level (option_flows; needs prints to be sent in)."""
+    after = c.position + c.qty
+    why = option_flows.FEED.against(c.symbol, 1.0 if after > 0 else -1.0, c.now)
+    return (0.0, why) if why else (1.0, None)
+
+
+HOOKS = (symbol_paused, against_the_room, losing_streak, market_clock, dead_zone, chasing, against_whale)
 
 
 def run_hooks(c: OrderCheck, hooks=HOOKS) -> tuple[float, list[str]]:

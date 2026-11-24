@@ -42,7 +42,7 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import btcc, control, mitrade, live_orders, markets, metaapi, platforms, training_report
+from . import btcc, control, mitrade, live_orders, markets, metaapi, option_flows, platforms, training_report
 from .alerts import Alerts
 from .atlas_sources import AtlasSources
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
@@ -695,6 +695,9 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._send(200, jarvis_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/orderflow":
                 self._send(200, orderflow_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/option-flow" and self._authed():
+                self._json(200, {"spy": option_flows.FEED.view("SPY"), "qqq": option_flows.FEED.view("QQQ"),
+                                 "recent": option_flows.FEED.recent, "ignored": option_flows.FEED.ignored})
             elif path == "/api/orderflow":
                 self._json(200, hub.sources.page_data())
             elif path == "/api/atlas/check":
@@ -950,6 +953,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._poly_post(path, raw)
             if path == "/api/street/note":
                 return self._street_note(raw)
+            if path == "/api/option-flow":
+                return self._option_flow(raw)
             if path in ("/api/wallet/move", "/api/wallet/watch", "/api/wallet/unwatch"):
                 return self._wallet_post(path, raw)
             if path in ("/api/jarvis/unlock", "/api/jarvis/ask", "/api/jarvis/lock", "/api/jarvis/setup"):
@@ -1146,6 +1151,25 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             except (ValueError, AssertionError) as e:  # WalletError is a ValueError
                 msg = str(e) if isinstance(e, WalletError) else "send a JSON object"
                 return self._json(400, {"error": msg})
+
+        def _option_flow(self, raw: bytes):
+            """Whale option prints: {"prints": [{underlying, option_type, action, premium, dte, ...}]} or
+            {"lines": "CALL - BUY TO OPEN, Volume 150, Premium $3.4M, DTE 0, Filled, at KEY LEVEL\n..."}
+            (pasted DeepCharts lines). Signed in or bridge token (for an alert webhook). Practice desk only."""
+            if not (self._authed() or self._bridge_authed()):
+                return self._json(401, {"error": "sign in or bridge token required"})
+            try:
+                body = json.loads(raw or b"{}")
+                prints = [option_flows.from_json(d) for d in body.get("prints", [])[:200]]
+                for line in str(body.get("lines", ""))[:20000].splitlines():
+                    p = option_flows.parse_line(line, str(body.get("underlying", "SPX")))
+                    if p:
+                        prints.append(p)
+            except (ValueError, TypeError, AttributeError) as e:
+                return self._json(400, {"error": f"bad prints: {e}"})
+            decoded = [option_flows.FEED.ingest(p).__dict__ for p in prints]
+            return self._json(200, {"decoded": decoded, "used": sum(d["bias"] != "IGNORE" for d in decoded),
+                                    "spy": option_flows.FEED.view("SPY"), "qqq": option_flows.FEED.view("QQQ")})
 
         def _street_note(self, raw: bytes):
             """File one public analyst note: {"house": "dbs", "text": "...", "source": "url"}."""
