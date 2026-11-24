@@ -11,8 +11,10 @@ bar move x sqrt(its window)) and where it is wrong (the exit plan's 1R).
 1. Anti-tilt: after `TILT_LOSSES` chosen losses in a row the agent waits `TILT_BARS` bars before opening.
 2. Friction: the expected move must cover `FRICTION_MULT` round-trip costs (agents pay `accounts.COST_BPS`).
 3. Regime ledger: every closed chosen trade is written under its (setup tag, market type). With a Bayesian
-   prior (48% wins, worth 6 trades) the ledger gives a posterior win rate and an expectancy in R. Once a setup
-   has `MIN_SAMPLES` trades, a negative expectancy (below `MIN_EXPECTED_R`) vetoes it in that market type.
+   prior (48% wins, worth 6 trades) the ledger gives a posterior win rate and an expectancy in R. A setup
+   whose last `MIN_SAMPLES` outcomes lose on average goes on shadow probation in that market type (no ban):
+   it sits out while its skipped trades are followed on paper, and returns when its rolling record turns
+   positive or after 24 hours.
 4. Premortem: a trade against a strong news + chart read (`PREMORTEM_VIEW`) during a volatility spike is
    vetoed: that is how such a trade usually fails.
 
@@ -33,6 +35,12 @@ FRICTION_MULT = 2.0
 PRIOR_WIN, PRIOR_N = 0.48, 6.0
 MIN_SAMPLES = 12
 MIN_EXPECTED_R = 0.0
+# Shadow probation instead of a permanent ban: a setup whose last MIN_SAMPLES outcomes average <= MIN_EXPECTED_R
+# sits out, but its skipped trades are still followed on paper (shadow trades: +1R / -1R first, or SHADOW_BARS
+# bars) and written into its rolling record. It comes back as soon as that rolling record turns positive, or
+# after PROBATION_SECONDS (24 hours) of probation, whichever is first.
+SHADOW_BARS = 24
+PROBATION_SECONDS = 86_400
 PREMORTEM_VIEW = 0.6
 VOL_SPIKE = 1.6
 TREND_ER, CHOP_ER = 0.35, 0.2
@@ -62,7 +70,53 @@ class Ledger(dict):
 
 
 def state(agent) -> dict:
-    return agent.workspace.setdefault("dual", {"ledger": Ledger(), "streak": 0, "tilt_left": 0, "vetoes": {}})
+    s = agent.workspace.setdefault("dual", {"ledger": Ledger(), "streak": 0, "tilt_left": 0, "vetoes": {}})
+    s.setdefault("recent", {})  # tag -> last MIN_SAMPLES outcomes in R (real and shadow)
+    s.setdefault("shadow", [])  # skipped trades followed on paper
+    s.setdefault("probation", {})  # tag -> bars left on probation
+    return s
+
+
+def _remember(s: dict, tag: str, r: float) -> None:
+    rec = s["recent"].setdefault(tag, [])
+    rec.append(max(-3.0, min(6.0, r)))
+    del rec[:-MIN_SAMPLES]
+
+
+def on_probation(s: dict, tag: str) -> bool:
+    """Rolling MIN_SAMPLES-outcome expectancy <= MIN_EXPECTED_R, for at most PROBATION_SECONDS."""
+    rec = s["recent"].get(tag, [])
+    if len(rec) < MIN_SAMPLES or sum(rec) / len(rec) > MIN_EXPECTED_R:
+        s["probation"].pop(tag, None)
+        return False
+    left = s["probation"].get(tag)
+    if left is None:
+        from . import exits
+        bar = exits.BAR_SECONDS if getattr(exits, "BAR_SECONDS", None) else 3600
+        s["probation"][tag] = left = max(1, int(PROBATION_SECONDS / bar))
+    if left <= 0:
+        s["probation"].pop(tag, None)
+        del s["recent"][tag][:-MIN_SAMPLES // 2]  # 24 hours served: a fresh trial with half its record
+        return False
+    return True
+
+
+def _follow_shadows(agent, s: dict) -> None:
+    """Move the shadow trades on with the latest price; write finished ones into the rolling record."""
+    if not agent.prices:
+        return
+    price = agent.prices[-1]
+    for tag in list(s["probation"]):
+        s["probation"][tag] -= 1
+    keep = []
+    for t in s["shadow"]:
+        t["bars"] += 1
+        r = t["side"] * (price - t["entry"]) / t["r"] if t["r"] else 0.0
+        if r >= 1.0 or r <= -1.0 or t["bars"] >= SHADOW_BARS:
+            _remember(s, t["tag"], max(-1.0, min(1.0, r)))
+        else:
+            keep.append(t)
+    s["shadow"] = keep[-20:]
 
 
 def propose(agent, direction: float) -> dict:
@@ -87,12 +141,8 @@ def audit(agent, proposal: dict) -> str | None:
         return "tilt"
     if proposal["expected_move"] < FRICTION_MULT * 2 * accounts.COST_BPS / 10_000:
         return "friction"
-    ledger = s["ledger"]
-    w, lost, _ = ledger.get(proposal["tag"], (0, 0, 0.0))
-    if w + lost >= MIN_SAMPLES:
-        exp = ledger.expectancy(proposal["tag"])
-        if exp is not None and exp < MIN_EXPECTED_R:
-            return "ledger"
+    if on_probation(s, proposal["tag"]):
+        return "ledger"
     view = getattr(agent, "view", None)
     if view is not None and view.direction * proposal["side"] <= -PREMORTEM_VIEW and proposal["regime"] == "vol_spike":
         return "premortem"
@@ -104,6 +154,7 @@ def check(agent, value: float, signal: float) -> float:
     if not ENABLED or not value or agent.role != "trader" or agent.must_practice:
         return value
     s = state(agent)
+    _follow_shadows(agent, s)
     if s["tilt_left"] > 0:
         s["tilt_left"] -= 1
     held = 1.0 if agent.position > 0 else -1.0 if agent.position < 0 else 0.0
@@ -118,6 +169,9 @@ def check(agent, value: float, signal: float) -> float:
         return value
     COUNTS[why] += 1
     s["vetoes"][why] = s["vetoes"].get(why, 0) + 1
+    if why == "ledger" and agent.prices and prop["stop"] and not any(t["tag"] == prop["tag"] for t in s["shadow"]):
+        s["shadow"].append({"tag": prop["tag"], "side": prop["side"], "entry": agent.prices[-1],
+                            "r": prop["stop"] * agent.prices[-1], "bars": 0})
     return agent.position if d == held else 0.0
 
 
@@ -134,6 +188,7 @@ def closed(agent, won: bool, move: float, forced: bool) -> None:
         row[0] += won
         row[1] += not won
         row[2] += max(-3.0, min(6.0, r))
+        _remember(s, tag, r)
     s["streak"] = 0 if won else s["streak"] + 1
     if s["streak"] >= TILT_LOSSES:
         s["tilt_left"] = TILT_BARS
@@ -146,6 +201,8 @@ def copy(best, weak) -> None:
     src = state(best)["ledger"]
     dst = state(weak)
     dst["ledger"] = Ledger({k: [w // 2, lost // 2, r * 0.5] for k, (w, lost, r) in src.items()})
+    dst["recent"] = {k: list(v[-(MIN_SAMPLES // 2):]) for k, v in state(best)["recent"].items()}
+    dst["shadow"], dst["probation"] = [], {}
     dst["streak"] = 0
     dst["tilt_left"] = 0
 
