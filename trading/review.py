@@ -51,7 +51,7 @@ def _win_rate(trades: list[dict]) -> float | None:
 
 def review(agent, period: int) -> list[str]:
     """One review of the agent's journal. Changes its rules, returns the lessons it wrote (may be empty)."""
-    trades = [t for t in agent.journal if not t.get("forced")] or agent.journal
+    trades = [t for t in agent.journal if not t.get("forced")]  # practice-quota trades never change the rules
     agent.journal = []
     agent.workspace["reviews"] = agent.workspace.get("reviews", 0) + 1
     if len(trades) < MIN_TRADES:

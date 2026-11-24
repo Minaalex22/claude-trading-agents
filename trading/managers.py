@@ -21,6 +21,11 @@ BENCH_BELOW = 0.35
 ANALYST_BELOW = 0.45
 ANALYST_EXPERIENCE = 300
 MAX_BENCH_SHARE = 0.2
+# Deep bench (env ATLAS_DEEP, on by default): when a whole department won under DEEP_BELOW of its chosen trades this hour,
+# Atlas may bench up to DEEP_SHARE of it.
+ATLAS_DEEP = True
+DEEP_BELOW = 0.45
+DEEP_SHARE = 0.6
 PAUSE_MIN_TRADES = 3
 PAUSE_WIN_RATE = 0.34
 
@@ -38,6 +43,7 @@ class Managers:
 
         # Atlas: traders that lost most of their trades this hour sit out the next one.
         by_dept: dict[str, list] = {}
+        prev = dict(self._counts)
         for a in agents:
             if a.role == "trader":
                 w, lost = a.workspace.get("trade_wins", 0), a.workspace.get("trade_losses", 0)
@@ -51,9 +57,20 @@ class Managers:
         sizes = {}
         for a in agents:
             sizes[a.department] = sizes.get(a.department, 0) + 1
+        dept_wl: dict[str, list[int]] = {}
+        for a in agents:
+            if a.role == "trader":
+                w0, l0 = prev.get(a.agent_id, (0, 0))
+                row = dept_wl.setdefault(a.department, [0, 0])
+                row[0] += a.workspace.get("trade_wins", 0) - w0
+                row[1] += a.workspace.get("trade_losses", 0) - l0
         for dept, bad in by_dept.items():
             bad.sort(key=lambda x: x[0])
-            for rate, a in bad[:int(sizes[dept] * MAX_BENCH_SHARE)]:
+            share = MAX_BENCH_SHARE
+            w, lost = dept_wl.get(dept, (0, 0))
+            if ATLAS_DEEP and w + lost >= MIN_TRADES and w / (w + lost) < DEEP_BELOW:
+                share = DEEP_SHARE
+            for rate, a in bad[:int(sizes[dept] * share)]:
                 self.benched.add(a.agent_id)
                 a.workspace["benched"] = a.workspace.get("benched", 0) + 1
                 notes = a.workspace.setdefault("lessons", [])

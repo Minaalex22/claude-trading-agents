@@ -31,7 +31,7 @@ ALL = ("regime", "mtf", "vol", "meta")
 DEFAULT = ("regime", "mtf")  # what runs unless ENTRY_FILTERS says otherwise (vol and meta: tested, not kept)
 ON: set[str] = set(DEFAULT)  # ENTRY_FILTERS (engine) picks which ones run; "off" turns them all off
 
-ER_TREND = 0.25
+ER_TREND = 0.35
 PERSONAL = 0.0  # >0: each agent gets its own trend bar (ER_TREND x 1 +/- PERSONAL). Tested at 0.5: no change
 FILTER_REVERSION = False  # regime/mtf checks on reversion traders: tested, they cut reversion's win rate
 ER_RANGE = 0.45

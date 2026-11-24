@@ -30,6 +30,13 @@ TARGET_R = 2.4
 BREAKEVEN_R = 1.0
 MAX_HOLD_WINDOWS = 3
 COOLDOWN = 5
+# Trend trades can run (env TREND_EXITS, "trail" by default): no 2.4R target for the Trend department; once a trend trade is
+# +1.5R its stop trails TRAIL_R behind its best point (Seykota: cut losses, let winners run).
+TREND_TRAIL = True
+TRAIL_R = 1.0  # trend: trail 1R behind the best point ...
+TREND_STOP_R = 1.2  # ... with a slightly wider first stop (fewer wick-outs) ...
+TREND_BREAKEVEN_R = 1.5  # ... and breakeven, then the trail, only from +1.5R
+COOLDOWNS = {"trend": 3, "reversion": 2}  # bars before reopening the same side after a stop
 MIN_R = 1e-4  # as a fraction of price, so a flat window still gives a usable stop
 
 REASONS = ("stop", "breakeven", "target", "time")
@@ -48,7 +55,8 @@ def open_trade(agent) -> None:
     """Remember the trade's R, stop and target when it opens."""
     w = agent.workspace
     r = risk_unit(agent.prices)
-    w["exit_plan"] = {"r": r, "stop_r": -1.0, "best_r": 0.0, "held": 0}
+    trail = TREND_TRAIL and agent.style != "reversion"
+    w["exit_plan"] = {"r": r, "stop_r": -TREND_STOP_R if trail else -1.0, "best_r": 0.0, "held": 0}
 
 
 def check(agent) -> str | None:
@@ -66,9 +74,12 @@ def check(agent) -> str | None:
     now_r = side * (agent.prices[-1] - entry) / plan["r"]
     plan["held"] += 1
     plan["best_r"] = max(plan["best_r"], now_r)
-    if plan["best_r"] >= BREAKEVEN_R and plan["stop_r"] < 0:
+    trail = TREND_TRAIL and agent.style != "reversion"
+    if plan["best_r"] >= (TREND_BREAKEVEN_R if trail else BREAKEVEN_R) and plan["stop_r"] < 0:
         plan["stop_r"] = 0.0  # breakeven: this trade can no longer lose
-    if now_r >= TARGET_R:
+    if trail and plan["best_r"] >= TREND_BREAKEVEN_R:
+        plan["stop_r"] = max(plan["stop_r"], plan["best_r"] - TRAIL_R)
+    if not trail and now_r >= TARGET_R:
         return "target"
     if now_r <= plan["stop_r"]:
         return "breakeven" if plan["stop_r"] >= 0 else "stop"
@@ -82,7 +93,8 @@ def record(agent, reason: str) -> None:
     counts = w.setdefault("exits", {})
     counts[reason] = counts.get(reason, 0) + 1
     if reason == "stop":
-        w["cooldown"] = {"side": 1.0 if agent.position > 0 else -1.0, "left": COOLDOWN}
+        left = COOLDOWNS.get("reversion" if agent.style == "reversion" else "trend", COOLDOWN) if TREND_TRAIL else COOLDOWN
+        w["cooldown"] = {"side": 1.0 if agent.position > 0 else -1.0, "left": left}
     w.pop("exit_plan", None)
 
 

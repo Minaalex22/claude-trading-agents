@@ -7,7 +7,9 @@ from trading.agents import Momentum, gate_bucket
 class ExitTests(unittest.TestCase):
     def setUp(self):
         self.addCleanup(setattr, exits, "ENABLED", exits.ENABLED)
+        self.addCleanup(setattr, exits, "TREND_TRAIL", exits.TREND_TRAIL)
         exits.ENABLED = True
+        exits.TREND_TRAIL = False  # the fixed template; the trend trail has its own test
 
     def _long(self, prices):
         t = Momentum("m", "X", 5)
@@ -22,6 +24,19 @@ class ExitTests(unittest.TestCase):
         r = t.workspace["exit_plan"]["r"]
         t.prices.append(101 - 1.1 * r)
         self.assertEqual(exits.check(t), "stop")
+
+    def test_trend_trades_trail_instead_of_capping_at_the_target(self):
+        exits.TREND_TRAIL = True
+        t = self._long([100, 101, 100, 101, 100, 101])
+        r = t.workspace["exit_plan"]["r"]
+        self.assertEqual(t.workspace["exit_plan"]["stop_r"], -exits.TREND_STOP_R)  # 1.2R first stop
+        t.prices.append(101 - 1.1 * r)
+        self.assertIsNone(exits.check(t))  # a 1.1R wick no longer stops a trend trade
+        t.prices.append(101 + 4.0 * r)
+        self.assertIsNone(exits.check(t))  # no 2.4R cap: the winner runs
+        self.assertAlmostEqual(t.workspace["exit_plan"]["stop_r"], 4.0 - exits.TRAIL_R, places=6)
+        t.prices.append(101 + 2.9 * r)
+        self.assertEqual(exits.check(t), "breakeven")  # gave back more than 1R: out, still well in profit
 
     def test_breakeven_after_one_r_then_target(self):
         t = self._long([100, 101, 100, 101, 100, 101])

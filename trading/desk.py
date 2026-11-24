@@ -20,6 +20,32 @@ LEADERBOARD_EVERY = 20
 ORG_EVERY = 5  # how often the managers report their departments
 MACRO_WEIGHT = 0.3  # how far the analysts' read of the news tilts the desk's call
 LATEST_NEWS = 8
+# Practice-quota trades (20 an hour) are forced coin flips that win about 47%. Letting them steer the desk dragged
+# its own closed trades down to a 25-45% win rate on real BTC/ETH/SOL/gold bars; leaving them out lifted it to
+# 52-70% (hourly 2 months, 15m 2 weeks) with more profit. This is a hard wall: no setting turns it off.
+# How much the desk listens to Trend (env TREND_WEIGHT, 0 = Reversion only). Trend's chosen trades lost on years
+# of real data in most markets (forex 28-41%, gold 32-41%, indices 42-45%, shares 43-46%), but turning it down
+# cut profit in some periods, so it stays at 1 until tested further.
+TREND_WEIGHT = 1.0
+# Regime router (env REGIME_ROUTER, on by default): per symbol, the desk measures trend strength (efficiency ratio over
+# ROUTER_FAST bars, an ADX stand-in) and volatility expansion (average move over ROUTER_FAST bars vs ROUTER_SLOW).
+# Breakout (strong trend and expanding volatility): Trend x1.25, Reversion x0.4. Chop (weak trend, quiet): Trend
+# muted, Reversion x1.2. In between: Trend x0.5.
+REGIME_ROUTER = True
+ROUTER_FAST, ROUTER_SLOW = 14, 50
+ROUTER_TREND, ROUTER_CHOP, ROUTER_EXPAND = 0.35, 0.2, 1.15
+ROUTER_WEIGHTS = {"expansion": (1.25, 0.4), "chop": (0.0, 1.2), "transition": (0.5, 1.0)}
+# Cost hurdle (env COST_HURDLE: "auto" by default, a fixed multiple, or 0 = off): no new desk exposure unless the
+# expected move over HURDLE_BARS bars (average one-bar move x sqrt(bars)) is at least N x the round-trip fee.
+# "auto" picks N from the bar length: faster bars need a bigger cushion over costs.
+COST_HURDLE: float | None = None  # None = auto
+HURDLE_BARS = 10
+FRICTION_HURDLES = ((60, 5.0), (300, 4.0), (900, 2.5), (3600, 1.8), (4 * 3600, 1.5))  # (bar seconds up to, N)
+FRICTION_SLOW = 1.5  # daily and slower bars
+FRICTION_SIM = 2.0  # the simulator has no clock
+# Analysts' trend gate (env TREND_GATE, default 0.25; "off" disables): when the analysts' regime vote is below it,
+# the desk doesn't listen to Trend at all on that symbol and Reversion drives.
+TREND_GATE: float | None = 0.25
 MIN_PRACTICE_TRADES = 20  # every strategy trader makes at least this many practice trades per hour
 
 
@@ -74,10 +100,15 @@ class Desk:
         self.checks = {"blocked": 0, "shrunk": 0}  # pre-order checks (trading/hooks.py)
         self.hour_start = 0
         self.hour_stats: dict[str, dict] = {}
+        self.price_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=ROUTER_SLOW + 1))
+        self.regime: dict[str, str] = {}
+        self.bar_seconds: float | None = None  # time between market ticks, for the cost hurdle
 
     def step(self, prices: dict[str, float], headlines: list[dict] | None = None, now: float | None = None) -> None:
         """One tick. `now` is the market time (unix seconds) for live prices and backtests; None in the simulator."""
         self.ticks += 1
+        if now is not None and self.now is not None and now > self.now:
+            self.bar_seconds = now - self.now
         self.now = now
         self.clock = sessions.clock(now) if self.use_clock else None
         if self.clock is not None:
@@ -85,6 +116,8 @@ class Desk:
         for headline in headlines or ():
             self.news.appendleft(headline)
         self.last_prices = dict(prices)
+        for symbol, price in prices.items():
+            self.price_hist[symbol].append(price)
         if self.beta:
             self.beta.begin()
         views = self.room.update(prices, headlines) if self.room else {}
@@ -109,6 +142,8 @@ class Desk:
                 agent.news_view = self.news_view.get(agent.symbol)
                 agent.view = views.get(agent.symbol)
             vote = agent.observe(prices[agent.symbol])
+            if isinstance(agent, Trader) and (agent.must_practice or (vote is not None and vote.practice)):
+                continue  # hard wall: a practice-quota trade is the agent's homework, never a desk order
             if vote is None or agent.agent_id in self.managers.benched:
                 continue  # benched by its manager: it keeps practising, but its vote doesn't count this hour
             agent_votes[agent.agent_id] = vote.value
@@ -129,7 +164,7 @@ class Desk:
         for symbol in self.symbols:
             if symbol not in votes:
                 continue
-            score = self._score(votes[symbol]) * exposure
+            score = self._score(votes[symbol], symbol) * exposure
             if self.proven_only:
                 # Only agents with a proven record steer: no trade on a symbol without enough of them.
                 view, n = self.proven_view.get(symbol, (0.0, 0))
@@ -140,6 +175,10 @@ class Desk:
                 score = 0.0  # kill switch: close everything
             target_value = score * self.risk.limits.max_position_value
             desired = target_value / prices[symbol] - self.broker.position(symbol)
+            if self._hurdle() and abs(target_value) > abs(self.broker.position(symbol) * prices[symbol]) \
+                    and not self.risk.killed and not self._clears_costs(symbol):
+                self.checks["blocked"] += 1
+                continue  # not enough movement to pay the round trip: no new exposure (trims and exits still go)
             if abs(desired * prices[symbol]) < self.min_trade and not (self.risk.killed and self.broker.position(symbol)):
                 continue  # ignore tiny rebalances
             check = hooks.OrderCheck(symbol, desired, self.broker.position(symbol), prices[symbol],
@@ -356,19 +395,57 @@ class Desk:
                 "checks": dict(self.checks), "desk_trades": self.journal.closed, "memory": self.memory,
                 "minds": self.minds()}
 
-    def _score(self, v: dict) -> float:
+    def _clears_costs(self, symbol: str) -> bool:
+        p = list(self.price_hist[symbol])[-(ROUTER_FAST + 1):]
+        if len(p) < 3:
+            return False
+        step = sum(abs(b / a - 1) for a, b in zip(p, p[1:])) / (len(p) - 1)
+        return step * HURDLE_BARS ** 0.5 >= self._hurdle() * 2 * self.broker.fee_bps / 10_000
+
+    def _hurdle(self) -> float:
+        """How many round-trip fees the expected move must cover: COST_HURDLE, or by bar length when auto."""
+        if COST_HURDLE is not None:
+            return COST_HURDLE
+        if self.bar_seconds is None:
+            return FRICTION_SIM
+        return next((n for top, n in FRICTION_HURDLES if self.bar_seconds <= top), FRICTION_SLOW)
+
+    def regime_of(self, symbol: str) -> str:
+        """expansion, chop or transition, from the symbol's own recent bars (the desk's ADX/ATR stand-in)."""
+        p = list(self.price_hist.get(symbol, ()))
+        if len(p) < ROUTER_SLOW + 1:
+            return "transition"
+        fast = p[-(ROUTER_FAST + 1):]
+        path = sum(abs(b - a) for a, b in zip(fast, fast[1:]))
+        er = abs(fast[-1] - fast[0]) / path if path else 0.0
+        steps = [abs(b / a - 1) for a, b in zip(p, p[1:])]
+        slow = sum(steps) / len(steps)
+        ratio = (sum(steps[-ROUTER_FAST:]) / ROUTER_FAST) / slow if slow else 1.0
+        if er >= ROUTER_TREND and ratio >= ROUTER_EXPAND:
+            return "expansion"
+        if er < ROUTER_CHOP and ratio < 1.0:
+            return "chop"
+        return "transition"
+
+    def _score(self, v: dict, symbol: str | None = None) -> float:
         trend = sum(v["trend"]) / len(v["trend"]) if v["trend"] else 0.0
         reversion = sum(v["reversion"]) / len(v["reversion"]) if v["reversion"] else 0.0
         # Analysts decide whose advice to trust: trending regime favours
         # trend-followers, choppy regime favours mean-reversion traders.
         regime = sum(v["analyst"]) / len(v["analyst"]) if v["analyst"] else 0.0
-        trend_weight = (1 + regime) / 2
+        trend_weight = (1 + regime) / 2 * TREND_WEIGHT
+        if TREND_GATE is not None and regime < TREND_GATE:
+            trend_weight = 0.0
         if self.alpha:
             # Brain Alpha's learned style weights tilt the analysts' call.
             t = trend_weight * self.alpha.weights["trend"]
             r = (1 - trend_weight) * self.alpha.weights["reversion"]
             trend_weight = t / (t + r) if t + r else 0.5
-        score = trend_weight * trend + (1 - trend_weight) * reversion
+        t_mult, r_mult = 1.0, 1.0
+        if REGIME_ROUTER and symbol is not None:
+            self.regime[symbol] = self.regime_of(symbol)
+            t_mult, r_mult = ROUTER_WEIGHTS[self.regime[symbol]]
+        score = trend_weight * t_mult * trend + (1 - trend_weight) * r_mult * reversion
         # Analysts trained in politics and economics add what the news says.
         macro = sum(v["macro"]) / len(v["macro"]) if v["macro"] else 0.0
         return max(-1.0, min(1.0, score + MACRO_WEIGHT * macro))
