@@ -21,6 +21,9 @@ class ScaleStallTests(unittest.TestCase):
         for k in ("TREND_TRAIL", "SCALE_OUT", "STALL_STOP", "BAR_SECONDS"):
             self.addCleanup(setattr, exits, k, getattr(exits, k))
         exits.TREND_TRAIL, exits.SCALE_OUT, exits.STALL_STOP, exits.BAR_SECONDS = False, True, True, 3600
+        from trading import sniper
+        self.addCleanup(setattr, sniper, "SNIPER", sniper.SNIPER)
+        sniper.SNIPER = False  # sniper mode's own exit has its own test
 
     def test_banks_half_at_1_2r_then_rest_cannot_lose(self):
         a = trader([100.0, 100.1] * 30)
