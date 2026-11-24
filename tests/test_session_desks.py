@@ -39,7 +39,13 @@ class SessionDeskTests(unittest.TestCase):
     def test_handoffs_go_round_the_world(self):
         hs = sd.handoffs(utc("2026-11-23T03:00:00"), 4)
         self.assertEqual([(h["from"], h["to"]) for h in hs],
-                         [("asia", "london"), ("london", "newyork"), ("newyork", "sydney"), ("sydney", "asia")])
+                         [("asia", "europe"), ("europe", "london"), ("london", "newyork"), ("newyork", "sydney")])
+
+    def test_europe_desk_opens_an_hour_before_london(self):
+        d = sd.desk("europe", utc("2026-11-23T03:00:00"))
+        self.assertEqual(d["city"], "Frankfurt")
+        self.assertEqual(d["hours"]["melbourne"], "18:00 to 03:00 Melbourne")
+        self.assertEqual(sd.lead(utc("2026-11-23T07:30:00")), "europe")   # 08:30 Frankfurt, London not open yet
 
     def test_every_desk_has_all_four_departments(self):
         d = sd.desk("asia", utc("2026-11-23T03:00:00"))
@@ -50,7 +56,7 @@ class SessionDeskTests(unittest.TestCase):
         t = utc("2026-11-23T10:00:00").timestamp()
         b = sd.board(utc("2026-11-23T11:00:00"), trades=[{"ts": t, "won": True, "pnl": 3.5, "symbol": "EURUSD"}])
         books = {d["key"]: d["book"]["trades"] for d in b["desks"]}
-        self.assertEqual(books, {"sydney": 0, "asia": 0, "london": 1, "newyork": 0})
+        self.assertEqual(books, {"sydney": 0, "asia": 0, "europe": 0, "london": 1, "newyork": 0})
 
     def test_real_money_stays_locked(self):
         env = {"METAAPI_TOKEN": "x", "METAAPI_ACCOUNT_ID": "y", "MT5_MODE": "demo"}
@@ -71,11 +77,11 @@ class DeskPageTests(unittest.TestCase):
         resp, _ = self.request("GET", "/desks/london")
         self.assertEqual((resp.status, resp.getheader("Location")), (303, "/login"))
         cookie = self.cookie_from(self.login()[0])
-        for path in ("/desks", "/desks/sydney", "/desks/asia", "/desks/london", "/desks/newyork"):
+        for path in ("/desks", "/desks/sydney", "/desks/asia", "/desks/europe", "/desks/london", "/desks/newyork"):
             resp, body = self.request("GET", path, cookie=cookie)
             self.assertEqual(resp.status, 200, path)
         resp, body = self.request("GET", "/api/desks", cookie=cookie)
-        self.assertEqual([d["key"] for d in json.loads(body)["desks"]], ["sydney", "asia", "london", "newyork"])
+        self.assertEqual([d["key"] for d in json.loads(body)["desks"]], ["sydney", "asia", "europe", "london", "newyork"])
         resp, body = self.request("GET", "/api/desks/newyork", cookie=cookie)
         self.assertEqual(json.loads(body)["desk"]["name"], "New York")
         resp, _ = self.request("GET", "/desks/mars", cookie=cookie)

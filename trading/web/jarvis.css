@@ -32,3 +32,9 @@ button:hover{border-color:var(--holo)}
 #stage{background:radial-gradient(ellipse at 50% 47%,rgba(63,224,255,.10) 0%,rgba(0,8,14,.9) 45%,#000 75%)!important;border-color:rgba(63,224,255,.25)!important}
 #holo canvas{width:100%;height:100%}
 #state{color:rgba(63,224,255,.75);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+#viewbar{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:2;flex-wrap:wrap;justify-content:center}
+#viewbar button{background:rgba(0,8,14,.7);border:1px solid rgba(63,224,255,.3);color:rgba(63,224,255,.85);border-radius:999px;padding:4px 12px;font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase}
+#viewbar button[aria-pressed=true]{border-color:#ff5c00;color:#fff;background:rgba(255,92,0,.18);box-shadow:0 0 10px rgba(255,92,0,.35)}
+#camPreview{position:absolute;right:16px;bottom:44px;width:128px;z-index:2}
+#camPreview video{width:100%;display:block;border:1px solid rgba(255,92,0,.6);border-radius:8px;transform:scaleX(-1);opacity:.8}
+@media (max-width:620px){#viewbar{top:8px}#viewbar button{padding:3px 9px}#camPreview{width:84px;bottom:36px;right:10px}}
