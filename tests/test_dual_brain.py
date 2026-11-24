@@ -36,9 +36,25 @@ class DualBrainTests(unittest.TestCase):
     def test_slow_half_vetoes_a_setup_that_loses_in_this_market_type(self):
         t = self._agent()
         tag = db.propose(t, 1.0)["tag"]
-        db.state(t)["ledger"][tag] = [2, 12, -10.0]  # 14 trades, expectancy -0.7R
+        db.state(t)["recent"][tag] = [-1.0] * 12  # last 12 outcomes lose on average
         self.assertEqual(db.check(t, 1.0, 1.0), 0.0)
         self.assertEqual(db.state(t)["vetoes"], {"ledger": 1})
+        self.assertEqual(len(db.state(t)["shadow"]), 1)  # the skipped trade is followed on paper
+
+    def test_shadow_probation_recovers_instead_of_a_permanent_ban(self):
+        s = {"recent": {}, "probation": {}}
+        for _ in range(12):
+            db._remember(s, "reversion:chop", -1.0)
+        self.assertTrue(db.on_probation(s, "reversion:chop"))
+        for _ in range(6):
+            db._remember(s, "reversion:chop", 2.5)  # shadow wins while it sits out
+        self.assertFalse(db.on_probation(s, "reversion:chop"))
+
+    def test_probation_ends_after_24_hours(self):
+        s = {"recent": {"x": [-1.0] * 12}, "probation": {}}
+        self.assertTrue(db.on_probation(s, "x"))
+        s["probation"]["x"] = 0  # 24 hours served
+        self.assertFalse(db.on_probation(s, "x"))
 
     def test_tilt_cooldown_after_three_losses_in_a_row(self):
         t = self._agent()
