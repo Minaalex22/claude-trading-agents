@@ -353,3 +353,89 @@ class MasterPipelineTests(unittest.TestCase):
         engine.run({"AGENT_COUNT": "750", "TICKS": "60", "TICK_SECONDS": "0"}, stream=out)
         ev = [json.loads(line) for line in out.getvalue().splitlines()]
         self.assertEqual(sum(e["type"] == "order" for e in ev), sum(e["type"] == "pipeline" for e in ev))
+
+
+class SpyDipWalkthroughTests(unittest.TestCase):
+    """mina's SPY 1h walkthrough (24 Nov 2026): a US-session dip into support, bought by the Scalpers with a
+    $4.4M 0DTE call print at the key level. Every one of the nine stages must say what the walkthrough says,
+    and the size must stay under the $5k order cap."""
+
+    NOW = datetime(2026, 11, 26, 15, 30, tzinfo=timezone.utc)  # 10:30 New York, 02:30 Melbourne
+
+    def setUp(self):
+        from trading import option_flows
+        self.flows = option_flows
+        option_flows.FEED.clear()
+        self.addCleanup(option_flows.FEED.clear)
+
+    def ctx(self, **kw):
+        from trading.master_pipeline import CandidateOrderContext
+        # 1h closes: a steady 4h uptrend, then a dip into the swing low (a flat-to-rising parent: dip buys allowed)
+        prices = [580 + i * 0.12 for i in range(120)] + [594.4, 593.6, 592.10]
+        base = dict(symbol="SPY", side="BUY", desk_score=0.82, entry_price=592.15, stop_price=589.60, timeframe="1h",
+                    style="reversion", prices=prices, bar_seconds=3600.0, last_price_at=self.NOW.timestamp() - 4,
+                    room_direction=-0.31, room_confident=False, threshold=0.72)
+        base.update(kw)
+        return CandidateOrderContext(**base)
+
+    def whale(self, kind="CALL"):
+        self.flows.FEED.ingest(self.flows.from_json({
+            "underlying": "SPX", "option_type": kind, "action": "BUY_TO_OPEN", "premium": 4_400_000, "dte": 0,
+            "strike": 5920, "spot": 5921, "key_level": 5920, "at_key_level": True}, at=self.NOW.timestamp() - 60))
+
+    def test_spy_dip_clears_all_nine_stages(self):
+        from trading.master_pipeline import STAGES, MasterDeskPipeline
+        from trading.trade_checker import FILE, TradeChecker
+        self.whale()
+        with tempfile.TemporaryDirectory() as d:
+            pipe = MasterDeskPipeline(account_equity=100_000.0, checker=TradeChecker(d), max_position=5_000.0)
+            r = pipe.evaluate_trade(self.ctx(), events=[], now_utc=self.NOW)
+            self.assertTrue(r["approved"], r)
+            said = {t["stage"]: t for t in r["trace"]}
+            self.assertEqual(list(said), list(STAGES))
+            self.assertTrue(all(t["ok"] for t in r["trace"]))
+            self.assertEqual(said["whale"]["why"], "boosted")  # the call print agrees: score x1.25
+            self.assertGreater(r["effective_score"], 0.82)
+            self.assertIn("US", r["arm"].upper())
+            self.assertLessEqual(r["notional"], 5_000.0)  # constant-R wants far more; the $5k cap wins
+            self.assertEqual(said["sizing"]["cap"], 5_000.0)
+            from trading import ops_guard  # 0.75% of $100k over a 0.43% stop is ~$174k: the cap is what binds
+            self.assertGreater(ops_guard.compute_volatility_parity_notional(100_000, 592.15, 589.60, 0.0075, 1.0,
+                                                                            10**9), 100_000)
+            audit = [json.loads(line) for line in (Path(d) / FILE).read_text().splitlines()]
+            self.assertEqual(len(audit), 1)
+            self.assertTrue(audit[0]["passed"])
+            self.assertTrue(audit[0]["verdict"].startswith("PASS"))
+
+    def test_same_dip_blocked_where_it_should_be(self):
+        from trading.master_pipeline import MasterDeskPipeline
+        pipe = MasterDeskPipeline(max_position=5_000.0)
+        self.whale("PUT")  # a $4.4M put bought to open at the level: the whale is against the dip buy
+        self.assertEqual(pipe.evaluate_trade(self.ctx(), now_utc=self.NOW)["stage"], "whale")
+        self.flows.FEED.clear()
+        rollover = datetime(2026, 11, 26, 22, 30, tzinfo=timezone.utc)
+        self.assertEqual(pipe.evaluate_trade(self.ctx(last_price_at=rollover.timestamp() - 4),
+                                             now_utc=rollover)["stage"], "feed")
+        old = self.NOW.timestamp() - 3 * 3600  # the last real price is 3 hours old
+        self.assertEqual(pipe.evaluate_trade(self.ctx(last_price_at=old), now_utc=self.NOW)["stage"], "feed")
+        loud = self.ctx(room_direction=-0.8, room_confident=True)  # a confident crash read: no dip buying
+        self.assertEqual(pipe.evaluate_trade(loud, now_utc=self.NOW)["stage"], "room")
+        weak = self.ctx(desk_score=0.6)
+        self.assertEqual(pipe.evaluate_trade(weak, now_utc=self.NOW)["stage"], "checker")
+
+
+class OrderTrailTests(unittest.TestCase):
+    def test_trail_reaches_audit_and_jarvis(self):
+        from trading import jarvis
+        from trading.dashboard import EventHub
+        from trading.master_pipeline import trail_text
+        with tempfile.TemporaryDirectory() as d:
+            hub = EventHub(Path(d))
+            ev = {"type": "pipeline", "symbol": "SPY", "qty": 8.0, "price": 592.13, "score": 0.96,
+                  "stages": {"feed": "fresh", "orbit": "US equity", "heat": 1.45, "events": "PASS", "parent": "PASS",
+                             "room": "PASS", "whale": "PASS", "sizing_cap": 4737.2, "night": "day", "checker": "PASS"}}
+            hub.add(ev)
+            self.assertEqual(hub.state()["order_trails"][0]["symbol"], "SPY")
+            self.assertIn("9 checker PASS", trail_text(ev))
+            reply = jarvis.BuiltinBrain().answer("why did we buy SPY?", {"order_trails": [ev]})
+            self.assertIn("SPY: bought 8", reply)

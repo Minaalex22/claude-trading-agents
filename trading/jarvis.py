@@ -186,6 +186,7 @@ def snapshot(org: dict | None, state: dict | None) -> dict:
             "jev": {"approved": desk.get("approved", 0), "rejected": desk.get("rejected", 0),
                     "approval_rate": desk.get("approval_rate")},
             "platforms": platforms.status(), "feed_problems": state.get("feed_watchdog") or [],
+            "order_trails": (state.get("order_trails") or [])[:5],
             **_night(state.get("night_shift"))}
 
 
@@ -241,6 +242,12 @@ class BuiltinBrain:
             return snap.get("daily_close") or "No daily close yet. It is written at 08:15 Melbourne time. See /brief."
         if has("night shift", "overnight", "last night", "while i slept", "morning briefing", "briefing"):
             return night_answer(snap.get("night_shift"))
+        if has("why did (we|you|the desk) (buy|sell|trade)", "last order", "nine stages", "9 stages", "trail"):
+            from .master_pipeline import trail_text
+            trails = snap.get("order_trails") or []
+            words = set(re.findall(r"[a-z]+", q))
+            mine = [t for t in trails if str(t.get("symbol", "")).lower() in words] or trails
+            return trail_text(mine[0]) if mine else "No desk orders yet, so there is no nine-stage trail to show. See /audit."
         if has("feed", "stale", "frozen", "watchdog", "data ok", "prices ok"):
             problems = snap.get("feed_problems") or []
             if not problems:

@@ -19,6 +19,9 @@ async function load() {
       : `<tr><td colspan="4" class="g">No events loaded yet.</td></tr>`;
     $("#rows").innerHTML = b.rows.length ? b.rows.map(r => `<tr><td>${esc(r.at)}</td><td>${esc(r.symbol)}</td><td class="${r.side === "BUY" ? "buy" : "sell"}">${esc(r.side)}</td><td>${num(r.price, 4)}</td><td>${num(Math.abs(r.desk_score))} / ${num(r.threshold)}</td><td>${esc(r.event)}</td><td class="${r.passed ? "ok" : "no"}">${esc(r.verdict)}</td></tr>`).join("")
       : `<tr><td colspan="7" class="g">No decisions logged yet. The desk writes one for every order that adds risk.</td></tr>`;
+    const tr = b.trails || [];
+    $("#trails").innerHTML = tr.length ? tr.map(t => { const s = t.stages || {}; return `<tr><td>${esc(t.symbol)}</td><td class="${t.qty > 0 ? "buy" : "sell"}">${t.qty > 0 ? "BUY" : "SELL"}</td><td>${num(t.price, 4)}</td><td>${num(t.score)}</td><td>${esc(s.feed)}</td><td>${esc(s.orbit)} · ${num(s.heat)}x</td><td>${esc(s.events)}</td><td>${esc(s.parent)}</td><td>${esc(s.room)}</td><td>${esc(s.whale)}</td><td>$${num(s.sizing_cap, 0)}</td><td>${esc(s.night)}</td><td>${esc(s.checker)}</td></tr>`; }).join("")
+      : `<tr><td colspan="13" class="g">No desk orders yet. Each one shows what all nine stages said.</td></tr>`;
   } catch (err) { $("#rows").innerHTML = `<tr><td colspan="7" class="g">${esc(err.message)}</td></tr>`; }
 }
 load();

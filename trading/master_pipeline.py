@@ -165,3 +165,14 @@ def desk_trace(desk, symbol: str, qty: float, price: float, score: float, notes)
                        "sizing_cap": round(cap, 2),
                        "night": "capsule" if desk.risk.night_active else "day",
                        "checker": "PASS" if desk.checker else "off"}}
+
+
+def trail_text(ev: dict) -> str:
+    """One desk order's nine-stage trail in plain words, for JARVIS."""
+    st = ev.get("stages") or {}
+    side = "bought" if (ev.get("qty") or 0) > 0 else "sold"
+    return (f"{ev.get('symbol')}: {side} {abs(ev.get('qty') or 0):g} at {ev.get('price')} (score {ev.get('score')}). "
+            f"1 feed {st.get('feed')}; 2 orbit {st.get('orbit')} at {st.get('heat')}x heat; 3 events {st.get('events')}; "
+            f"4 parent {st.get('parent')}; 5 room {st.get('room')}; 6 whale {st.get('whale')}; "
+            f"7 size cap ${st.get('sizing_cap') or 0:,.0f}; 8 night {st.get('night')}; 9 checker {st.get('checker')}. "
+            "Every order's trail is on /audit.")

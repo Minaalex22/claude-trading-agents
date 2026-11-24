@@ -12,7 +12,7 @@ Endpoints:
   /api/state    latest tick, leaderboard, agent count per shard, ring heatmap
                 and the Jev decision desk totals (JSON)
   /jarvis       JARVIS, the owner's voice assistant with the hologram (trading/jarvis.py)
-  /api/pipeline  ?symbol=&side=&score=&price=&stop=: one order through the nine-stage master pipeline
+  /api/order-check ?symbol=&side=&score=&price=&stop=: one order through the nine-stage master pipeline
   /api/promotion  the 3-gate live-promotion check per arm (trading/strategy_lab.py); say "sign off <arm>" to JARVIS
   /api/jarvis   GET her status; POST /api/jarvis/unlock {"passphrase"} and /api/jarvis/ask {"question"}
   /api/platforms  real platform connectors: mode and whether keys are set (names only)
@@ -185,6 +185,7 @@ class EventHub:
         self.closed: deque[dict] = deque(maxlen=CLOSED_KEEP)
         self.pipeline = NewsPipeline()  # every headline: triage -> gate -> deep read -> tags -> bill
         self.closed_totals = {"trades": 0, "won": 0, "lost": 0, "pnl": 0.0, "by_symbol": {}}
+        self.trails: deque[dict] = deque(maxlen=50)  # each desk order's nine-stage trail (trading/master_pipeline.py)
 
     def poll_files(self) -> None:
         for path in sorted(self.events_dir.glob("events-*.jsonl")):
@@ -235,6 +236,8 @@ class EventHub:
                 shard["start"] = {**shard["start"], "agents": event["agents"], "total_agents": event["total_agents"]}
             if kind == "closed":
                 self._record_closed(event)
+            if kind == "pipeline":
+                self.trails.append(event)
             if kind == "org" and event.get("news"):
                 views = (event.get("reading_room") or {}).get("views") or {}
                 self.pipeline.feed(event["news"], views)
@@ -377,6 +380,7 @@ class EventHub:
                     "session_pnl": round(sum(t.get("pnl", 0) for t in ticks), 2)}
             return {"shards": shards, "agents_reporting": total, "events_seen": self.seq,
                     "heatmap": heatmap, "jev_desk": desk, "night_shift": self.night_shift(),
+                    "order_trails": list(self.trails)[::-1][:20],
                     "feed_watchdog": sorted({p for v in shards.values()
                                              for p in ((v.get("market") or {}).get("watchdog") or {}).get("problems", [])})}
 
@@ -812,7 +816,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._json(200, hub.night_shift() or {"enabled": night_clock.cfg.enabled, "active": False,
                                                       "window": "23:30 - 07:00 Melbourne", "summary": None,
                                                       "briefing": None, "budget": night_clock.cfg.budget_usd})
-            elif path == "/api/pipeline":
+            elif path == "/api/order-check":
                 # One candidate order through the master pipeline's nine stages (trading/master_pipeline.py).
                 from . import master_pipeline
                 q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
@@ -1004,6 +1008,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 cal = get_calendar()
                 body = trade_checker.read_log(hub.events_dir)
                 body.update({"calendar": cal.upcoming(), "calendar_status": cal.status,
+                             "trails": hub.state()["order_trails"],
                              "guard_on": env.get("EVENT_GUARD", "on").lower() not in ("off", "0", "false", "no"),
                              "checker_on": env.get("TRADE_CHECKER", "on").lower() not in ("off", "0", "false", "no")})
                 self._json(200, body)
