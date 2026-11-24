@@ -5,7 +5,7 @@ from collections import defaultdict, deque
 
 from . import agents as agents_mod
 
-from . import academy, accounts, coach as coaching, event_guard, execution_guard, exits, hooks, indicators, review, sessions, smt_filter, sniper
+from . import academy, accounts, coach as coaching, event_guard, execution_guard, master_pipeline, exits, hooks, indicators, review, sessions, smt_filter, sniper
 from . import execution_integrity as integrity, option_flows
 from .meta_gate import MetaGate
 from . import mind as mindmod
@@ -255,7 +255,10 @@ class Desk:
             if self.pipeline is not None and not self.risk.killed:
                 score = self._pipeline_nudge(symbol, score)
             # Constant R (trading/ops_guard.py): wide-stop markets get a smaller cap, so a stop costs the same anywhere.
-            cap = self.risk.position_cap(prices[symbol], exits.risk_unit(self.price_hist[symbol]), self.broker.equity(prices))
+            # Real bars only (live or backtest): the simulator's ticks aren't bars, so its "stops" mean nothing.
+            cap = (self.risk.position_cap(prices[symbol], exits.risk_unit(self.price_hist[symbol]),
+                                          self.broker.equity(prices))
+                   if self.now is not None else self.risk.limits.max_position_value)
             if cap < self.risk.limits.max_position_value and score:
                 self.sizing["shrunk"] += 1
             target_value = score * cap * self._bucket_mult(symbol) * self.orbit.heat(symbol)
@@ -664,6 +667,8 @@ class Desk:
                     symbol, closed["qty"] * closed["entry"] * closed["move"], closed["move"])
         self.log.emit("order", symbol=symbol, qty=round(qty, 4), price=round(px, 4),
                       score=round(score, 3), why=why, checks=notes)
+        # One line per order through all nine stages of the master pipeline (trading/master_pipeline.py).
+        self.log.emit("pipeline", **master_pipeline.desk_trace(self, symbol, qty, px, score, notes))
         if self.on_order:
             self.on_order(symbol, qty, px, why)
         return 1

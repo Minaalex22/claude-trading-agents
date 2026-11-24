@@ -12,6 +12,7 @@ Endpoints:
   /api/state    latest tick, leaderboard, agent count per shard, ring heatmap
                 and the Jev decision desk totals (JSON)
   /jarvis       JARVIS, the owner's voice assistant with the hologram (trading/jarvis.py)
+  /api/pipeline  ?symbol=&side=&score=&price=&stop=: one order through the nine-stage master pipeline
   /api/promotion  the 3-gate live-promotion check per arm (trading/strategy_lab.py); say "sign off <arm>" to JARVIS
   /api/jarvis   GET her status; POST /api/jarvis/unlock {"passphrase"} and /api/jarvis/ask {"question"}
   /api/platforms  real platform connectors: mode and whether keys are set (names only)
@@ -811,6 +812,22 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._json(200, hub.night_shift() or {"enabled": night_clock.cfg.enabled, "active": False,
                                                       "window": "23:30 - 07:00 Melbourne", "summary": None,
                                                       "briefing": None, "budget": night_clock.cfg.budget_usd})
+            elif path == "/api/pipeline":
+                # One candidate order through the master pipeline's nine stages (trading/master_pipeline.py).
+                from . import master_pipeline
+                q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                try:
+                    price = float(q.get("price", ["0"])[0])
+                    ctx = master_pipeline.CandidateOrderContext(
+                        symbol=q.get("symbol", ["EURUSD"])[0][:12].upper(), side=q.get("side", ["BUY"])[0].upper(),
+                        desk_score=float(q.get("score", ["0.6"])[0]), entry_price=price,
+                        stop_price=float(q.get("stop", [str(price * 0.99)])[0]),
+                        timeframe=q.get("tf", ["1h"])[0][:4], style=q.get("style", ["reversion"])[0][:10])
+                    if price <= 0:
+                        raise ValueError
+                except (ValueError, IndexError):
+                    return self._json(400, {"error": "give symbol, side, score, price and stop"})
+                self._json(200, master_pipeline.MasterDeskPipeline().evaluate_trade(ctx))
             elif path == "/api/promotion":
                 from . import strategy_lab
                 self._json(200, {"arms": strategy_lab.check(list(hub.closed), hub.events_dir),

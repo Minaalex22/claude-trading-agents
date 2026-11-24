@@ -295,3 +295,36 @@ class PromotionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MasterPipelineTests(unittest.TestCase):
+    def ctx(self, **kw):
+        from trading.master_pipeline import CandidateOrderContext
+        base = dict(symbol="EURUSD", side="BUY", desk_score=0.7, entry_price=1.10, stop_price=1.09)
+        base.update(kw)
+        return CandidateOrderContext(**base)
+
+    def test_all_nine_stages_in_order(self):
+        from trading.master_pipeline import STAGES, MasterDeskPipeline
+        r = MasterDeskPipeline().evaluate_trade(self.ctx(), now_utc=utc(2026, 11, 24, 12))
+        self.assertTrue(r["approved"], r)
+        self.assertEqual([t["stage"] for t in r["trace"]], list(STAGES))
+        self.assertLessEqual(r["notional"], 20_000)
+
+    def test_each_guard_can_stop_it(self):
+        from trading.master_pipeline import MasterDeskPipeline
+        p = MasterDeskPipeline()
+        self.assertEqual(p.evaluate_trade(self.ctx(), now_utc=utc(2026, 11, 24, 22, 30))["stage"], "feed")
+        self.assertEqual(p.evaluate_trade(self.ctx(symbol="ZZZ"), now_utc=utc(2026, 11, 24, 12))["stage"], "orbit")
+        self.assertEqual(p.evaluate_trade(self.ctx(timeframe="5m"), now_utc=utc(2026, 11, 24, 12))["stage"], "orbit")
+        r = p.evaluate_trade(self.ctx(room_direction=-0.8, room_confident=True), now_utc=utc(2026, 11, 24, 12))
+        self.assertEqual(r["stage"], "room")
+        self.assertEqual(p.evaluate_trade(self.ctx(desk_score=0.2), now_utc=utc(2026, 11, 24, 12))["stage"], "checker")
+        old = utc(2026, 11, 24, 12).timestamp() - 3 * 3600
+        self.assertEqual(p.evaluate_trade(self.ctx(last_price_at=old), now_utc=utc(2026, 11, 24, 12))["stage"], "feed")
+
+    def test_desk_writes_a_pipeline_line_per_order(self):
+        out = io.StringIO()
+        engine.run({"AGENT_COUNT": "750", "TICKS": "60", "TICK_SECONDS": "0"}, stream=out)
+        ev = [json.loads(line) for line in out.getvalue().splitlines()]
+        self.assertEqual(sum(e["type"] == "order" for e in ev), sum(e["type"] == "pipeline" for e in ev))

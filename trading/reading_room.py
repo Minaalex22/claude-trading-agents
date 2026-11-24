@@ -154,8 +154,10 @@ class ReadingRoom:
         self.now: float | None = None
         self.news_at: dict[str, float | None] = {s: None for s in self.symbols}  # when news last moved each read
         self.macro = {s: False for s in self.symbols}
-        self.read = {"headlines": 0, "by_claude": 0, "unread": 0, "claude_charts": 0, "free": 0}
+        self.read = {"headlines": 0, "by_claude": 0, "unread": 0, "claude_charts": 0, "free": 0, "deduped": 0}
         self.prefilter = True  # the engine turns it off with READING_ROOM_PREFILTER=off
+        from .ops_guard import HeadlineBatchDeduplicator
+        self.deduper = HeadlineBatchDeduplicator()
 
     def update(self, prices: dict[str, float], headlines: list[dict] | None = None,
                now: float | None = None) -> dict[str, View]:
@@ -215,6 +217,10 @@ class ReadingRoom:
                 self.read["free"] += 1  # a routine headline: the word list is sure, no Claude tokens spent
                 return built, False
         if self.claude:
+            # mina's master pipeline: each story goes to Claude once per 2-hour bucket (trading/ops_guard.py).
+            if not self.deduper.filter_unique_for_claude([{"text": text, "symbol": text.split(":", 1)[0]}]):
+                self.read["deduped"] += 1
+                return self.claude.headline(text) if self.claude.known(text) else read_headline(text), False
             read = self.claude.headline(text)
             if read is not None:
                 return read, True
@@ -378,6 +384,12 @@ class ClaudeReader:
                 self._pending_words[key] = words
                 self._wake.set()
         return None
+
+    def known(self, text: str) -> bool:
+        """Has Claude already read this wording or the same story in other words?"""
+        key = text.split(":", 1)[-1].strip()
+        with self._lock:
+            return key in self.cache or _words(text) in self.by_words
 
     def request_charts(self, histories: dict[str, list[float]]) -> None:
         with self._lock:
