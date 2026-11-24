@@ -27,6 +27,7 @@ from collections import defaultdict, deque
 from pathlib import Path
 
 from . import academy, masters, platforms
+from . import night_shift as night
 from .org import DEPARTMENTS, MANAGERS
 
 UNLOCK_COOKIE = "jarvis_unlock"
@@ -153,6 +154,11 @@ def handbook() -> str:
         "half-Kelly with the money rules. /btcc is the BTCC practice desk (BTCC paused its API on 13 Feb 2026). "
         "/wallet shows paper money, every desk's profit, platforms and watched crypto addresses.",
         "",
+        "NIGHT SHIFT: from 23:30 to 07:00 Melbourne time the desk trades inside a ring-fenced paper capsule "
+        "($1,500 by default): no position above 15% of it, toxic setups skipped (wide spread, dead book, rug signs), "
+        "and if the night loses 5% of the capsule the desk goes exits-only until 07:00. No single-trade alerts at night; "
+        "one briefing at 07:00. Practice-quota trades never count. On by default; NIGHT_SHIFT_ENABLED=false turns it off.",
+        "",
         "SECURITY: password login with rate limits and signed cookies; JARVIS needs a second passphrase; strict "
         "Content-Security-Policy; API keys only in environment variables, never in code or logs.",
     ]
@@ -177,7 +183,34 @@ def snapshot(org: dict | None, state: dict | None) -> dict:
             "practice": org.get("practice"), "session_pnl": desk.get("session_pnl"),
             "jev": {"approved": desk.get("approved", 0), "rejected": desk.get("rejected", 0),
                     "approval_rate": desk.get("approval_rate")},
-            "platforms": platforms.status()}
+            "platforms": platforms.status(), **_night(state.get("night_shift"))}
+
+
+def _night(ns: dict | None) -> dict:
+    """Night Shift for the snapshot: the capsule, and whether this morning's 07:00 briefing is fresh."""
+    if not ns:
+        return {}
+    b = ns.get("briefing") or {}
+    today = night._local(None).strftime("%Y-%m-%d")
+    return {"night_shift": ns, "night_shift_alarm_due": bool(b) and b.get("date") == today}
+
+
+def night_answer(ns: dict | None) -> str:
+    if not ns:
+        return ("Night Shift hasn't reported yet. It runs from 23:30 to 07:00 Melbourne time on live prices, "
+                "inside a $1,500 paper capsule, and I'll have a briefing at 07:00.")
+    if not ns.get("enabled"):
+        return "Night Shift is switched off (NIGHT_SHIFT_ENABLED=false)."
+    if ns.get("active"):
+        s = ns.get("summary") or {}
+        return (f"Night Shift is on now. So far: {s.get('total_trades', 0)} trades, {s.get('wins', 0)} won, "
+                f"{s.get('small_cuts_losses', 0)} cut, capsule {_money(s.get('starting_balance'))} to "
+                f"{_money(s.get('ending_balance'))}, {s.get('toxic_skipped', 0)} toxic setups skipped."
+                + (f" It has stopped for the night: {s.get('halt_reason')}." if s.get("halted") else ""))
+    b = ns.get("briefing")
+    if b:
+        return night.briefing_text(b)
+    return "Night Shift is waiting for 23:30 Melbourne time. No night has finished yet, so there's no briefing."
 
 
 def _money(x) -> str:
@@ -198,6 +231,10 @@ class BuiltinBrain:
         q = question.lower()
         has = lambda *words: any(re.search(rf"\b{w}", q) for w in words)  # noqa: E731
         depts = snap.get("departments") or {}
+        if has("night shift", "overnight", "last night", "while i slept", "morning briefing", "briefing"):
+            return night_answer(snap.get("night_shift"))
+        if has("good morning") and snap.get("night_shift_alarm_due"):
+            return night_answer(snap.get("night_shift"))
         if has("hello", "hi\\b", "hey", "good morning", "good evening"):
             return ("Hello. I'm JARVIS. Ask me how the desk is doing, about a department or manager, the academy, "
                     "the masters, the platforms, or safety.")

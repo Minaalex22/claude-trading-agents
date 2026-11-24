@@ -56,6 +56,8 @@ from . import news_lab
 from . import decision_desk
 from .smart_money import SmartMoney
 from . import session_desks
+from . import night_shift
+from .hooks import should_suppress_alert
 from .org import DEPARTMENTS, finish_school, manager_reports
 from .wallet import Wallet, WalletError
 from .webauth import COOKIE, WebAuth
@@ -200,7 +202,7 @@ class EventHub:
             self.events.append((self.seq, event))
             shard = self.shards.setdefault(str(event.get("shard", "?")), {})
             kind = event.get("type")
-            if kind in ("start", "tick", "leaderboard", "stop", "heatmap", "matrix", "org", "market"):
+            if kind in ("start", "tick", "leaderboard", "stop", "heatmap", "matrix", "org", "market", "night_shift"):
                 shard[kind] = event
             if kind == "resize" and "start" in shard:
                 shard["start"] = {**shard["start"], "agents": event["agents"], "total_agents": event["total_agents"]}
@@ -347,7 +349,13 @@ class EventHub:
                     "approval_rate": round(approved / (approved + rejected), 4) if approved + rejected else None,
                     "session_pnl": round(sum(t.get("pnl", 0) for t in ticks), 2)}
             return {"shards": shards, "agents_reporting": total, "events_seen": self.seq,
-                    "heatmap": heatmap, "jev_desk": desk}
+                    "heatmap": heatmap, "jev_desk": desk, "night_shift": self.night_shift()}
+
+    def night_shift(self) -> dict | None:
+        """Every shard's overnight capsule as one view (trading/night_shift.py), or None before the first report."""
+        with self.cond:
+            return night_shift.merge([v["night_shift"] for k, v in self.shards.items()
+                                      if k.isdigit() and "night_shift" in v])
 
     def run_tailer(self, interval: float = 0.25) -> None:
         while True:
@@ -397,6 +405,7 @@ def trade_report(hub: "EventHub", events_dir: Path, env=os.environ) -> dict:
                        "audit": live["audit"],
                        "positions": live["positions"], "latest": live["orders"][:5]},
         "training": training_report.build(org),
+        "night_shift": st.get("night_shift"),
         "ring": {k: st["shards"]["ring"]["tick"].get(k) for k in ("equity", "pnl")} if "tick" in st["shards"].get("ring", {}) else None,
     }
     return rep
@@ -408,6 +417,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     bridge_token = env.get("BRIDGE_TOKEN", "")
     bridge_on = len(bridge_token) >= MIN_BRIDGE_TOKEN
     alerts = Alerts.from_env(env)  # fills and failures from the bridge go to the owner's phone
+    night_clock = night_shift.NightShiftEngine(night_shift.NightShiftConfig.from_env(env))
+    alerts.quiet = lambda: should_suppress_alert(night_clock)  # Night Shift: no single-trade alerts while mina sleeps
     # Read-only trade report for an assistant or script: a bearer REPORT_TOKEN (32+ characters) or a signed-in session.
     report_token = env.get("REPORT_TOKEN", "")
     report_on = len(report_token) >= MIN_BRIDGE_TOKEN
@@ -630,6 +641,10 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 with hub.cond:
                     snap = hub.pipeline.snapshot()
                 self._send(200, json.dumps(snap).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/api/night-shift":
+                self._json(200, hub.night_shift() or {"enabled": night_clock.cfg.enabled, "active": False,
+                                                      "window": "23:30 - 07:00 Melbourne", "summary": None,
+                                                      "briefing": None, "budget": night_clock.cfg.budget_usd})
             elif path == "/api/trades":
                 self._send(200, json.dumps(hub.trades()).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/api/org":
