@@ -7,6 +7,9 @@ Three stops sit above the per-order limits:
 - the kill switch: a file named KILL in the events folder (or `kill_path`). While it exists the desk closes
   every position and opens nothing. Delete the file to trade again.
 Symbols whose price feed is stale (`frozen`) can be exited but not added to.
+
+Night Shift (trading/night_shift.py), when the engine gives it one: overnight in Melbourne no position may grow past
+15% of the night's capsule, toxic setups are skipped, and if the capsule's stop trips the desk is EXIT_ONLY until 07:00.
 """
 
 import time
@@ -39,7 +42,8 @@ class RiskLimits:
 
 
 class RiskManager:
-    def __init__(self, limits: RiskLimits, broker: PaperBroker, kill_path: Path | None = None, clock=time.time):
+    def __init__(self, limits: RiskLimits, broker: PaperBroker, kill_path: Path | None = None, clock=time.time,
+                 night_shift=None):
         self.limits = limits
         self.broker = broker
         self.peak_equity = broker.starting_cash
@@ -51,6 +55,16 @@ class RiskManager:
         self.day_start_equity = broker.starting_cash
         self.day_stopped = False
         self.frozen: set[str] = set()  # symbols with a stale price feed: exits only
+        self.night_shift = night_shift  # trading/night_shift.NightShiftEngine, or None
+
+    @property
+    def night_active(self) -> bool:
+        return self.night_shift is not None and self.night_shift.active
+
+    @property
+    def mode(self) -> str:
+        """EXIT_ONLY while any stop is on (positions can close, nothing new opens), else NORMAL."""
+        return "EXIT_ONLY" if self.stop_reason else "NORMAL"
 
     @property
     def stop_reason(self) -> str | None:
@@ -60,9 +74,13 @@ class RiskManager:
             return "halted: max drawdown breached"
         if self.day_stopped:
             return "daily loss limit hit"
+        if self.night_active and self.night_shift.halted:
+            return f"night shift stop: {self.night_shift.halt_reason}, exits only until 07:00"
         return None
 
-    def update(self, prices: dict[str, float]) -> None:
+    def update(self, prices: dict[str, float], now: float | None = None) -> None:
+        if self.night_shift is not None:
+            self.night_shift.update(now, [s for s, q in self.broker.positions.items() if q])
         equity = self.broker.equity(prices)
         self.peak_equity = max(self.peak_equity, equity)
         if not self.halted and equity < self.peak_equity * (1 - self.limits.max_drawdown):
@@ -75,8 +93,10 @@ class RiskManager:
         self.killed = bool(self.kill_path and (self.kill_path.exists()
                                                or self.kill_path.with_name("STOP_TRADING").exists()))
 
-    def approve(self, symbol: str, qty: float, prices: dict[str, float]) -> tuple[float, str | None]:
-        """Return the allowed quantity (possibly reduced to 0) and a reason if changed."""
+    def approve(self, symbol: str, qty: float, prices: dict[str, float], audit=None) -> tuple[float, str | None]:
+        """Return the allowed quantity (possibly reduced to 0) and a reason if changed.
+
+        `audit` (night_shift.TokenOrAssetAudit) feeds Night Shift's toxicity gate overnight."""
         price = prices[symbol]
         current = self.broker.position(symbol)
         stop = self.stop_reason or ("price feed stale" if symbol in self.frozen else None)
@@ -103,4 +123,28 @@ class RiskManager:
         gross_after = self.broker.gross_exposure(prices) - abs(current * price) + abs((current + qty) * price)
         if gross_after > self.limits.max_gross_exposure and abs(current + qty) > abs(current):
             return 0.0, "gross exposure limit"
+        if self.night_active and abs(current + qty) > abs(current):
+            return self._night_gate(symbol, qty, current, price, audit, reason)
+        return qty, reason
+
+    def _night_gate(self, symbol, qty, current, price, audit, reason):
+        """Overnight: shrink new risk to the capsule's per-position cap, then the toxicity and stop checks."""
+        from .night_shift import TokenOrAssetAudit, asset_class
+        ns = self.night_shift
+        cap_qty = ns.position_cap() / price
+        side = 1 if current + qty > 0 else -1
+        if (current > 0) != (side > 0) and current:
+            current_same_side = 0.0  # a flip: the old side closes, the new side starts from flat
+        else:
+            current_same_side = abs(current)
+        if current_same_side >= cap_qty:
+            return (-current if current_same_side == 0.0 and current else 0.0), "night shift cap: position already at its limit"
+        new_qty = min(abs(current + qty), cap_qty) * side - current
+        if new_qty != qty:
+            qty, reason = new_qty, "night shift cap"
+        added = abs(current + qty) - current_same_side
+        ok, why = ns.check_entry_allowed(audit or TokenOrAssetAudit(symbol, asset_class(symbol), 0.0, 0.0, 1.0),
+                                         max(0.0, added * price - 1e-6))  # float slack
+        if not ok:
+            return (-current if current_same_side == 0.0 and current else 0.0), f"night shift: {why}"
         return qty, reason

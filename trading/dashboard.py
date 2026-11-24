@@ -42,7 +42,7 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import btcc, control, live_orders, markets, metaapi, option_flows, platforms, training_report
+from . import btcc, control, mitrade, live_orders, markets, metaapi, option_flows, platforms, training_report
 from .alerts import Alerts
 from .atlas_sources import AtlasSources
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
@@ -51,10 +51,15 @@ from .polymarket_desk import PolymarketDesk
 from . import polymarket_live, betfair
 from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
+from . import orbit_portfolio as orbit_kit
 from . import calculator as calc_kit
+from . import news_lab
 from . import decision_desk
 from .smart_money import SmartMoney
 from . import session_desks
+from . import atas_feed, one_account
+from . import night_shift
+from .hooks import should_suppress_alert
 from .org import DEPARTMENTS, finish_school, manager_reports
 from .wallet import Wallet, WalletError
 from .webauth import COOKIE, WebAuth
@@ -73,6 +78,13 @@ STATIC = {
     "/3d.js": ("3d.js", "text/javascript; charset=utf-8"),
     "/jarvis.css": ("jarvis.css", "text/css; charset=utf-8"),
     "/jarvis.js": ("jarvis.js", "text/javascript; charset=utf-8"),
+    "/apex.js": ("apex.js", "text/javascript; charset=utf-8"),
+    "/apex-hands.js": ("apex-hands.js", "text/javascript; charset=utf-8"),
+    # MediaPipe Hands for JARVIS's pinch to wake, served from here so nothing loads from another site.
+    "/vendor/mediapipe/vision_bundle.mjs": ("vendor/mediapipe/vision_bundle.mjs", "text/javascript; charset=utf-8"),
+    "/vendor/mediapipe/vision_wasm_internal.js": ("vendor/mediapipe/vision_wasm_internal.js", "text/javascript; charset=utf-8"),
+    "/vendor/mediapipe/vision_wasm_internal.wasm": ("vendor/mediapipe/vision_wasm_internal.wasm", "application/wasm"),
+    "/vendor/mediapipe/hand_landmarker.task": ("vendor/mediapipe/hand_landmarker.task", "application/octet-stream"),
     "/orderflow.css": ("orderflow.css", "text/css; charset=utf-8"),
     "/orderflow.js": ("orderflow.js", "text/javascript; charset=utf-8"),
     "/markets.css": ("markets.css", "text/css; charset=utf-8"),
@@ -97,6 +109,8 @@ STATIC = {
     "/decision.css": ("decision.css", "text/css; charset=utf-8"),
     "/smart.js": ("smart.js", "text/javascript; charset=utf-8"),
     "/pairs.css": ("pairs.css", "text/css; charset=utf-8"),
+    "/orbit.js": ("orbit.js", "text/javascript; charset=utf-8"),
+    "/orbit.css": ("orbit.css", "text/css; charset=utf-8"),
     "/desks.js": ("desks.js", "text/javascript; charset=utf-8"),
     "/desks.css": ("desks.css", "text/css; charset=utf-8"),
     "/pipeline.css": ("pipeline.css", "text/css; charset=utf-8"),
@@ -107,8 +121,13 @@ STATIC = {
     "/wallet.css": ("wallet.css", "text/css; charset=utf-8"),
     "/calculator.js": ("calculator.js", "text/javascript; charset=utf-8"),
     "/calculator.css": ("calculator.css", "text/css; charset=utf-8"),
+    "/newslab.js": ("newslab.js", "text/javascript; charset=utf-8"),
+    "/newslab.css": ("newslab.css", "text/css; charset=utf-8"),
     "/btcc.js": ("btcc.js", "text/javascript; charset=utf-8"),
     "/btcc.css": ("btcc.css", "text/css; charset=utf-8"),
+    "/mitrade.js": ("mitrade.js", "text/javascript; charset=utf-8"),
+    "/account.js": ("account.js", "text/javascript; charset=utf-8"),
+    "/account.css": ("account.css", "text/css; charset=utf-8"),
     # Vendored so the strict CSP (scripts only from this site) holds and the cloud app needs no CDN.
     "/vendor/three.min.js": ("vendor/three.min.js", "text/javascript; charset=utf-8"),
     "/vendor/lightweight-charts.js": ("vendor/lightweight-charts.js", "text/javascript; charset=utf-8"),
@@ -127,13 +146,17 @@ MAX_FORM_BYTES = 4096
 MAX_TRADES_BYTES = 262144  # a batch of real trades for the order flow feed
 KIND_PAGES = ("/crypto", "/forex", "/commodities", "/indices", "/shares")
 CLOSED_KEEP = 500  # closed trades the Trades page can list
-DESK_PAGE = re.compile(r"/desks/(sydney|asia|london|newyork)")
-DESK_API = re.compile(r"/api/desks/(sydney|asia|london|newyork)")
+DESK_PAGE = re.compile(r"/desks/(sydney|asia|europe|london|newyork)")
+DESK_API = re.compile(r"/api/desks/(sydney|asia|europe|london|newyork)")
 MARKET_PAGE = re.compile(r"/markets/[A-Za-z0-9]{1,10}")
 MARKET_API = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}")
 MARKET_FAV = re.compile(r"/api/markets/[A-Za-z0-9]{1,10}/favourite")
 # Only JARVIS's page may use the microphone; nothing may use the camera, location or payment APIs.
 PERMISSIONS = "microphone=(self), camera=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+# The JARVIS page alone may also use the webcam (opt-in pinch to wake, processed in the browser) and run the
+# WebAssembly hand tracker, which needs 'wasm-unsafe-eval' (WebAssembly only; JavaScript eval stays blocked).
+JARVIS_CSP = CSP.replace("script-src 'self';", "script-src 'self' 'wasm-unsafe-eval';")
+JARVIS_PERMISSIONS = PERMISSIONS.replace("camera=()", "camera=(self)")
 
 
 class EventHub:
@@ -197,7 +220,7 @@ class EventHub:
             self.events.append((self.seq, event))
             shard = self.shards.setdefault(str(event.get("shard", "?")), {})
             kind = event.get("type")
-            if kind in ("start", "tick", "leaderboard", "stop", "heatmap", "matrix", "org", "market"):
+            if kind in ("start", "tick", "leaderboard", "stop", "heatmap", "matrix", "org", "market", "night_shift"):
                 shard[kind] = event
             if kind == "resize" and "start" in shard:
                 shard["start"] = {**shard["start"], "agents": event["agents"], "total_agents": event["total_agents"]}
@@ -344,7 +367,13 @@ class EventHub:
                     "approval_rate": round(approved / (approved + rejected), 4) if approved + rejected else None,
                     "session_pnl": round(sum(t.get("pnl", 0) for t in ticks), 2)}
             return {"shards": shards, "agents_reporting": total, "events_seen": self.seq,
-                    "heatmap": heatmap, "jev_desk": desk}
+                    "heatmap": heatmap, "jev_desk": desk, "night_shift": self.night_shift()}
+
+    def night_shift(self) -> dict | None:
+        """Every shard's overnight capsule as one view (trading/night_shift.py), or None before the first report."""
+        with self.cond:
+            return night_shift.merge([v["night_shift"] for k, v in self.shards.items()
+                                      if k.isdigit() and "night_shift" in v])
 
     def run_tailer(self, interval: float = 0.25) -> None:
         while True:
@@ -394,6 +423,7 @@ def trade_report(hub: "EventHub", events_dir: Path, env=os.environ) -> dict:
                        "audit": live["audit"],
                        "positions": live["positions"], "latest": live["orders"][:5]},
         "training": training_report.build(org),
+        "night_shift": st.get("night_shift"),
         "ring": {k: st["shards"]["ring"]["tick"].get(k) for k in ("equity", "pnl")} if "tick" in st["shards"].get("ring", {}) else None,
     }
     return rep
@@ -405,6 +435,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     bridge_token = env.get("BRIDGE_TOKEN", "")
     bridge_on = len(bridge_token) >= MIN_BRIDGE_TOKEN
     alerts = Alerts.from_env(env)  # fills and failures from the bridge go to the owner's phone
+    night_clock = night_shift.NightShiftEngine(night_shift.NightShiftConfig.from_env(env))
+    alerts.quiet = lambda: should_suppress_alert(night_clock)  # Night Shift: no single-trade alerts while mina sleeps
     # Read-only trade report for an assistant or script: a bearer REPORT_TOKEN (32+ characters) or a signed-in session.
     report_token = env.get("REPORT_TOKEN", "")
     report_on = len(report_token) >= MIN_BRIDGE_TOKEN
@@ -450,24 +482,90 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     smart = SmartMoney(env.get("SEC_USER_AGENT"))  # insiders from SEC EDGAR, fetched in the background
     conductor_page = _read("conductor.html")
     pairs_page = _read("pairs.html")
+    orbit_page = _read("orbit.html")  # five arms, one account: the multi-strategy portfolio (trading/orbit_portfolio.py)
+    orbit_data = orbit_kit.load_backtest()
     decision_page = _read("decision.html")
     smart_page = _read("smart.html")
-    desks_page = _read("desks.html")  # the four session desks: /desks and /desks/<sydney|asia|london|newyork>
+    desks_page = _read("desks.html")  # the five session desks: /desks and /desks/<sydney|asia|europe|london|newyork>
     floor = {}  # the six-agent practice floor, started on first use
     floor_lock = threading.Lock()
     market_page = _read("market.html")
     wallet_page = _read("wallet.html")
     calculator_page = _read("calculator.html")
+    newslab_page = _read("newslab.html")
     wallet = {}  # the practice wallet, loaded on first use
     wallet_lock = threading.Lock()
     btcc_page = _read("btcc.html")
     btcc_desk = {}  # the BTCC practice desk, loaded on first use
+
+    mitrade_page = _read("mitrade.html")
+    mitrade_desk = {}  # the Mitrade practice desk, loaded on first use
+
+    def get_mitrade() -> mitrade.PracticeDesk:
+        with wallet_lock:
+            if "d" not in mitrade_desk:
+                mitrade_desk["d"] = mitrade.PracticeDesk(hub.events_dir)
+            return mitrade_desk["d"]
 
     def get_btcc() -> btcc.PracticeDesk:
         with wallet_lock:
             if "d" not in btcc_desk:
                 btcc_desk["d"] = btcc.PracticeDesk(hub.events_dir)
             return btcc_desk["d"]
+
+    account_page = _read("account.html")  # one account: every platform, desk and ATAS together
+    atas = atas_feed.AtasFeed()
+    atas_token = env.get("ATAS_TOKEN", "")
+    mode_switch = one_account.ModeSwitch(hub.events_dir)
+    broker_cache: dict = {}  # MT5 / eToro reads, kept 20 seconds so the page and order checks don't hammer them
+
+    def _cached(key: str, fn):
+        hit = broker_cache.get(key)
+        if hit and time.time() - hit[0] < 20:
+            return hit[1]
+        try:
+            val = (fn(), None)
+        except Exception as e:  # noqa: BLE001  (a broker that doesn't answer shows as an error, never crashes)
+            val = (None, metaapi.explain(e) if key.startswith("mt5") else f"{type(e).__name__}")
+        broker_cache[key] = (time.time(), val)
+        return val
+
+    def one_rows() -> list[dict]:
+        live = mode_switch.mode == "live" and one_account.armed(env)
+        w = get_wallet()
+        with w.lock:
+            cash = w.data["cash"]
+            dep = sum(e["amount"] for e in w.data["ledger"] if e["kind"] in ("start", "deposit"))
+            wd = sum(e["amount"] for e in w.data["ledger"] if e["kind"] == "withdraw")
+        rows = [one_account.from_desk(hub.trades()), one_account.from_wallet(cash, dep - wd),
+                one_account.from_cfd("mitrade", "Mitrade practice desk", get_mitrade().snapshot()),
+                one_account.from_cfd("btcc", "BTCC practice desk", get_btcc().snapshot()),
+                one_account.from_poly(poly["book"].snapshot() if "book" in poly else None),
+                one_account.from_betfair(poly["bf"].snapshot() if "bf" in poly else None)]
+        if metaapi.configured(env) and (not live or env.get("METAAPI_LIVE_ACCOUNT_ID")):
+            snap, err = _cached(f"mt5-{live}", lambda: metaapi.MetaApi(one_account.mt5_env(env, live)).snapshot())
+            rows.append(one_account.from_mt5(snap, err, live))
+        else:
+            rows.append(one_account.from_mt5(None, live=live))
+        if env.get("ETORO_API_KEY") and env.get("ETORO_USER_KEY"):
+            port, err = _cached(f"etoro-{live}", lambda: one_account.etoro_portfolio(env, live))
+            rows.append(one_account.from_etoro(port, err, live))
+        else:
+            rows.append(one_account.from_etoro(None, live=live))
+        rows.append(one_account.from_atas(atas.status(env)))
+        return rows
+
+    def one_view() -> dict:
+        kill = (Path(hub.events_dir) / "KILL").exists() if hub.events_dir else False
+        acct = one_account.combine(one_rows(), mode_switch.mode, env, kill=kill)
+        acct["since"] = mode_switch.data.get("since")
+        acct["history"] = mode_switch.data["history"][::-1][:10]
+        acct["confirm_word"] = one_account.LIVE_CONFIRM
+        return acct
+
+    def guard(platform: str, symbol: str, notional: float, stop_loss=None, entry=None) -> None:
+        """The one-account limits, checked before any platform opens a new position."""
+        one_account.check_order(one_view(), platform, symbol, notional, mode_switch.mode, stop_loss, entry)
 
     def get_wallet() -> Wallet:
         with wallet_lock:
@@ -494,8 +592,9 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             # "same-origin", not "no-referrer": with no-referrer, browsers send `Origin: null` on our own
             # form posts, and the CSRF check below then refused every sign-in. Nothing leaks cross-site either way.
             self.send_header("Referrer-Policy", "same-origin")
-            self.send_header("Content-Security-Policy", CSP)
-            self.send_header("Permissions-Policy", PERMISSIONS)
+            jarvis_page_req = urllib.parse.urlsplit(self.path).path == "/jarvis"
+            self.send_header("Content-Security-Policy", JARVIS_CSP if jarvis_page_req else CSP)
+            self.send_header("Permissions-Policy", JARVIS_PERMISSIONS if jarvis_page_req else PERMISSIONS)
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
             self.send_header("Cross-Origin-Resource-Policy", "same-origin")
             if auth.enabled and self._secure():  # no HSTS for this computer's own plain-http address
@@ -582,7 +681,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/calculator") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/newslab", "/account", "/orbit") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -617,6 +716,14 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._json(200, {"platforms": platforms.status(), "live_trading": "locked"})
             elif path in ("/api/mt5", "/api/mt5/report"):
                 self._mt5_get(path)
+            elif path == "/mitrade":
+                self._send(200, mitrade_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/mitrade":
+                desk = get_mitrade()
+                self._json(200, {"feed": mitrade.FEED.status(), "quotes": mitrade.FEED.quotes(),
+                                 "trend": mitrade.FEED.trend(), "practice": desk.snapshot(),
+                                 "account": {"linked": False, "note": mitrade.ACCOUNT_NOTE},
+                                 "links": mitrade.LINKS, "live_trading": "locked"})
             elif path == "/btcc":
                 self._send(200, btcc_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/btcc":
@@ -629,6 +736,10 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 with hub.cond:
                     snap = hub.pipeline.snapshot()
                 self._send(200, json.dumps(snap).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/api/night-shift":
+                self._json(200, hub.night_shift() or {"enabled": night_clock.cfg.enabled, "active": False,
+                                                      "window": "23:30 - 07:00 Melbourne", "summary": None,
+                                                      "briefing": None, "budget": night_clock.cfg.budget_usd})
             elif path == "/api/trades":
                 self._send(200, json.dumps(hub.trades()).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/api/org":
@@ -681,6 +792,12 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 book.feed.markets()
                 book.settle()
                 self._json(200, book.snapshot())
+            elif path == "/account":
+                self._send(200, account_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/account":
+                self._json(200, one_view())
+            elif path == "/api/atas":
+                self._json(200, atas.status(env))
             elif path == "/wallet":
                 self._send(200, wallet_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/wallet":
@@ -712,6 +829,24 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 body = smart.snapshot()
                 body["street"] = hub.sources.street.board() if getattr(hub, "sources", None) else []
                 self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/newslab":
+                self._send(200, newslab_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/newslab":
+                q = {k: v[0][:20] for k, v in urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).items()}
+                body = news_lab.lab(q)
+                with hub.cond:
+                    log = list(hub.pipeline.log)[::-1]
+                body["live"] = news_lab.reroute(log, body["params"]["gate"])
+                self._json(200, body)
+            elif path == "/orbit":
+                self._send(200, orbit_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path in ("/api/orbit", "/api/orbit.csv"):
+                dash = orbit_kit.dashboard(hub.trades()["trades"], orbit_data)
+                if path.endswith(".csv"):
+                    self._send(200, orbit_kit.chosen_trades_csv(dash).encode(), "text/csv; charset=utf-8",
+                               {"Cache-Control": "no-store", "Content-Disposition": 'attachment; filename="chosen_trades.csv"'})
+                else:
+                    self._send(200, json.dumps(dash).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/calculator":
                 self._send(200, calculator_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/calculator":
@@ -785,7 +920,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 length = int(self.headers.get("Content-Length", 0))
             except ValueError:
                 length = MAX_FORM_BYTES + 1
-            limit = MAX_TRADES_BYTES if path == "/api/orderflow/trades" else MAX_FORM_BYTES
+            limit = MAX_TRADES_BYTES if path in ("/api/orderflow/trades", "/api/atas/feed") else MAX_FORM_BYTES
             if length > limit or length < 0:
                 self.close_connection = True
                 return self._send(413, b"too large", "text/plain", {"Connection": "close"})
@@ -802,8 +937,14 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._set_agents(raw)
             if path == "/api/orderflow/trades":
                 return self._orderflow_trades(raw)
+            if path == "/api/atas/feed":
+                return self._atas_feed(raw)
+            if path in ("/api/account/mode", "/api/account/order"):
+                return self._account_post(path, raw)
             if path == "/api/mt5/order":
                 return self._mt5_order(raw)
+            if path in ("/api/mitrade/open", "/api/mitrade/close"):
+                return self._mitrade_post(path, raw)
             if path in ("/api/btcc/open", "/api/btcc/close"):
                 return self._btcc_post(path, raw)
             if path in ("/api/betfair/bet", "/api/betfair/close", "/api/betfair/cancel"):
@@ -876,6 +1017,30 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._json(502, {"error": f"MetaTrader cloud: {type(e).__name__}"})
             self._json(200, {"order": fill})
 
+        def _mitrade_post(self, path: str, raw: bytes):
+            """Mitrade practice desk only. Fills at Mitrade's bid/ask; nothing is sent to Mitrade."""
+            if not self._authed():
+                return self._json(401, {"error": "sign in required"})
+            if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                return self._json(415, {"error": "send JSON"})
+            try:
+                b = json.loads(raw or b"null")
+                desk = get_mitrade()
+                if path == "/api/mitrade/open":
+                    guard("mitrade", str(b["symbol"])[:12], float(b["margin"]) * float(b["leverage"]))
+                    tp = b.get("take_profit")
+                    pos = desk.open(str(b["symbol"])[:12], str(b["side"]), float(b["margin"]), float(b["leverage"]),
+                                    float(b["stop_loss"]), float(tp) if tp not in (None, "") else None,
+                                    live=bool(b.get("live")))
+                    return self._json(200, {"position": pos})
+                return self._json(200, {"closed": desk.close(int(b["id"]))})
+            except (mitrade.Refused, one_account.Refused) as e:
+                return self._json(403, {"error": str(e)})
+            except KeyError as e:
+                return self._json(400, {"error": f"missing or unknown: {str(e).strip(chr(39))}"})
+            except (ValueError, TypeError, RuntimeError) as e:
+                return self._json(400, {"error": str(e)})
+
         def _btcc_post(self, path: str, raw: bytes):
             """BTCC practice desk only. Nothing is sent to BTCC; real money is locked."""
             if not self._authed():
@@ -886,13 +1051,14 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 b = json.loads(raw or b"null")
                 desk = get_btcc()
                 if path == "/api/btcc/open":
+                    guard("btcc", str(b["symbol"])[:12], float(b["margin"]) * float(b["leverage"]))
                     tp = b.get("take_profit")
                     pos = desk.open(str(b["symbol"])[:12], str(b["side"]), float(b["margin"]), float(b["leverage"]),
                                     float(b["stop_loss"]), float(tp) if tp not in (None, "") else None,
                                     live=bool(b.get("live")))
                     return self._json(200, {"position": pos})
                 return self._json(200, {"closed": desk.close(int(b["id"]))})
-            except btcc.Refused as e:
+            except (btcc.Refused, one_account.Refused) as e:
                 return self._json(403, {"error": str(e)})
             except KeyError as e:
                 return self._json(400, {"error": f"missing or unknown: {str(e).strip(chr(39))}"})
@@ -1023,6 +1189,69 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._json(400, {"error": str(e)})
             self._json(200, {"calls": [{"market": c.market, "direction": c.direction,
                                         "confidence": c.confidence} for c in calls]})
+
+        def _atas_feed(self, raw: bytes):
+            """One bar summary from the JarvisFeed indicator inside ATAS. Bearer ATAS_TOKEN (32+ characters)."""
+            sent = self.headers.get("Authorization", "")
+            token_ok = atas_feed.enabled(env) and hmac.compare_digest(sent.encode(), f"Bearer {atas_token}".encode())
+            if not (token_ok or self._authed()):
+                return self._json(401, {"error": "ATAS token required (ATAS_TOKEN on Render, same value in the indicator)"})
+            try:
+                body = json.loads(raw or b"null")
+                out = atas.ingest(body)
+                big = [{"ts": time.time(), "price": t["price"], "size": t["size"], "side": t["side"]}
+                       for t in body.get("big_trades") or [] if isinstance(t, dict) and t.get("price") and t.get("size")]
+                if big:  # big prints also feed Atlas's own order-flow engine
+                    try:
+                        hub.sources.on_trades(out["symbol"], big)
+                    except Exception:  # noqa: BLE001
+                        pass
+            except (ValueError, TypeError, atas_feed.FeedError) as e:
+                return self._json(400, {"error": str(e)})
+            self._json(200, {"ok": True, **out})
+
+        def _account_post(self, path: str, raw: bytes):
+            """Demo/Live switch and the one-account order ticket (MT5 and eToro). Signed in only."""
+            if not self._authed():
+                return self._json(401, {"error": "sign in required"})
+            if self.headers.get("Content-Type", "").split(";")[0].strip() != "application/json":
+                return self._json(415, {"error": "send JSON"})
+            try:
+                b = json.loads(raw or b"null")
+                assert isinstance(b, dict)
+                if path == "/api/account/mode":
+                    return self._json(200, mode_switch.set(str(b.get("mode", "")), str(b.get("confirm", "")), env))
+                live = mode_switch.mode == "live" and one_account.armed(env)
+                pf, side = str(b["platform"]), str(b["side"])
+                sl = float(b["stop_loss"]) if b.get("stop_loss") not in (None, "") else None
+                tp = float(b["take_profit"]) if b.get("take_profit") not in (None, "") else None
+                entry = float(b["entry"]) if b.get("entry") not in (None, "") else None
+                if pf == "mt5":
+                    symbol, volume = str(b["symbol"])[:32], float(b["volume"])
+                    if live and not env.get("METAAPI_LIVE_ACCOUNT_ID"):
+                        raise one_account.Refused("Live MT5 needs METAAPI_LIVE_ACCOUNT_ID on Render.")
+                    api = metaapi.MetaApi(one_account.mt5_env(env, live))
+                    notional = float(b.get("notional") or 0)
+                    guard("mt5", symbol, notional, sl, entry)
+                    fill = one_account.mt5_order(api, live, symbol, side, volume, sl, tp)
+                elif pf == "etoro":
+                    if not (env.get("ETORO_API_KEY") and env.get("ETORO_USER_KEY")):
+                        raise one_account.Refused("Add ETORO_API_KEY and ETORO_USER_KEY on Render first.")
+                    amount, lev = float(b["amount"]), int(b.get("leverage") or 1)
+                    guard("etoro", f"#{int(b['instrument_id'])}", amount * lev, sl, entry)
+                    if live and not sl:
+                        raise one_account.Refused("Live orders need a stop loss.")
+                    fill = one_account.etoro_order(env, live, int(b["instrument_id"]), side, amount, lev, sl, tp)
+                else:
+                    raise one_account.Refused("Use the platform's own page for that one (Mitrade, BTCC, Betfair, Polymarket).")
+                broker_cache.clear()
+            except (one_account.Refused, platforms.LiveTradingLocked, metaapi.NotDemo) as e:
+                return self._json(403, {"error": str(e)})
+            except (ValueError, KeyError, TypeError, AssertionError) as e:
+                return self._json(400, {"error": f"check the order: {e}"})
+            except Exception as e:  # noqa: BLE001
+                return self._json(502, {"error": f"broker did not take it: {type(e).__name__}"})
+            self._json(200, {"order": fill, "mode": "live" if live else "demo"})
 
         def _bridge_authed(self) -> bool:
             sent = self.headers.get("Authorization", "")

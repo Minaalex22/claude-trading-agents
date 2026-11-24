@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ATS Matrix · News Lab</title>
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/pages.css">
+<link rel="stylesheet" href="/newslab.css">
+</head><body>
+<header class="ats-bar"><a class="ats-brand" href="/news"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav" aria-label="Main menu"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/btcc">BTCC</a><a href="/mitrade">Mitrade</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/jarvis">JARVIS</a><details class="ats-more"><summary>Tools</summary><div><a href="/decision">Decision</a><a href="/smart">Smart money</a><a href="/account">One account</a><a href="/wallet">Wallet</a><a href="/calculator">Calculator</a><a href="/newslab">News Lab</a><a href="/desks">24/7 desks</a><a href="/orbit">Orbit portfolio</a></div></details><details class="ats-more"><summary>More</summary><div><a href="/">Command desk</a><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
+<script src="/nav.js"></script>
+<main class="pg">
+ <div class="pg-head">
+  <div><small>Research turned into a lab you can play with</small><h1>News <b>lab</b></h1>
+   <p>Every headline goes through the desk's real news path: the reading room, the cheap read, gate, deep read and bill. Move the controls and watch the view, the trades and the paper P&amp;L change. Checkers redo the maths and say when a result can't be trusted.</p></div>
+  <span class="pg-badge">PAPER ONLY · REAL MONEY LOCKED</span>
+ </div>
+ <section class="pg-grid">
+  <div class="pg-card c4"><h3>Controls <span id="busy"></span></h3>
+   <form id="ctl" class="nl-ctl" autocomplete="off">
+    <label><span>Gate <em>how sure the cheap read must be</em></span><b id="v-gate"></b><input type="range" name="gate" min="0.5" max="0.95" step="0.05"></label>
+    <label><span>News half-life <em>ticks until a headline is half gone</em></span><b id="v-half_life"></b><input type="range" name="half_life" min="2" max="200" step="1"></label>
+    <label><span>News in the view <em>the rest is the chart</em></span><b id="v-news_share"></b><input type="range" name="news_share" min="0" max="1" step="0.05"></label>
+    <label><span>Confident view <em>needed to open a trade</em></span><b id="v-confident"></b><input type="range" name="confident" min="0.05" max="0.8" step="0.05"></label>
+    <label><span>Trade cost <em>bps a round trip</em></span><b id="v-cost_bps"></b><input type="range" name="cost_bps" min="0" max="20" step="0.5"></label>
+    <label><span>News honesty <em>how often headlines point the right way</em></span><b id="v-honest"></b><input type="range" name="honest" min="0.5" max="0.95" step="0.05"></label>
+    <div class="nl-row"><span>Sources needed</span><div class="pg-tabs" id="sources"><button type="button" data-v="1">1 site (half, then full)</button><button type="button" data-v="2">wait for 2 sites</button></div></div>
+    <div class="nl-row"><span>News Pipeline</span><div class="pg-tabs" id="pipe"><button type="button" data-v="0">advice only (like the app)</button><button type="button" data-v="1">filter the news</button></div></div>
+    <div class="nl-btns"><button type="button" id="newmkt">New practice market</button><button type="button" id="reset">Reset to today's settings</button></div>
+    <p class="pg-note" id="seed"></p>
+   </form></div>
+
+  <div class="pg-card c8"><h3>Result <span>paper trades on the practice market, $10,000 each</span></h3>
+   <div class="nl-kpis">
+    <div class="pg-kpi"><small>Paper P&amp;L</small><b id="k-pnl">–</b><em id="k-pnl-sub"></em></div>
+    <div class="pg-kpi"><small>Win rate</small><b id="k-win">–</b><em id="k-win-sub"></em></div>
+    <div class="pg-kpi"><small>Worst drop</small><b id="k-dd">–</b><em>from the best point</em></div>
+    <div class="pg-kpi"><small>News bill</small><b id="k-bill">–</b><em id="k-bill-sub"></em></div>
+   </div>
+   <canvas class="pg-canvas" id="curve"></canvas>
+   <div class="nl-legend"><i class="o"></i>your settings <i class="w"></i>today's settings <i class="g"></i>chart only, no news</div>
+   <table class="pg-tbl nl-cmp"><thead><tr><th></th><th class="r">P&amp;L</th><th class="r">Win rate</th><th class="r">Trades</th><th class="r hide-s">Worst drop</th></tr></thead><tbody id="cmp"></tbody></table>
+  </div>
+
+  <div class="pg-card c4"><h3>Team 1 · Analysts <span>read every headline</span></h3><div id="analysts" class="nl-team"></div></div>
+  <div class="pg-card c4"><h3>Team 2 · Builders <span>the lab's maths, with your numbers</span></h3><ul id="formulas" class="nl-formulas"></ul></div>
+  <div class="pg-card c4"><h3>Team 3 · Checkers <span>redo the maths a second way</span></h3><ul id="checks" class="nl-checks"></ul></div>
+
+  <div class="pg-card c12"><h3>What if <span>P&amp;L as one control moves, everything else as you set it. The dot is you.</span></h3>
+   <div class="nl-sweeps">
+    <div><small>News in the view</small><canvas id="sw-news_share"></canvas></div>
+    <div><small>News half-life (ticks)</small><canvas id="sw-half_life"></canvas></div>
+    <div><small>Gate</small><canvas id="sw-gate"></canvas><em id="gate-note" class="nl-hint"></em></div>
+   </div></div>
+
+  <div class="pg-card c12"><h3>Headline journey <span>newest 60, from read to view. "Truth" is which way the market really leaned.</span></h3>
+   <div class="pg-scroll"><table class="pg-tbl nl-trace"><thead><tr><th>Tick</th><th>Market</th><th>Headline</th><th class="hide-s">Sites</th><th class="r">Room read</th><th class="r hide-s">Cheap sure</th><th>Route</th><th>Call</th><th>Truth</th><th class="r">News</th></tr></thead><tbody id="trace"></tbody></table></div></div>
+
+  <div class="pg-card c6"><h3>Live headlines at your gate <span>the app's latest reads, routed again (no P&amp;L)</span></h3><div id="live" class="pg-list"></div></div>
+  <div class="pg-card c6"><h3>Latest paper trades <span>decided one tick, filled the next</span></h3>
+   <table class="pg-tbl"><thead><tr><th>Market</th><th>Side</th><th class="r">Ticks</th><th class="r">Cost</th><th class="r">P&amp;L</th></tr></thead><tbody id="trades"></tbody></table></div>
+ </section>
+ <p class="pg-note">Practice market and headlines are simulated so every read can be graded. Headline reads use the app's real code (trading/reading_room.py and trading/news_pipeline.py). Results here are not a promise of real-money results.</p>
+</main>
+<script src="/newslab.js"></script>
+</body></html>
