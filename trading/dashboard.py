@@ -52,6 +52,7 @@ from . import polymarket_live, betfair
 from .conductor import Conductor, departments as conductor_departments
 from . import pairs as pairs_kit
 from . import calculator as calc_kit
+from . import news_lab
 from . import decision_desk
 from .smart_money import SmartMoney
 from . import session_desks
@@ -107,6 +108,8 @@ STATIC = {
     "/wallet.css": ("wallet.css", "text/css; charset=utf-8"),
     "/calculator.js": ("calculator.js", "text/javascript; charset=utf-8"),
     "/calculator.css": ("calculator.css", "text/css; charset=utf-8"),
+    "/newslab.js": ("newslab.js", "text/javascript; charset=utf-8"),
+    "/newslab.css": ("newslab.css", "text/css; charset=utf-8"),
     "/btcc.js": ("btcc.js", "text/javascript; charset=utf-8"),
     "/btcc.css": ("btcc.css", "text/css; charset=utf-8"),
     # Vendored so the strict CSP (scripts only from this site) holds and the cloud app needs no CDN.
@@ -458,6 +461,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     market_page = _read("market.html")
     wallet_page = _read("wallet.html")
     calculator_page = _read("calculator.html")
+    newslab_page = _read("newslab.html")
     wallet = {}  # the practice wallet, loaded on first use
     wallet_lock = threading.Lock()
     btcc_page = _read("btcc.html")
@@ -582,7 +586,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/calculator") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/calculator", "/newslab") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -709,6 +713,15 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 body = smart.snapshot()
                 body["street"] = hub.sources.street.board() if getattr(hub, "sources", None) else []
                 self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/newslab":
+                self._send(200, newslab_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/newslab":
+                q = {k: v[0][:20] for k, v in urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).items()}
+                body = news_lab.lab(q)
+                with hub.cond:
+                    log = list(hub.pipeline.log)[::-1]
+                body["live"] = news_lab.reroute(log, body["params"]["gate"])
+                self._json(200, body)
             elif path == "/calculator":
                 self._send(200, calculator_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/calculator":
