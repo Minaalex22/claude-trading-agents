@@ -1,7 +1,8 @@
-"""Four session desks so the practice desk trades around the clock: Sydney, Asia (Tokyo), London and New York.
+"""Five session desks so the practice desk trades around the clock: Sydney, Asia (Tokyo), Europe (Frankfurt),
+London and New York.
 
 Each desk works its own city's business hours, Monday to Friday in that city. While a desk is open it is on
-shift: its crew (a quarter of every department, so each desk has trend, reversion, research and risk agents)
+shift: its crew (a fifth of every department, so each desk has trend, reversion, research and risk agents)
 watches the markets that are busiest in that session. When the next city opens, it takes the lead and the
 desk before it hands over (follow the sun). The hours together cover all 24 hours of the trading week.
 
@@ -35,6 +36,8 @@ def _offset(desk: str, utc: datetime) -> int:
         return _sydney_offset(utc)
     if desk == "asia":
         return 9  # Tokyo keeps no daylight saving
+    if desk == "europe":  # Frankfurt: one hour ahead of London all year (the EU and UK change clocks together)
+        return int(_london(utc.timestamp()).utcoffset().total_seconds() // 3600) + 1
     ts = utc.timestamp()
     local = _london(ts) if desk == "london" else _ny(ts)
     return int(local.utcoffset().total_seconds() // 3600)
@@ -67,6 +70,12 @@ DESKS = {
         "markets": ["USDJPY", "AUDUSD", "GOLD", "COPPER", "BTC", "ETH", "SOL"],
         "size": 0.75,
     },
+    "europe": {
+        "name": "Europe", "city": "Frankfurt", "zone": "Frankfurt time", "open": 8, "close": 17,
+        "note": "Frankfurt, Paris and Zurich open an hour before London. DAX, euro, Swiss franc and Bund moves start here.",
+        "markets": ["DAX", "EURUSD", "USDCHF", "EURGBP", "GOLD", "BTC"],
+        "size": 0.75,
+    },
     "london": {
         "name": "London", "city": "London", "zone": "London time", "open": 8, "close": 17,
         "note": "The deepest forex session. Euro, pound, DAX, gold and oil set the day's trend.",
@@ -80,7 +89,7 @@ DESKS = {
         "size": 1.0,
     },
 }
-ORDER = ("sydney", "asia", "london", "newyork")
+ORDER = ("sydney", "asia", "europe", "london", "newyork")
 
 
 def windows(desk: str, now: datetime, days: int = 3) -> list[tuple[datetime, datetime]]:
@@ -127,7 +136,7 @@ def lead(now: datetime) -> str:
 
 
 def next_change(now: datetime, n: int = 6) -> list[dict]:
-    """The next opens and closes across all four desks, soonest first."""
+    """The next opens and closes across all five desks, soonest first."""
     events = []
     for k in ORDER:
         for s, e in windows(k, now, 3):
@@ -165,7 +174,7 @@ def route(env) -> dict:
 
 
 def _crew(org: dict | None) -> dict[str, int]:
-    """Each desk's share of every department: a quarter, so every desk has all four kinds of agent."""
+    """Each desk's share of every department: a fifth, so every desk has all four kinds of agent."""
     out = {}
     for d in DEPARTMENTS:
         total = int((org or {}).get(d.key, {}).get("agents") or MIN_DEPARTMENT_SIZE * 1)
