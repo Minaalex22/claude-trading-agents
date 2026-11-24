@@ -1,6 +1,6 @@
 """Sniper mode (mina's batch 6): fewer, A+ desk entries, banked at the mean.
 
-With SNIPER on (env, on by default) the desk opens new risk only when ALL of these hold:
+With SNIPER on (env, OFF by default since it made zero trades in testing) the desk opens new risk only when ALL of these hold:
 1. **Conviction**: |desk score| >= `BAR` (0.82). An open position is held down to the normal 0.5 bar.
 2. **Timeframe and hours**: 1h to 4h bars (`MIN_BAR`..`MAX_BAR` seconds), inside the London/New York overlap
    (`HOURS` UTC). 5m, 15m and daily bars open nothing in this mode.
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from . import smt_filter
 
-SNIPER = True
+SNIPER = False
 BAR = 0.82
 MIN_BAR, MAX_BAR = 3_600, 14_400
 HOURS = (12, 17)
