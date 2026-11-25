@@ -118,6 +118,9 @@ class NewsPipeline:
                   "audit_agree": 0, "cheap_unknown": 0, "deep_unknown": 0, "hybrid_unknown": 0}
         self.cost = {"hybrid": 0.0, "cheap_only": 0.0, "deep_only": 0.0}
         self.gate_moves: deque[dict] = deque(maxlen=20)
+        # Optional X crowd read for the deep read: symbol -> lean (-1..1) or None. Set by the dashboard when Grok
+        # is on (trading/grok.py XPulse.lean); cached, so no model is called inside the pipeline.
+        self.crowd = None
 
     def feed(self, headlines: list[dict], views: dict | None = None, now: float | None = None) -> None:
         for h in headlines or []:
@@ -136,6 +139,7 @@ class NewsPipeline:
         text = str(h.get("text", "")).lower()
         overrule = next((w.strip() for w in OVERRULE if w in text), None)
         deep = deep_read(h, view)  # demo: free to compute, so cheap-only / deep-only columns are measured too
+        deep = self._with_crowd(h, deep)
         self.cost["cheap_only"] += CHEAP_COST
         self.cost["deep_only"] += DEEP_COST
         self.n["cheap_unknown"] += conf < HUMAN_BELOW
@@ -181,6 +185,19 @@ class NewsPipeline:
         if human:
             self.human.append(rec)
         return rec
+
+    def _with_crowd(self, h: dict, deep: dict) -> dict:
+        """Add Grok's read of X on this market to the deep read: one inference tag and a small share of the lean."""
+        try:
+            crowd = self.crowd(h.get("symbol")) if self.crowd and h.get("symbol") else None
+        except Exception:  # noqa: BLE001 - a missing crowd read never breaks the pipeline
+            crowd = None
+        if crowd is None:
+            return deep
+        from .grok import CROWD_SHARE
+        lean = max(-1.0, min(1.0, (1 - CROWD_SHARE) * deep["lean"] + CROWD_SHARE * crowd))
+        tags = deep["tags"] + [{"tag": "inference", "text": f"X crowd (Grok) {crowd:+.2f}"}]
+        return {**deep, "lean": round(lean, 3), "tags": tags, "crowd": crowd}
 
     def _audit(self, t: dict, deep: dict) -> None:
         self.n["audited"] += 1

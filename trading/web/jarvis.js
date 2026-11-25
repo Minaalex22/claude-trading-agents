@@ -275,11 +275,12 @@
   async function ask(q) {
     add("me", esc(q)); setState("thinking"); hud.thinking = 1;
     const fast = $("fastOn").checked;
-    const r = await post("/api/jarvis/ask", fast ? { question: q, mode: "fast" } : { question: q });
+    const grok = fast && state.grokBrain && $("fastPick").value === "grok";
+    const r = await post("/api/jarvis/ask", fast ? { question: q, mode: grok ? "grok" : "fast" } : { question: q });
     hud.thinking = 0;
     if (r.status === 403 || r.status === 401) { await refresh(); note(r.data.error || "Locked."); return; }
     if (!r.ok) { note(r.data.error || "Something went wrong."); setState("ready"); return; }
-    add("her", "<b>" + (fast ? "MINI-JARVIS" : "JARVIS") + "</b> " + esc(r.data.reply));
+    add("her", "<b>" + (grok ? "GROK" : fast ? "MINI-JARVIS" : "JARVIS") + "</b> " + esc(r.data.reply));
     speak(r.data.reply);
     if (!state.speaking) setState(state.listening ? "listening" : "ready");
   }
@@ -292,15 +293,22 @@
     else $("lockMsg").textContent = r.data.error || "That didn't work.";
   }
 
-  const FAST_NAMES = { "mini-claude": "Claude Haiku", "mini-openai": "your own model server", "mini-builtin": "built-in desk answers" };
+  const FAST_NAMES = { "mini-grok": "Grok", "mini-claude": "Claude Haiku", "mini-openai": "your own model server", "mini-builtin": "built-in desk answers" };
   function showBrain(s) {
     if (!s.unlocked) { $("brain").textContent = ""; return; }
+    $("fastPick").classList.toggle("hidden", !(state.grokBrain && $("fastOn").checked));
+    if ($("fastOn").checked && state.grokBrain && $("fastPick").value === "grok") { $("brain").textContent = "Fast mode: Mini-JARVIS on Grok (asks X when you ask what people say)"; return; }
     if ($("fastOn").checked) { $("brain").textContent = "Fast mode: Mini-JARVIS on " + (FAST_NAMES[state.fastBrain] || "built-in desk answers"); return; }
     $("brain").textContent = s.brain === "claude" ? "Brain: Claude" : "Brain: built-in handbook (add ANTHROPIC_API_KEY for Claude)";
   }
   try { $("fastOn").checked = localStorage.getItem("jarvisFast") === "1"; } catch (e) { /* storage blocked */ }
   $("fastOn").addEventListener("change", () => {
     try { localStorage.setItem("jarvisFast", $("fastOn").checked ? "1" : "0"); } catch (e) { /* storage blocked */ }
+    showBrain({ unlocked: state.unlocked, brain: state.brain });
+  });
+  try { if (localStorage.getItem("jarvisFastPick") === "grok") $("fastPick").value = "grok"; } catch (e) { /* storage blocked */ }
+  $("fastPick").addEventListener("change", () => {
+    try { localStorage.setItem("jarvisFastPick", $("fastPick").value); } catch (e) { /* storage blocked */ }
     showBrain({ unlocked: state.unlocked, brain: state.brain });
   });
 
@@ -315,6 +323,7 @@
     $("lock").classList.toggle("hidden", !s.enabled || s.unlocked || s.needs_setup);
     $("talk").classList.toggle("hidden", !s.unlocked);
     state.fastBrain = s.fast_brain || "";
+    state.grokBrain = !!s.grok_brain;
     showBrain(s);
     if (!s.unlocked && wantListen) stopListening();
     setState(!s.enabled ? "offline" : s.unlocked ? "ready" : s.needs_setup ? "choose a passphrase" : "locked");

@@ -119,6 +119,15 @@ KEYS = (
      "live_possible": False,
      "vars": [_v("ATAS_TOKEN", "optional", "made for you by Connect ATAS on /account")],
      "how": "Data only. ATAS trades go through the broker you connect inside ATAS."},
+    {"key": "grok", "name": "Grok (xAI) brain", "api": "xAI API",
+     "live_possible": False,
+     "vars": [_v("XAI_API_KEY", "demo", "API key from console.x.ai (API Keys); turns Grok on"),
+              _v("GROK_MODEL", "optional", "model for X reads and replays (default grok-4.7)"),
+              _v("GROK_FAST_MODEL", "optional", "model for JARVIS fast mode (default = GROK_MODEL)"),
+              _v("GROK_DAILY_CALLS", "optional", "most Grok calls a day for X reads, same again for JARVIS (default 150)"),
+              _v("GROK_REFRESH_MINS", "optional", "minutes between X reads of each market (default 30)")],
+     "how": "console.x.ai > API Keys > Create, paste it into XAI_API_KEY on Render. Grok reads X for each market, "
+            "gives a second opinion on /decision and answers in JARVIS fast mode. It never places orders."},
     {"key": "desks", "name": "Session desks (Sydney, Asia, Europe, London, New York)", "api": "through the platforms above",
      "live_possible": True, "vars": [],
      "how": "No keys of their own: each desk sends its orders to the platform you pick, in the switch's mode."},
@@ -141,6 +150,8 @@ def demo_ready(key: str, env) -> bool:
                                                   or (_set(env, "BETFAIR_USERNAME") and _set(env, "BETFAIR_PASSWORD")))
     if key == "moomoo":
         return _set(env, "BRIDGE_TOKEN")
+    if key == "grok":
+        return _set(env, "XAI_API_KEY")
     return True  # practice desks and paper books need nothing
 
 

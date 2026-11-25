@@ -60,3 +60,5 @@ input[type=range]#whatif { width: 100%; accent-color: var(--ats-o); background: 
   .pl-count b { font-size: 20px; } .pl-billrow { grid-template-columns: 80px 1fr 70px; } .pl-billrow .u { display: none; }
   .pl-whatif { grid-template-columns: 1fr 1fr; } .pl-save { position: static; margin: 6px; }
 }
+#g-run{margin-top:10px;padding:8px 14px;background:transparent;border:1px solid var(--accent,#FF5C00);color:inherit;cursor:pointer}
+#g-run:disabled{opacity:.45;cursor:default}

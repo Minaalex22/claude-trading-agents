@@ -459,9 +459,48 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     report_token = env.get("REPORT_TOKEN", "")
     report_on = len(report_token) >= MIN_BRIDGE_TOKEN
     jarvis = jarvis or Jarvis(None, required=auth.enabled)
+    from . import jarvis_mini
     if getattr(jarvis, "mini", None) is None:  # fast mode: Mini-JARVIS desk copilot (trading/jarvis_mini.py)
-        from . import jarvis_mini
         jarvis.mini = jarvis_mini.MiniJarvis(hub.events_dir, lambda: list(hub.closed), env=env)
+    # Grok (xAI): live X crowd reads, a /decision second opinion and a JARVIS fast brain. Off without XAI_API_KEY.
+    from . import grok as grok_mod
+    grok_pulse = grok_mod.XPulse.from_env(env)
+    grok_jarvis = None
+    if grok_pulse.on:
+        hub.pipeline.crowd = lambda sym: grok_pulse.lean(sym, time.time())
+        fast_client = grok_mod.GrokClient.from_env(env, "GROK_FAST_MODEL")
+        if fast_client is not None:
+            fast_client.daily_calls = grok_pulse.client.daily_calls  # JARVIS chat has its own cap of the same size
+            grok_jarvis = jarvis_mini.MiniJarvis(hub.events_dir, lambda: list(hub.closed),
+                                                 brain=grok_mod.GrokMini(fast_client), env=env)
+            jarvis.grok = grok_jarvis
+
+        def grok_loop():
+            while True:
+                try:
+                    hist = hub.prices().get("history") or []
+                    if hist:
+                        grok_pulse.round(dict(hist[-1]["prices"]), time.time())
+                except Exception:  # noqa: BLE001 - one bad round never stops the app
+                    pass
+                time.sleep(60)
+
+        if env.get("GROK_LOOP", "on") != "off":
+            threading.Thread(target=grok_loop, daemon=True, name="grok-pulse").start()
+    grok_replay_lock = threading.Lock()
+
+    def run_grok_replay(days: int, symbols: list[str]) -> None:
+        from .backtest import fetch_history
+        try:
+            grok_pulse.replay = {"state": "running", "days": days, "symbols": symbols}
+            closes = fetch_history(symbols, interval="1d", range_="3mo")
+            grok_pulse.replay = grok_mod.replay(grok_pulse.client, closes, days=days,
+                                                max_calls=int(env.get("GROK_REPLAY_CALLS", 60)))
+        except Exception as e:  # noqa: BLE001
+            grok_pulse.replay = {"state": "failed", "error": type(e).__name__}
+        finally:
+            grok_replay_lock.release()
+
     assets = {path: (_read(name), ctype) for path, (name, ctype) in STATIC.items()}
     index = _read("index.html")
     cluster_page = _read("3d.html")
@@ -539,7 +578,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
         hist = prices_now.get("history") or []
         with hub.cond:
             leans = {sym: hub.pipeline.lean(sym) for sym in (hist[-1]["prices"] if hist else {})}
-        return decision_desk.build(hub.org(), hub.trades(), prices_now, getattr(hub, "sources", None), smart, leans)
+        return decision_desk.build(hub.org(), hub.trades(), prices_now, getattr(hub, "sources", None), smart, leans,
+                                   grok_pulse.votes(leans, time.time()) if grok_pulse.on else None)
 
     def make_brief(session=None) -> dict:
         cal = get_calendar()
@@ -828,9 +868,12 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                  "news": btcc.news(), "links": btcc.LINKS, "live_trading": "locked"})
             elif path == "/api/state":
                 self._send(200, json.dumps(hub.state()).encode(), "application/json", {"Cache-Control": "no-store"})
+            elif path == "/api/grok":
+                self._json(200, grok_pulse.snapshot())
             elif path == "/api/pipeline":
                 with hub.cond:
                     snap = hub.pipeline.snapshot()
+                snap["grok"] = {"on": grok_pulse.on, "live_score": grok_pulse.stats() if grok_pulse.on else None}
                 self._send(200, json.dumps(snap).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/api/night-shift":
                 self._json(200, hub.night_shift() or {"enabled": night_clock.cfg.enabled, "active": False,
@@ -942,11 +985,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             elif path == "/decision":
                 self._send(200, decision_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/decision":
-                prices_now = hub.prices()
-                hist = prices_now.get("history") or []
-                with hub.cond:
-                    leans = {sym: hub.pipeline.lean(sym) for sym in (hist[-1]["prices"] if hist else {})}
-                body = decision_desk.build(hub.org(), hub.trades(), prices_now, getattr(hub, "sources", None), smart, leans)
+                body = decision_now()
                 self._send(200, json.dumps(body).encode(), "application/json", {"Cache-Control": "no-store"})
             elif path == "/smart":
                 self._send(200, smart_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
@@ -1142,6 +1181,25 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._wallet_post(path, raw)
             if path in ("/api/jarvis/unlock", "/api/jarvis/ask", "/api/jarvis/lock", "/api/jarvis/setup"):
                 return self._jarvis_post(path, raw)
+            if path == "/api/grok/replay":
+                if not self._authed():
+                    return self._json(401, {"error": "sign in required"})
+                if not grok_pulse.on:
+                    return self._json(409, {"error": "Grok is off: set XAI_API_KEY on Render first."})
+                if not grok_replay_lock.acquire(blocking=False):
+                    return self._json(409, {"error": "A Grok replay is already running."})
+                try:
+                    body = json.loads(raw or b"{}") or {}
+                    days = max(5, min(30, int(body.get("days", 20))))
+                    syms = [str(x).upper() for x in (body.get("symbols") or [])][:6]
+                except (ValueError, TypeError, AttributeError):
+                    grok_replay_lock.release()
+                    return self._json(400, {"error": "bad JSON"})
+                if not syms:
+                    hist = hub.prices().get("history") or []
+                    syms = sorted(hist[-1]["prices"])[:3] if hist else ["BTC", "SPY", "EURUSD"]
+                threading.Thread(target=run_grok_replay, args=(days, syms), daemon=True, name="grok-replay").start()
+                return self._json(202, {"state": "running", "days": days, "symbols": syms})
             if MARKET_FAV.fullmatch(path):
                 if not self._authed():
                     return self._json(401, {"error": "sign in required"})
@@ -1660,7 +1718,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             def paper_only_locked() -> bool:  # true until an Orbit arm passes all three live-unlock gates
                 from . import strategy_lab
                 return not any(a["promoted"] for a in strategy_lab.check(list(hub.closed), hub.events_dir).values())
-            fast = body.get("mode") == "fast" and jarvis.mini is not None
+            fast_brain = grok_jarvis if body.get("mode") == "grok" and grok_jarvis is not None else jarvis.mini
+            fast = body.get("mode") in ("fast", "grok") and fast_brain is not None
             if body.get("reset_history"):
                 jarvis.forget(client)
             try:  # the /orbit page's account equity (7-year replay + paper trades, heat sizing on)
@@ -1670,9 +1729,9 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                     float(orbit_data.get("desk_cash_per_arm") or orbit_kit.START_CASH))["combined"]["end"]
             except Exception:
                 snap["orbit_equity"] = None
-            reply = jarvis.ask(client, question, snap, brain=jarvis.mini if fast else None)
-            self._json(200, {"reply": reply, "brain": jarvis.mini.name if fast else jarvis.brain.name,
-                             "model": getattr(getattr(jarvis.mini, "brain", None), "model", None) if fast else
+            reply = jarvis.ask(client, question, snap, brain=fast_brain if fast else None)
+            self._json(200, {"reply": reply, "brain": fast_brain.name if fast else jarvis.brain.name,
+                             "model": getattr(getattr(fast_brain, "brain", None), "model", None) if fast else
                              getattr(jarvis.brain, "model", None),
                              "orbit_equity": None if snap["orbit_equity"] is None else round(snap["orbit_equity"], 2),
                              "paper_only_locked": paper_only_locked()})
