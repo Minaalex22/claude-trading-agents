@@ -9,6 +9,7 @@ from __future__ import annotations
 from . import fast_gate as fg
 from . import money_rules
 from . import option_flows
+from . import pelosi
 from . import smart_money
 from .atlas_sources import SYMBOL_TO_MARKET
 
@@ -76,6 +77,9 @@ def build(org: dict, trades: dict, prices: dict, sources, smart=None, pipeline_l
             g = grok_leans.get(sym)
             heads.append(fg.head_from_value("grok", g, 1.5, dead=0.05,
                                             why="Grok: X crowd read" if g is not None else "Grok: no sure X read yet"))
+        cb, cwhy = pelosi.BIAS.bias(sym)  # announced Congress trades (STOCK Act), acted on from the announce date
+        heads.append(fg.head_from_value("congress", cb or None, 1.0, dead=0.05,
+                                        why=f"Congress: {cwhy}" if cb else "Congress: no announced trade"))
         v, sc, why = smart_money.vote(smart.summary(sym) if smart else None)
         heads.append(fg.Head("insiders", v, sc, why))
         out.append(fg.decide(sym, heads, risk, calib, sizing, drift))

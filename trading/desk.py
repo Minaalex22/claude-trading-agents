@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 from . import agents as agents_mod
 
 from . import academy, accounts, coach as coaching, event_guard, execution_guard, master_pipeline, exits, hooks, indicators, review, sessions, smt_filter, sniper, team_relay, trend_anchor
-from . import correlation_guard, execution_integrity as integrity, option_flows
+from . import correlation_guard, execution_integrity as integrity, option_flows, pelosi
 from .meta_gate import MetaGate
 from . import mind as mindmod
 from . import night_shift
@@ -286,6 +286,7 @@ class Desk:
             else:
                 score = self._score(votes[symbol], symbol) * exposure
             score = option_flows.FEED.boost(symbol, score, self.now)  # 0DTE whale prints agreeing: x1.12-1.25
+            score = pelosi.BIAS.boost(symbol, score, self._above_200(symbol))  # Congress trades: agree x1.15, against x0.85
             if self.proven_only:
                 # Only agents with a proven record steer: no trade on a symbol without enough of them.
                 view, n = self.proven_view.get(symbol, (0.0, 0))
@@ -692,10 +693,16 @@ class Desk:
         for symbol in prices:
             v = votes[symbol]
             bb = team_relay.MarketBlackboard(symbol, "1h" if (self.bar_seconds or 0) >= 3600 else "intraday")
-            team_relay.phase1_sage(bb, v["analyst"], self.news_view.get(symbol, 0.0),
+            news = pelosi.BIAS.sage_lean(symbol, self.news_view.get(symbol, 0.0), self._above_200(symbol))
+            team_relay.phase1_sage(bb, v["analyst"], news,
                                    option_flows.FEED.bias(symbol, self.now)[0])
             team_relay.phase2_sentinel(bb, v["risk"])
             self.boards[symbol] = bb
+
+    def _above_200(self, symbol: str) -> bool | None:
+        """The trend anchor's read (+1 above the 200-bar average, -1 below), None while it warms up."""
+        a = getattr(self, "anchor", {}).get(symbol, 0)
+        return None if not a else a > 0
 
     def _relay_score(self, symbol: str) -> float:
         """Team relay phase 3: only the department that suits the regime votes; fast clusters need slow ones."""
