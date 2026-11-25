@@ -494,7 +494,10 @@ RSI2_LOW, RSI2_HIGH, RSI2_EXIT = 10.0, 90.0, 70.0
 # RSI2_SHARE): on unseen practice runs half RSI(2) cut Reversion's win rate from 60.2% to 59.1%, and on real
 # BTC, ETH and SOL bars from 50.4% to 47.6% (15m) and 56.0% to 53.2% (5m). It did cut Reversion's loss on the
 # 5m bars (-41.7k to -7.5k). Stricter entries (RSI below 5 or 2) didn't help.
-RSI2_SHARE = 0.0
+# 25 Nov 2026 (mina: RSI(2) for the Scalpers, with the 200-day trend only): with the trend anchor on, the desk
+# vetoes any RSI(2) call against the 200-day trend. Daily real-price replay, PF 2020-22 / 2023-26: share 0 1.93 /
+# 1.61, 0.5 2.37 / 1.92, 1.0 2.58 / 1.72. 1.0 was best on 2020-22, so it is the default now.
+RSI2_SHARE = 1.0
 # Share of the Entry (trend) department that trades Heikin Ashi colour flips (env HA_SHARE, default 0).
 HA_SHARE = 0.0  # off by default (mina 2026-11-24): daily test -2.3k -> -5.6k, no win-rate gain
 

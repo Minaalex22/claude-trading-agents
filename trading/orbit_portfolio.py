@@ -1,4 +1,4 @@
-"""Orbit portfolio: five strategy arms sharing one account, each in its own 20% sleeve (mina's design).
+"""Orbit portfolio: five strategy arms sharing one account, each in its own sleeve (mina's design).
 
 The lesson from the ALGO COURT // ORBIT reel: a 46% win rate with 0.6 R:R loses money as one strategy, yet a
 portfolio of arms that don't lose at the same time, sized by how each arm is doing, can still grow. So the edge
@@ -11,7 +11,8 @@ is measured on the MIX: per-arm and combined profit factor, drawdown, and how al
   arm 5  Crypto bicameral          BTC ETH                        dual brain regime router + night capsule
 
 Rules:
-- each arm has a 20% sleeve of account equity; arms never share positions (no interference);
+- sleeves of account equity: crypto 30%, US shares 30%, gold 20%, USDJPY 20%, forex majors 0% (benched 25 Nov);
+  arms never share positions (no interference);
 - heat: an arm's size shrinks to 0.35x while it is cold (losing, win rate < 45% over its last 25 trades) and
   grows to 1.45x while it is hot (making money, win rate >= 58%); 0.85x until it has 5 trades;
 - timeframe floor: only 1h bars or slower count (1h, 4h, 1d). 5m/15m noise is refused;
@@ -66,19 +67,21 @@ def heat(recent) -> float:
     return 1.0
 
 
+# Sleeves (mina, 25 Nov 2026): forex majors benched (0%), their 20% moved to crypto and US shares (30% each); gold
+# and USDJPY stay at 20%. On 2020-26 real daily prices the forex majors were the only arm still losing in 2023-26.
 def _arms() -> list[OrbitArm]:
     return [
         OrbitArm(1, "usdjpy", "USDJPY_4H_MACRO", "USDJPY 4H macro", ("USDJPY",), "4h",
-                 "Trend + macro rate divergence", ("USDJPY",)),
+                 "Trend + macro rate divergence", ("USDJPY",), 0.20),
         OrbitArm(2, "fx", "FX_MAJOR_SMT_REV", "FX majors SMT", ("EURUSD", "GBPUSD", "AUDUSD"), "1h",
-                 "Reversion + SMT sister-pair check", ("EURUSD", "GBPUSD", "AUDUSD")),
+                 "Reversion + SMT sister-pair check", ("EURUSD", "GBPUSD", "AUDUSD"), 0.0),
         OrbitArm(3, "gold", "GOLD_PAXG_REV", "Gold PAXG", ("GOLD", "PAXG", "XAUUSD"), "1h",
-                 "Reversion + macro shock guard", ("GOLD",)),
+                 "Reversion + macro shock guard", ("GOLD",), 0.20),
         OrbitArm(4, "us", "US_EQUITY_WHALE_FLOW", "US equity whale flow",
                  ("SPX", "SPY", "NDX", "QQQ", "DJI", "NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOG", "GOOGL", "TSLA"),
-                 "1h", "Reversion + option whale flow", ("SPX", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN")),
+                 "1h", "Reversion + option whale flow", ("SPX", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN"), 0.30),
         OrbitArm(5, "crypto", "CRYPTO_BICAMERAL", "Crypto bicameral", ("BTC", "ETH"), "4h",
-                 "Dual brain regime router + night capsule", ("BTC", "ETH")),
+                 "Dual brain regime router + night capsule", ("BTC", "ETH"), 0.30),
     ]
 
 
@@ -331,7 +334,7 @@ def dashboard(closed_live: list[dict] | None = None, data: dict | None = None) -
                    "practice_trades_included": False,
                    "replay_arms": {k: {kk: vv for kk, vv in v.items() if kk != "marks"} for k, v in (data.get("arms") or {}).items()},
                    "first": book[0]["t"] if book else None, "last": book[-1]["t"] if book else None},
-        "rules": {"sleeve": 0.20, "cold": 0.35, "hot": 1.45, "warmup": 0.85, "window": WINDOW,
+        "rules": {"sleeve": {a.key: a.base_weight for a in ARMS}, "cold": 0.35, "hot": 1.45, "warmup": 0.85, "window": WINDOW,
                   "timeframes": list(ALLOWED_TF)},
     }
 
