@@ -274,11 +274,12 @@
 
   async function ask(q) {
     add("me", esc(q)); setState("thinking"); hud.thinking = 1;
-    const r = await post("/api/jarvis/ask", { question: q });
+    const fast = $("fastOn").checked;
+    const r = await post("/api/jarvis/ask", fast ? { question: q, mode: "fast" } : { question: q });
     hud.thinking = 0;
     if (r.status === 403 || r.status === 401) { await refresh(); note(r.data.error || "Locked."); return; }
     if (!r.ok) { note(r.data.error || "Something went wrong."); setState("ready"); return; }
-    add("her", "<b>JARVIS</b> " + esc(r.data.reply));
+    add("her", "<b>" + (fast ? "MINI-JARVIS" : "JARVIS") + "</b> " + esc(r.data.reply));
     speak(r.data.reply);
     if (!state.speaking) setState(state.listening ? "listening" : "ready");
   }
@@ -291,17 +292,30 @@
     else $("lockMsg").textContent = r.data.error || "That didn't work.";
   }
 
+  const FAST_NAMES = { "mini-claude": "Claude Haiku", "mini-openai": "your own model server", "mini-builtin": "built-in desk answers" };
+  function showBrain(s) {
+    if (!s.unlocked) { $("brain").textContent = ""; return; }
+    if ($("fastOn").checked) { $("brain").textContent = "Fast mode: Mini-JARVIS on " + (FAST_NAMES[state.fastBrain] || "built-in desk answers"); return; }
+    $("brain").textContent = s.brain === "claude" ? "Brain: Claude" : "Brain: built-in handbook (add ANTHROPIC_API_KEY for Claude)";
+  }
+  try { $("fastOn").checked = localStorage.getItem("jarvisFast") === "1"; } catch (e) { /* storage blocked */ }
+  $("fastOn").addEventListener("change", () => {
+    try { localStorage.setItem("jarvisFast", $("fastOn").checked ? "1" : "0"); } catch (e) { /* storage blocked */ }
+    showBrain({ unlocked: state.unlocked, brain: state.brain });
+  });
+
   async function refresh() {
     const r = await fetch("/api/jarvis", { credentials: "same-origin" });
     if (r.status === 401) { location.href = "/login"; return; }
     const s = await r.json();
-    state.enabled = s.enabled; state.unlocked = s.unlocked;
+    state.enabled = s.enabled; state.unlocked = s.unlocked; state.brain = s.brain;
     $("off").classList.toggle("hidden", s.enabled);
     $("offMsg").textContent = s.reason || "";
     $("setup").classList.toggle("hidden", !s.needs_setup);
     $("lock").classList.toggle("hidden", !s.enabled || s.unlocked || s.needs_setup);
     $("talk").classList.toggle("hidden", !s.unlocked);
-    $("brain").textContent = s.unlocked ? (s.brain === "claude" ? "Brain: Claude" : "Brain: built-in handbook (add ANTHROPIC_API_KEY for Claude)") : "";
+    state.fastBrain = s.fast_brain || "";
+    showBrain(s);
     if (!s.unlocked && wantListen) stopListening();
     setState(!s.enabled ? "offline" : s.unlocked ? "ready" : s.needs_setup ? "choose a passphrase" : "locked");
   }

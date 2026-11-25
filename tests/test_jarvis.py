@@ -246,6 +246,13 @@ class JarvisServerTests(unittest.TestCase):
         self.assertEqual(resp.status, 200)
         self.assertEqual(body["brain"], "built-in")
         self.assertTrue(body["reply"])
+        resp, body = self.api("/api/jarvis/ask", {"question": "are we ready for live?", "mode": "fast"}, token)
+        self.assertEqual(resp.status, 200)  # fast mode: Mini-JARVIS desk copilot
+        self.assertTrue(body["brain"].startswith("mini-"))
+        self.assertIn("locked", body["reply"])
+        self.assertTrue(body["paper_only_locked"])
+        self.assertIsInstance(body["orbit_equity"], float)
+        self.assertIn("model", body)
 
     def test_first_visit_setup(self):
         fresh = J.Jarvis(None, required=True, secret="s")

@@ -523,6 +523,16 @@ listens, talks back and knows the whole application.
 - **Two brains.** Set `ANTHROPIC_API_KEY` and she answers with Claude (`JARVIS_MODEL`, default
   `claude-opus-5-5`, with the server-side refusal fallback on). Without a key she answers from her built-in
   handbook and the live numbers, with no network calls. If Claude is unreachable she falls back on her own.
+- **⚡ Fast mode: Mini-JARVIS** (`trading/jarvis_mini.py`). Tick "fast mode" on /jarvis for the quick, cheap
+  desk copilot. Each question gets a small live desk snapshot: Sentinel's newest PASS/FAIL verdicts and top
+  fail reasons (`desk_audit.jsonl`), what's saved in `desk_state.sqlite`, every Orbit arm against the
+  live-unlock gate (50+ trades, 60%+ wins, PF 1.35+, drawdown 8% or less), closed-trade stats and Orbit equity.
+  Ask "why did Sentinel block trades today?" or "are we ready to unlock live?". It uses Claude Haiku
+  (`MINI_JARVIS_MODEL`, default `claude-haiku-5-5`) with the same `ANTHROPIC_API_KEY`, so nothing extra to set
+  up; or point `COPILOT_BASE_URL` / `COPILOT_MODEL` at any OpenAI-compatible server, such as Ollama on your
+  Mac (`http://localhost:11434/v1`, `qwen2.5:14b`, free). No key at all: built-in desk answers. It reads only;
+  real money stays locked. API: `POST /api/jarvis/ask {"question", "mode": "fast"}` returns `reply`, `brain`,
+  `model`, `orbit_equity` and `paper_only_locked`. Terminal: `python -m trading.jarvis_mini`.
 - **She answers only you.** First the dashboard password, then your passphrase (at least 8 characters), typed
   or spoken. On your first visit to /jarvis you choose it right there (it is stored hashed with PBKDF2 next to
   the events, never in plain text). Set `JARVIS_PASSPHRASE` in Render instead if you want it fixed across

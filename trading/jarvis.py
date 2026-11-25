@@ -411,6 +411,7 @@ class Jarvis:
         self.required = required  # True when the app is reachable from the internet
         self.enabled = True
         self.brain = brain or BuiltinBrain()
+        self.mini = None  # the fast Mini-JARVIS brain, set by the dashboard (trading/jarvis_mini.py)
         self.clock = clock
         self.ttl = int(unlock_hours * 3600)
         self.store = store
@@ -476,6 +477,7 @@ class Jarvis:
 
     def status(self, unlocked: bool) -> dict:
         return {"enabled": self.enabled, "unlocked": unlocked, "brain": self.brain.name,
+                "fast_brain": getattr(self.mini, "name", None),
                 "needs_passphrase": self.needs_passphrase, "needs_setup": self.needs_setup, "reason": None}
 
     def check_passphrase(self, attempt: str) -> bool:
@@ -505,14 +507,19 @@ class Jarvis:
         except ValueError:
             return False
 
-    def ask(self, client: str, question: str, snap: dict) -> str:
-        """Answer one question. Caller has already checked login and unlock."""
+    def forget(self, client: str) -> None:
+        """Clear one client's conversation ("reset_history" on /api/jarvis/ask)."""
+        self._history.pop(client, None)
+
+    def ask(self, client: str, question: str, snap: dict, brain=None) -> str:
+        """Answer one question. Caller has already checked login and unlock. `brain` picks another brain for
+        this question (the fast Mini-JARVIS mode, trading/jarvis_mini.py); the conversation history is shared."""
         question = " ".join(str(question).split())[:MAX_QUESTION_CHARS]
         history = self._history.setdefault(client, deque(maxlen=HISTORY_TURNS * 2))
         if len(self._history) > 256:  # bound memory
             self._history.pop(next(iter(self._history)))
         try:
-            reply = self.brain.answer(question, snap, list(history))
+            reply = (brain or self.brain).answer(question, snap, list(history))
         except Exception:  # a network or API error must not take the page down
             reply = BuiltinBrain().answer(question, snap)
         history.append({"role": "user", "content": question})
