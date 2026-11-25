@@ -9,6 +9,14 @@ const PAGES = [
   { label: "Calculator", path: "/calculator" },
   { label: "Decision", path: "/decision" },
   { label: "Desk", path: "/", key: "4" },
+  { label: "One account", path: "/account", key: "0" },
+  { label: "Orbit portfolio", path: "/orbit" },
+  { label: "Session desks", path: "/desks" },
+  { label: "Session brief", path: "/brief" },
+  { label: "Time Machine", path: "/timemachine" },
+  { label: "News Lab", path: "/newslab" },
+  { label: "Mitrade", path: "/mitrade" },
+  { label: "BTCC", path: "/btcc" },
   { label: "Markets", path: "/markets", key: "5" },
   { label: "Crypto", path: "/crypto" },
   { label: "Forex", path: "/forex" },
@@ -20,6 +28,7 @@ const PAGES = [
   { label: "Agents", path: "/conductor", key: "8" },
   { label: "Pairs trading", path: "/pairs" },
   { label: "Galaxy", path: "/galaxy" },
+  { label: "3D view", path: "/3d" },
   { label: "JARVIS", path: "/jarvis", key: "9" },
 ];
 

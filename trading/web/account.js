@@ -104,7 +104,15 @@
     $('atas-line').textContent = lines ? lines[os] : '';
     $('atas-note').textContent = lines ? `Works for ${lines.minutes} minutes. ${os === 'mac' ? 'Open Terminal (Cmd+Space, type Terminal), paste, press Enter.' : 'Open PowerShell (Start, type PowerShell), paste, press Enter.'} Safe to run again later to update.` : '';
   }
+  // Inside the JARVIS Trading desktop app: one click installs everything, no Terminal.
+  const desktopAtas = window.desktop && typeof window.desktop.connectAtas === 'function';
+  if (desktopAtas) {
+    const steps = document.querySelector('#atas-connect .oa-steps');
+    if (steps) steps.innerHTML = '<li>Press <b>Connect ATAS</b>. The app installs the add-on and links it, no Terminal.</li>'
+      + '<li>In ATAS open a chart, <b>Indicators</b>, add <b>JarvisFeed (ATS Matrix)</b>, OK. Nothing to type. This box turns LIVE.</li>';
+  }
   $('atas-go').addEventListener('click', async () => {
+    if (desktopAtas) { window.desktop.connectAtas(); return; }
     $('atas-go').disabled = true;
     try {
       const r = await fetch('/api/atas/install', { cache: 'no-store' });
