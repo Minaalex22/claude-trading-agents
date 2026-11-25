@@ -12,7 +12,7 @@ Safety:
 
 Environment (set them on Render, never in the repo):
   METAAPI_TOKEN        API token from app.metaapi.cloud (Settings > API tokens)
-  METAAPI_ACCOUNT_ID   optional: the id MetaApi shows for your MT5 account. Left empty, the app finds it
+  METAAPI_ACCOUNT_ID   (or METAAPI_MT5_DEMO_ACCOUNT_ID) optional: the id MetaApi shows for your MT5 account. Left empty, the app finds it
                        with the token (the demo account first) and deploys it if it is switched off.
   METAAPI_REGION       optional: taken from the account when it is found automatically, else new-york
 """
@@ -94,7 +94,8 @@ class MetaApi:
         if missing:
             raise PermissionError(f"Set {', '.join(missing)} on the server to connect MetaTrader 5.")
         self._token = env["METAAPI_TOKEN"].strip()
-        acc_id, region = (env.get("METAAPI_ACCOUNT_ID") or "").strip(), env.get("METAAPI_REGION")
+        acc_id = (env.get("METAAPI_ACCOUNT_ID") or env.get("METAAPI_MT5_DEMO_ACCOUNT_ID") or "").strip()
+        region = env.get("METAAPI_REGION")
         if not acc_id:
             acc_id, found_region = discover(self._token, http)
             region = region or found_region

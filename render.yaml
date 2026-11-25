@@ -5,18 +5,20 @@ services:
   - type: web
     name: ats-matrix
     runtime: docker
-    # Free plan: no card needed. It sleeps after 15 minutes with no visitors and wakes in about a minute.
-    # For 24/7 running and a permanent memory disk, change to "starter" and restore the disk block below.
-    plan: free
+    # Starter (paid) plan: runs 24/7 and can mount the persistent disk below. A disk needs a paid plan; turn it on
+    # in the Render dashboard (service > Settings > Instance Type) if this blueprint isn't synced. Back on "free"
+    # the app still runs but sleeps after 15 minutes and loses its state on every deploy.
+    plan: starter
     branch: main
     autoDeploy: true
     dockerCommand: python -m trading.cloud
     healthCheckPath: /health
-    # Free plans can't have a disk, so memory resets on restart. On a paid plan, add this back:
-    # disk:
-    #   name: events
-    #   mountPath: /events
-    #   sizeGB: 1
+    # Persistent SSD: only files under /events survive deploys and restarts (state SQLite + WAL checkpoints,
+    # desk_audit.jsonl, events, agent memory, practice books). Check it under Render > service > Disks.
+    disk:
+      name: ats-matrix-state
+      mountPath: /events
+      sizeGB: 1
     envVars:
       - key: DASHBOARD_PASSWORD
         generateValue: true
@@ -27,6 +29,8 @@ services:
       - key: DASHBOARD_TOTP_SECRET
         sync: false
       - key: EVENTS_DIR
+        value: /events
+      - key: DESK_DATA_DIR       # same folder: every runtime file goes on the persistent disk
         value: /events
       # Paper trading on live prices (Coinbase, Yahoo). Orders still go to the paper broker; real money stays
       # locked. Set to "sim" to go back to the simulated practice market.
@@ -48,7 +52,7 @@ services:
       # MetaTrader 5 (e.g. GO Markets) through the MetaApi cloud. Read-only, plus DEMO orders only.
       - key: METAAPI_TOKEN
         sync: false
-      - key: METAAPI_ACCOUNT_ID  # optional: found from the token when empty
+      - key: METAAPI_ACCOUNT_ID  # optional: found from the token when empty (METAAPI_MT5_DEMO_ACCOUNT_ID also works)
         sync: false
       - key: METAAPI_LIVE_ACCOUNT_ID  # optional: your REAL MT5 account's id in MetaApi, used only when One account is on Live
         sync: false
