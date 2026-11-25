@@ -21,6 +21,20 @@ class FullPipelineE2E(unittest.TestCase):
         fill = execution_integrity.fill_price(+1, b.real_open)
         self.assertAlmostEqual(fill, 104.5 * (1 + execution_integrity.friction()))  # ... the fill is the real open
 
+    def test_noisy_bars_are_clamped_and_corrupt_bars_raise(self):
+        # open a rounding hair above the high, and an inverted high/low: cleaned, not crashed
+        b = execution_integrity.heikin_ashi([{"open": 1.085001, "high": 1.085, "low": 1.08, "close": 1.082},
+                                             {"open": 1.082, "high": 1.079, "low": 1.084, "close": 1.083}])
+        self.assertEqual(b[0].real_open, 1.085)
+        self.assertEqual((b[1].real_low, b[1].real_high), (1.079, 1.084))
+        with self.assertRaises(execution_integrity.CorruptBar):  # a 1% spike is bad data
+            execution_integrity.heikin_ashi([{"open": 1.096, "high": 1.085, "low": 1.08, "close": 1.082}])
+        audit = execution_integrity.FillAudit()
+        fill = execution_integrity.fill_price(+1, 100.0)  # bought right at the bar high, plus spread + slippage
+        audit.check("SPY", 1, 2, fill, 99.0, 100.0, 1)
+        audit.check("SPY", 3, 4, 101.0, 99.0, 100.0, 1)  # a 1% midpoint-style fill is still caught
+        self.assertEqual(audit.synthetic, 1)
+
     def test_put_bought_to_open_is_bearish(self):
         p = option_flows.FlowPrint(underlying="SPX", option_type="PUT", action="BUY_TO_OPEN", premium=4_200_000,
                                    dte=0, strike=5920, volume=950, open_interest=200, spot=5921, key_level=5920)
@@ -101,6 +115,29 @@ class FullPipelineE2E(unittest.TestCase):
         self.assertTrue(all(not e.get("practice") for e in orders))
         self.assertEqual(len(orders), sum(e["type"] == "pipeline" for e in events))
         self.assertIn("blocked", desk.usd_guard)
+
+    def test_replay_inspector_reads_the_events_folder(self):
+        import sys
+        import tempfile
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+        import inspect_replay_stats as ir
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            rows = [{"ts": 1.0 + i, "type": "closed", "symbol": "EURUSD", "qty": 1000, "entry": 1.1,
+                     "pnl": 20.0 if i % 3 else -10.0} for i in range(6)]
+            rows.append({"ts": 9.0, "type": "closed", "symbol": "EURUSD", "pnl": 500.0, "practice": True})
+            (d / "events-0.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+            (d / "desk_audit.jsonl").write_text("\n".join(json.dumps(r) for r in (
+                {"passed": True, "verdict": "PASS"},
+                {"passed": False, "verdict": "FAIL: news and chart point the other way (+0.27)"},
+                {"passed": False, "verdict": "FAIL: news and chart point the other way (-0.31); cost too high"})))
+            out = ir.inspect(d)
+            self.assertEqual(out["checker"]["top_fail_reasons"][0], ("news and chart point the other way", 2))
+            self.assertEqual((out["overall"]["chosen_trades"], out["overall"]["practice_rows_skipped"]), (6, 1))
+            self.assertEqual(out["overall"]["profit_factor"], 4.0)
+            self.assertFalse(out["arms"]["fx"]["promoted"])
+            self.assertTrue((d / "chosen_trades_orbit.csv").exists())
 
 
 if __name__ == "__main__":
