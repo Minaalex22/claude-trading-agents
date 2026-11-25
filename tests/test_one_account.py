@@ -289,6 +289,11 @@ class AccountWebTests(unittest.TestCase):
         self.assertEqual(resp.status, 200)
         resp, body = self.request("GET", "/api/atas", cookie=cookie)
         self.assertEqual(json.loads(body)["installed"]["system"], "windows")
+        # the ATAS bridge client reads the Demo/Live switch with the feed token only
+        resp, _ = self.request("GET", "/api/atas/mode")
+        self.assertEqual(resp.status, 401)
+        resp, body = self.request("GET", "/api/atas/mode", headers={"Authorization": f"Bearer {TOKEN}"})
+        self.assertEqual(json.loads(body), {"mode": "demo", "armed": True, "kill": False})
         # orders on platforms that aren't connected are refused clearly
         resp, body = self.post("/api/account/order", {"platform": "etoro", "side": "buy", "instrument_id": 1, "amount": 10}, cookie)
         self.assertEqual(resp.status, 403)
