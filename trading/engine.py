@@ -53,6 +53,8 @@ Configured with environment variables so the same image runs as any shard:
   DUAL_BRAIN    "on" (default): each trader's slow half audits its fast half's setups (trading/dual_brain.py)
   CONSENSUS     "on" (default): desk drops whisper votes and weighs setups by sqrt(group size) (trading/desk.py)
   TREND_ANCHOR  "on" (default): daily bars trade only with the 200-day trend and hold it (trading/trend_anchor.py)
+  NOISE_BAND    "on" (default): intraday desks follow the noise band breakout (trading/noise_band.py) on
+                NOISE_BAND_MARKETS (default "gold"); NOISE_BAND_MULT band width (default 2.0)
   TREND_ANCHOR_FX "off" (default since 25 Nov: all forex benched, USDJPY too), "majors" (keeps USDJPY), "adx", "keep"
   PULLBACK      "on" (default): new desk risk waits up to 2 bars for a 0.25 x bar-move pullback, no chasing
   BUCKET_SIZING "on" (default): each symbol's last 40 desk trades scale its size 0.25x-1.4x (risk limits still cap)
@@ -226,6 +228,10 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     trend_anchor.TRIM = float(env.get("TREND_ANCHOR_TRIM", 0.25))
     trend_anchor.TRAIL_ATR = float(env.get("TREND_ANCHOR_TRAIL_ATR", 0.0))
     trend_anchor.FX_KEEP = {s.strip().upper() for s in env.get("TREND_ANCHOR_FX_KEEP", "USDJPY").split(",") if s.strip()}
+    from . import noise_band
+    noise_band.ENABLED = on("NOISE_BAND")
+    noise_band.MARKETS = env.get("NOISE_BAND_MARKETS", noise_band.DEFAULT_MARKETS).lower()
+    noise_band.BAND_MULT = float(env.get("NOISE_BAND_MULT", noise_band.DEFAULT_MULT))
     desk_rules.SIGNAL_THRESHOLD = float(env.get("SIGNAL_THRESHOLD", 0.72))
     from . import hooks as hook_rules
     hook_rules.DEAD_ZONE = on("DEAD_ZONE")

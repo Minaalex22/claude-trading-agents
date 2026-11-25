@@ -5,7 +5,7 @@ from collections import defaultdict, deque
 
 from . import agents as agents_mod
 
-from . import academy, accounts, coach as coaching, event_guard, execution_guard, master_pipeline, exits, hooks, indicators, review, sessions, smt_filter, sniper, team_relay, trend_anchor
+from . import academy, accounts, coach as coaching, event_guard, execution_guard, master_pipeline, exits, hooks, indicators, noise_band, review, sessions, smt_filter, sniper, team_relay, trend_anchor
 from . import correlation_guard, execution_integrity as integrity, option_flows
 from .meta_gate import MetaGate
 from . import mind as mindmod
@@ -163,6 +163,10 @@ class Desk:
         self.bar_seconds: float | None = None  # time between market ticks, for the cost hurdle
         self.calendar = None  # event_guard.Calendar (live markets): earnings + big economic news
         self.checker = None  # trade_checker.TradeChecker: Sentinel's written PASS/FAIL + audit log
+        self.noise = noise_band.Book()  # intraday noise band breakouts per symbol (trading/noise_band.py)
+        self.noise_view: dict[str, int | None] = {}
+        self.noise_owned: set[str] = set()  # symbols whose open position the noise band opened (it also closes them)
+        self.noise_led = 0  # bars where a noise band breakout led a symbol
 
     def step(self, prices: dict[str, float], headlines: list[dict] | None = None, now: float | None = None) -> None:
         """One tick. `now` is the market time (unix seconds) for live prices and backtests; None in the simulator."""
@@ -195,6 +199,8 @@ class Desk:
                     self.daily_hist[symbol].append(prev[1])  # yesterday's last price is its daily close
                 self._day[symbol] = (day, price)
         exits.BAR_SECONDS = self.bar_seconds
+        self.noise_view = ({s: self.noise.update(s, now, p) for s, p in prices.items()}
+                           if noise_band.ENABLED and now is not None and not daily and self.bar_len else {})
         self.meta.update(prices)
         if self.beta:
             self.beta.begin()
@@ -307,6 +313,7 @@ class Desk:
                 score = 0.0  # forex rule: no new trend trade here (an open one against the trend still closes)
             anchor = fx_anchor
             score = trend_anchor.apply(score, anchor)  # with the 200-day trend only, and held while it lasts
+            score, anchor = self._noise_lead(symbol, score, anchor)
             if self.risk.killed:
                 score = 0.0  # kill switch: close everything
             orders += self._work_pending(symbol, prices, score)
@@ -639,6 +646,21 @@ class Desk:
         if abs(target_value) > abs(pos) and not ta.pulled_back(anchor, hist):
             return pos  # adds wait for a pullback too
         return target_value
+
+    def _noise_lead(self, symbol: str, score: float, anchor: int) -> tuple[float, int]:
+        """Noise band (intraday desks only): a breakout leads the symbol, sized by its volatility target; the
+        trade it opened is closed by its own stop or the session close, not left to the agents."""
+        view = self.noise_view.get(symbol)
+        if view:
+            self.noise_owned.add(symbol)
+            self.noise_led += 1
+            return view * max(0.25, self.noise.size(symbol)), 0
+        if symbol in self.noise_owned:
+            if not self.broker.position(symbol):
+                self.noise_owned.discard(symbol)
+                return score, anchor
+            return 0.0, 0  # stopped out or the session closed: flat
+        return score, anchor
 
     def anchor_status(self) -> dict:
         """Per symbol: the 200-day trend anchor's direction, days of daily history, and whether it is ready."""
