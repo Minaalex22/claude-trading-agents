@@ -804,6 +804,12 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._json(200, {"order": live_orders.next_for_bridge(hub.events_dir)})
             elif path in ("/atas/install.sh", "/atas/install.ps1"):
                 self._atas_installer(path)
+            elif path == "/api/atas/mode":
+                # the ATAS bridge client on the owner's computer asks this before every order (feed token)
+                if not self._atas_token_ok():
+                    return self._json(401, {"error": "ATAS token required"})
+                kill = (Path(hub.events_dir) / "KILL").exists() if hub.events_dir else False
+                self._json(200, {"mode": mode_switch.mode, "armed": one_account.armed(env), "kill": kill})
             elif path == "/login":
                 if not auth.enabled or self._authed():
                     return self._redirect("/news")  # News is the first page
