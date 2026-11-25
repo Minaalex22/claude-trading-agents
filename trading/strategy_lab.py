@@ -27,6 +27,8 @@ MIN_TRADES = 50
 MIN_WIN_RATE = 0.60
 MIN_PROFIT_FACTOR = 1.35
 MAX_DRIFT = 0.08
+MAX_DRAWDOWN = 0.08  # of the arm's 20% sleeve, on real prices (mina's live-unlock rule)
+SLEEVE_USD = 20_000.0
 COST_BPS = 6.0  # round trip: spread + fees + rollover/swap, charged on every trade
 FILE = "promotion.json"
 
@@ -70,7 +72,13 @@ def arm_stats(trades: list[dict], cost_bps: float = COST_BPS) -> dict[str, dict]
     for key, pnls in rows.items():
         wins = [p for p in pnls if p > 0]
         losses = [-p for p in pnls if p < 0]
+        eq = peak = dd = 0.0
+        for p in pnls:
+            eq += p
+            peak = max(peak, eq)
+            dd = max(dd, peak - eq)
         out[key] = {"trades": len(pnls), "win_rate": round(len(wins) / len(pnls), 4),
+                    "max_drawdown": round(dd / SLEEVE_USD, 4),
                     "profit_factor": round(sum(wins) / sum(losses), 3) if losses else (None if not wins else 99.0),
                     "net_pnl": round(sum(pnls), 2)}
     return out
@@ -84,10 +92,11 @@ def check(trades: list[dict], events_dir=None) -> dict:
     signoffs = data.get("signoffs") or {}
     out = {}
     for arm in _arms():
-        st = stats.get(arm.key, {"trades": 0, "win_rate": None, "profit_factor": None, "net_pnl": 0.0})
+        st = stats.get(arm.key, {"trades": 0, "win_rate": None, "profit_factor": None, "net_pnl": 0.0,
+                                 "max_drawdown": 0.0})
         pf = st["profit_factor"]
         g1 = (st["trades"] >= MIN_TRADES and (st["win_rate"] or 0) >= MIN_WIN_RATE
-              and pf is not None and pf >= MIN_PROFIT_FACTOR)
+              and pf is not None and pf >= MIN_PROFIT_FACTOR and st.get("max_drawdown", 0.0) <= MAX_DRAWDOWN)
         sim = sims.get(arm.key)
         drift = abs(float(sim) - st["win_rate"]) if sim is not None and st["win_rate"] is not None else None
         g2 = drift is not None and drift < MAX_DRIFT
@@ -95,8 +104,9 @@ def check(trades: list[dict], events_dir=None) -> dict:
         missing = []
         if not g1:
             missing.append(f"needs {MIN_TRADES}+ real-price trades at {MIN_WIN_RATE:.0%}+ wins and profit factor "
-                           f"{MIN_PROFIT_FACTOR}+ (has {st['trades']} trades"
-                           + (f", {st['win_rate']:.0%} wins, PF {pf}" if st["trades"] else "") + ")")
+                           f"{MIN_PROFIT_FACTOR}+, drawdown under {MAX_DRAWDOWN:.0%} (has {st['trades']} trades"
+                           + (f", {st['win_rate']:.0%} wins, PF {pf}, drawdown {st.get('max_drawdown', 0):.0%}"
+                              if st["trades"] else "") + ")")
         if not g2:
             missing.append("needs a sim win rate to compare" if sim is None else
                            f"sim {float(sim):.0%} vs real {(st['win_rate'] or 0):.0%}: drift over {MAX_DRIFT:.0%}")

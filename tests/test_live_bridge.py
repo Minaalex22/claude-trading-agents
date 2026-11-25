@@ -259,3 +259,58 @@ class JarvisRulesTest(unittest.TestCase):
         self.assertEqual(sessions.clock(ts + 10 * 60).stock_phase, "opening_bell")  # 09:42: still setting up
         later = sessions.clock(ts + 13 * 60)
         self.assertEqual(later.stock_phase, "opening_hour")
+
+
+class RestartAndStopTests(unittest.TestCase):
+    """mina (25 Nov 2026): no doubled or orphaned position after a restart, and stops that live at the broker."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.limits = live_orders.Limits(ENV)
+        self.t = [1_800_000_000.0]
+        self.clock = lambda: self.t[0]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_boot_reconcile_and_broker_truth(self):
+        o = live_orders.propose(self.dir, "AAPL", "buy", 120.0, "", self.limits, self.clock, stop_price=117.5)
+        self.assertEqual(o["stop_price"], 117.5)
+        live_orders.decide(self.dir, o["id"], True, self.limits, self.clock)
+        live_orders.next_for_bridge(self.dir, self.clock)  # sent ... and then the app restarts, no result came back
+        self.t[0] += live_orders.STALE_SENT + 1
+        rec = live_orders.reconcile_on_boot(self.dir, self.clock)
+        self.assertEqual(rec["unconfirmed"], 1)
+        self.assertIsNone(live_orders.propose(self.dir, "AAPL", "buy", 120.0, "", self.limits, self.clock))
+        live_orders.sync_positions(self.dir, {"AAPL": 4}, self.clock)  # the bridge reports: it did fill
+        self.assertEqual(live_orders.load(self.dir)["orders"][0]["status"], "filled")
+        self.assertIsNone(live_orders.propose(self.dir, "AAPL", "buy", 120.0, "", self.limits, self.clock))  # held
+        self.assertIsNotNone(live_orders.propose(self.dir, "AAPL", "sell", 121.0, "", self.limits, self.clock))
+
+    def test_bridge_rests_the_stop_at_the_broker_once_filled(self):
+        class StopBroker(FakeBroker):
+            def __init__(self):
+                super().__init__()
+                self.stops = []
+
+            def place_stop(self, symbol, qty, stop):
+                self.stops.append((symbol, qty, stop))
+                return {"order_id": "s1"}
+
+        calls = []
+        order = {"id": "a", "symbol": "AAPL", "side": "buy", "qty": 4, "price": 120.0, "stop_price": 117.5}
+        queue = [order]
+
+        def http(method, path, body=None):
+            calls.append(path)
+            if path == "/api/bridge/next":
+                return {"order": queue.pop() if queue else None}
+            return {}
+
+        broker = StopBroker()
+        b = Bridge("https://x", TOKEN, broker, self.limits, http=http, kill_path=self.dir / "KILL", log=lambda *_: None)
+        b.once()
+        self.assertEqual(calls[0], "/api/bridge/positions")  # synced with the broker before anything else
+        self.assertEqual(broker.stops, [("AAPL", 4, 117.5)])
+        self.assertEqual(b.pending_stops, {})

@@ -53,6 +53,7 @@ def heikin_ashi(bars: list[dict]) -> list[DualBar]:
     out: list[DualBar] = []
     prev_close = prev_ha_open = prev_ha_close = None
     for b in bars:
+        b = {str(k).lower(): v for k, v in b.items()}  # Open/Close exports work too
         c = float(b["close"])
         o = float(b.get("open", prev_close if prev_close is not None else c))
         h = float(b.get("high", max(o, c)))

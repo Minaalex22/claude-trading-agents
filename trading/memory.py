@@ -16,6 +16,9 @@ meta-label models (trading/entry_filters.py), Orbit's arm heat (each arm's recen
 Shift capsule (balance, stop, counters; only if it is still the same night). The paper account itself starts
 fresh on every run. Paper only.
 
+Every save is also copied into `desk_state.sqlite` (WAL mode, trading/state_store.py); if the JSON file is missing
+or damaged on start, the desk reads its learning back from there.
+
 When: every SAVE_EVERY ticks, and also every SAVE_SECONDS (15 minutes) of real time. On live prices a tick is
 one 15-second poll, so 600 ticks was 2.5 hours of learning at risk; now it is at most 15 minutes.
 """
@@ -107,16 +110,45 @@ def save(desk, path: Path) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
     os.replace(tmp, path)
+    _mirror(path, data)
+
+
+def _mirror(path: Path, data: dict) -> None:
+    """Also keep the snapshot in SQLite (WAL mode), so a damaged JSON file never loses the learning."""
+    from . import state_store
+    if not state_store.ENABLED:
+        return
+    try:
+        store, ns = state_store.for_memory(path)
+        store.save_namespace(ns, data)
+    except Exception:  # the JSON file is already saved; a SQLite problem must never stop the desk
+        pass
+
+
+def _load(path: Path) -> dict | None:
+    """The JSON memory file, or (if it is missing or damaged) the latest SQLite copy of it."""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    from . import state_store
+    if not state_store.ENABLED:
+        return None
+    try:
+        store, ns = state_store.for_memory(path)
+        return store.load_namespace(ns) if store.db_path.exists() else None
+    except Exception:
+        return None
 
 
 def restore(desk, path: Path) -> int:
     """Load saved learning into the desk's agents. Returns how many agents remembered."""
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-        if data.get("version") != VERSION:
+        data = _load(path)
+        if not isinstance(data, dict) or data.get("version") != VERSION:
             return 0
         saved = data["agents"]
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return 0
     restored = 0
     for a in desk.agents:

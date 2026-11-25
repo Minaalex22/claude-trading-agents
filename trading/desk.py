@@ -6,7 +6,7 @@ from collections import defaultdict, deque
 from . import agents as agents_mod
 
 from . import academy, accounts, coach as coaching, event_guard, execution_guard, master_pipeline, exits, hooks, indicators, review, sessions, smt_filter, sniper, team_relay, trend_anchor
-from . import execution_integrity as integrity, option_flows
+from . import correlation_guard, execution_integrity as integrity, option_flows
 from .meta_gate import MetaGate
 from . import mind as mindmod
 from . import night_shift
@@ -133,6 +133,7 @@ class Desk:
         self.passive = execution_guard.PassiveBook()  # resting Scalper limits (trading/execution_guard.py)
         self.broker_mids: dict[str, float] = {}  # live broker mids (engine fills these from Mitrade's quotes)
         self.drift = {"checked": 0, "blocked": 0, "last": {}}
+        self.usd_guard = {"blocked": 0}  # entries stopped by the net-USD guard (trading/correlation_guard.py)
         self.boards: dict[str, team_relay.MarketBlackboard] = {}  # this bar's team-relay blackboard per symbol
         self.relay = {"bars": 0, "vetoed": 0, "regimes": {"BREAKOUT": 0, "TRANSITION": 0, "CHOP": 0}}
         self.hour_start = 0
@@ -333,7 +334,8 @@ class Desk:
             if abs(desired * prices[symbol]) < floor and not (self.risk.killed and desired):
                 continue
             if not self.risk.killed and self._adds_risk(symbol, desired):
-                why = self._quote_drift(symbol, prices[symbol]) or self._entry_gate(symbol, desired, prices, score)
+                why = (self._quote_drift(symbol, prices[symbol]) or self._usd_cluster(symbol, desired, prices)
+                       or self._entry_gate(symbol, desired, prices, score))
                 if why:
                     self.checks["blocked"] += 1
                     self.log.emit("check", symbol=symbol, wanted=round(desired, 4), allowed=0.0, notes=[why])
@@ -630,6 +632,28 @@ class Desk:
         self.lead_style[symbol] = "trend" if bb.active_style == "Entry" else "reversion" if bb.active_style == "Scalper" \
             else self.lead_style.get(symbol, "trend")
         return team_relay.score(bb)
+
+    def _usd_cluster(self, symbol: str, qty: float, prices: dict) -> str | None:
+        """Net-USD guard (trading/correlation_guard.py): forex, gold, shares and crypto stacked on one dollar bet."""
+        if not correlation_guard.ENABLED or not correlation_guard.beta(symbol):
+            return None
+        equity = self.broker.equity(prices) or 1.0
+
+        def risk(sym: str, q: float) -> dict:
+            stop = exits.risk_unit(self.price_hist[sym]) if self.price_hist.get(sym) else prices[sym] * 0.01
+            return {"symbol": sym, "qty": q, "risk_pct": abs(q) * stop / equity}
+
+        others = [risk(s, q) for s, q in self.broker.positions.items() if q and s in prices and s != symbol]
+        now_q, after_q = self.broker.position(symbol), self.broker.position(symbol) + qty
+        before = correlation_guard.net_usd_risk(others + ([risk(symbol, now_q)] if now_q else []))
+        after = correlation_guard.net_usd_risk(others + [risk(symbol, after_q)])
+        cap = correlation_guard.MAX_NET_USD_RISK
+        ok = abs(after) <= cap or abs(after) <= abs(before)
+        why = None if ok else (f"blocked: dollar cluster risk {after:+.2%} would pass +/-{cap:.1%} "
+                               "(forex, gold, shares and crypto on one dollar bet)")
+        if not ok:
+            self.usd_guard["blocked"] += 1
+        return why
 
     def _quote_drift(self, symbol: str, price: float) -> str | None:
         """Broker parity: no new risk when the broker's live mid is more than 0.15% from the desk's price."""

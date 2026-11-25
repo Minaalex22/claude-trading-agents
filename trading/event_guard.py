@@ -26,6 +26,8 @@ from . import sessions
 
 USER_AGENT = "Mozilla/5.0 (compatible; ats-matrix-practice/1.0)"
 REFRESH_SECONDS = 3600
+# Earnings always loaded (mina): the big tech names move the US indices and the US arm even when not traded.
+ALWAYS_WATCH = {"AAPL", "NVDA", "TSLA", "MSFT", "AMZN", "META", "GOOGL", "GOOG"}
 EARNINGS_DAYS = 4                 # today + the next 3 days
 EARN_BEFORE_MIN, EARN_AFTER_MIN = 24 * 60, 60
 MACRO_BEFORE_MIN, MACRO_AFTER_MIN = 45, 30
@@ -127,7 +129,7 @@ class Calendar:
     """Holds the upcoming events. `refresh()` fetches both feeds; `start()` refreshes hourly in the background."""
 
     def __init__(self, symbols, get=None, clock=time.time):
-        self.symbols = {s.upper() for s in symbols}
+        self.symbols = {s.upper() for s in symbols} | ALWAYS_WATCH
         self._get = get or (lambda url: _get_json(url))
         self._clock = clock
         self.events: list[ScheduledEvent] = []
