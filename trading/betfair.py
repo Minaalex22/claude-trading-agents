@@ -13,7 +13,7 @@ MT5 and BTCC bridges:
 - **Real money** only when ALL of these hold (validate_prediction_market_order, mina 25 Nov 2026):
     1. the owner sets BETFAIR_REAL_MONEY=on on Render,
     2. the live-unlock gate is open: at least one Orbit arm is promoted (trading/strategy_lab.py: 50+ real-price
-       trades, 60%+ win rate, PF 1.35+, sim-vs-real within 8 points, mina's sign-off),
+       trades, PF 1.35+, 60%+ wins or 42%+ with payoff 1.85+, sim-vs-real within 15 points, sign-off),
     3. the order says live=true and confirm is exactly "REAL MONEY" (capitals, nothing else),
     4. a hard A$50 per-bet ceiling (MAX_REAL_STAKE_AUD) on top of the money rules below,
     3. the money rules pass: stake <= BETFAIR_MAX_STAKE (default A$10) and <= BETFAIR_RISK_PCT (default 1, max 10) % of available balance,

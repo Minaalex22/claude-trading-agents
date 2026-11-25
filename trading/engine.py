@@ -88,8 +88,8 @@ Configured with environment variables so the same image runs as any shard:
   LIVE_MAX_ORDER_USD, LIVE_MAX_DAY_USD, LIVE_SYMBOLS  real-money mirror (shard 0, MARKET=live): each desk
                 order in LIVE_SYMBOLS becomes a capped proposal the owner approves (trading/live_orders.py)
   PROMOTION_GATE "off": real-money proposals don't wait for the symbol's arm to pass the 3-gate live-promotion check
-                (trading/strategy_lab.py: 50+ real-price trades at 60%+ wins and PF 1.35+, sim-vs-real drift under 8
-                points, and your sign-off to JARVIS; default on)
+                (trading/strategy_lab.py: 50+ real-price trades, PF 1.35+, 60%+ wins or 42%+ with payoff 1.85+,
+                sim-vs-real drift within 15 points, and your sign-off to JARVIS; default on)
   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID  phone alerts (trading/alerts.py): real-money proposals, fills, stops
   DASHBOARD_URL the app's address, so alerts can link to the approval desk
   MASTERS_OFF   comma-separated masters whose rules are switched off (e.g. "soros,buffett"; see trading/masters.py)

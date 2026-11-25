@@ -104,8 +104,9 @@ def search_text(question: str, k: int = 3, max_chars: int = 6000) -> str:
 QUICK = [
     (r"\b(unlock|go live|going live|ready (for|to) (go )?(real|live)|real money (yet|ready)|when can we trade real)",
      "Real money stays locked until an Orbit arm passes three gates on real-price paper trades: at least 50 chosen "
-     "trades with 60 percent or more wins, profit factor 1.35 or more and drawdown 8 percent or less; sim and real win "
-     "rates within 8 points; and your sign-off. Then the Demo/Live switch, live keys on Render and typing GO LIVE."),
+     "trades, profit factor 1.35 or more, drawdown 8 percent or less, and either 60 percent or more wins or 42 percent "
+     "or more wins with winners at least 1.85 times the losers; sim and real win rates within 15 points; and your "
+     "sign-off. Then the Demo/Live switch, live keys on Render and typing GO LIVE."),
     (r"\b(results?|profit factor|backtest|replay|how (are|is) (we|the desk) doing on real|losing arm|loser|"
      r"which arm)",
      "On real daily prices 2020 to 2026 after costs, the desk now has profit factor 2.58 on the 2020 to 2022 years it was "
