@@ -1,7 +1,7 @@
 import unittest
 
 from trading import agents, exits
-from trading.agents import RSI2, build_team
+from trading.agents import MeanReversion, RSI2, build_team
 
 
 def feed(agent, prices):
@@ -55,5 +55,7 @@ if __name__ == "__main__":
 
 
 class RSI2SwitchTests(unittest.TestCase):
-    def test_off_by_default(self):
-        self.assertFalse(any(isinstance(a, RSI2) for a in build_team(40, ["AAPL"], 0)))
+    def test_on_by_default_since_25_nov(self):
+        team = build_team(40, ["AAPL"], 0)
+        self.assertTrue(any(isinstance(a, RSI2) for a in team))
+        self.assertFalse(any(isinstance(a, MeanReversion) and not isinstance(a, RSI2) for a in team))

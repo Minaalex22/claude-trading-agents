@@ -379,7 +379,9 @@ class EventHub:
             desk = {"approved": approved, "rejected": rejected,
                     "approval_rate": round(approved / (approved + rejected), 4) if approved + rejected else None,
                     "session_pnl": round(sum(t.get("pnl", 0) for t in ticks), 2)}
+            anchor = {sym: a for t in ticks for sym, a in (t.get("anchor") or {}).items()}
             return {"shards": shards, "agents_reporting": total, "events_seen": self.seq,
+                    "trend_anchor": anchor, "anchor_ready": bool(anchor) and all(a.get("ready") for a in anchor.values()),
                     "heatmap": heatmap, "jev_desk": desk, "night_shift": self.night_shift(),
                     "order_trails": list(self.trails)[::-1][:20],
                     "feed_watchdog": sorted({p for v in shards.values()
@@ -739,7 +741,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             elif path == "/health":
                 state = hub.state()
                 ok = state["agents_reporting"] > 0
-                body = {"ok": ok} if auth.enabled else {"ok": ok, **state}
+                # Signed out, /health says only ok; signed-in setups get the full state (incl. anchor_ready).
+                body = {"ok": ok} if auth.enabled else {"ok": ok, "200d_anchor_ready": state["anchor_ready"], **state}
                 self._send(200 if ok else 503, json.dumps(body).encode(), "application/json")
             elif path == "/api/report" and (self._authed() or self._report_authed()):
                 self._json(200, trade_report(hub, hub.events_dir, env))
@@ -949,6 +952,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._send(200, orbit_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path in ("/api/orbit", "/api/orbit.csv"):
                 dash = orbit_kit.dashboard(hub.trades()["trades"], orbit_data)
+                st = hub.state()
+                dash["trend_anchor"] = {"ready": st["anchor_ready"], "symbols": st["trend_anchor"]}
                 if path.endswith(".csv"):
                     self._send(200, orbit_kit.chosen_trades_csv(dash).encode(), "text/csv; charset=utf-8",
                                {"Cache-Control": "no-store", "Content-Disposition": 'attachment; filename="chosen_trades.csv"'})

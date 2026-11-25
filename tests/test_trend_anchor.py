@@ -36,6 +36,35 @@ class AnchorRuleTests(unittest.TestCase):
         self.assertFalse(trend_anchor.hold(0, 4_500))
 
 
+class ForexRuleTests(unittest.TestCase):
+    def tearDown(self):
+        trend_anchor.FX_MODE = "majors"
+
+    def test_majors_benched_usdjpy_kept_by_default(self):
+        self.assertEqual(trend_anchor.FX_MODE, "majors")
+        self.assertEqual(trend_anchor.fx_gate("EURUSD", 1, 0.0, [1.0] * 30), 0)
+        self.assertEqual(trend_anchor.fx_gate("USDJPY", -1, 0.0, [1.0] * 30), -1)
+        self.assertEqual(trend_anchor.fx_gate("GOLD", 1, 0.0, [1.0] * 30), 1)  # not forex: untouched
+
+    def test_all_forex_off(self):
+        trend_anchor.FX_MODE = "off"
+        self.assertEqual(trend_anchor.fx_gate("USDJPY", 1, 0.0, [1.0] * 30), 0)
+
+    def test_adx_gate(self):
+        trend_anchor.FX_MODE = "adx"
+        trending = [1.0 + 0.001 * i for i in range(60)]
+        choppy = [1.0 + 0.001 * (i % 2) for i in range(60)]
+        self.assertGreater(trend_anchor.adx(trending), 25)
+        self.assertLess(trend_anchor.adx(choppy), 25)
+        self.assertEqual(trend_anchor.fx_gate("GBPUSD", 1, 0.0, trending), 1)
+        self.assertEqual(trend_anchor.fx_gate("GBPUSD", 1, 0.0, choppy), 0)
+        self.assertEqual(trend_anchor.fx_gate("GBPUSD", 1, 5.0, choppy), 1)  # already holding: keep it
+
+    def test_keep(self):
+        trend_anchor.FX_MODE = "keep"
+        self.assertEqual(trend_anchor.fx_gate("USDJPY", -1, 0.0, [1.0] * 30), -1)
+
+
 def _replay(bars, **env):
     market = backtest.HistoricalMarket(bars, max_gap=5 * DAY)
     base = {"MARKET": "history", "FEE_BPS": "3", "TICKS": str(len(market)), "TICK_SECONDS": "0",
@@ -65,3 +94,30 @@ class DailyDeskTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IntradayAnchorTests(unittest.TestCase):
+    def test_seeded_daily_history_makes_the_anchor_live_on_hourly_bars(self):
+        t0 = 1_600_000_000
+        bars = {"BTC": [(t0 + i * 3600, 20_000 + i) for i in range(5)]}
+        desk = _replay(bars, TICKS="1")
+        desk.seed_daily({"BTC": [10_000 + 10 * i for i in range(250)]})
+        self.assertTrue(desk.anchor_status()["BTC"]["ready"])
+        for i in range(5):
+            desk.step({"BTC": 20_000.0 + i}, now=t0 + i * 3600)
+        self.assertEqual(desk.anchor["BTC"], 1)
+        self.assertIsNotNone(desk.clock)  # hourly bars keep their session rules
+
+    def test_unseeded_hourly_desk_stays_idle(self):
+        t0 = 1_600_000_000
+        desk = _replay({"BTC": [(t0 + i * 3600, 20_000 + i) for i in range(30)]})
+        self.assertFalse(desk.anchor_status()["BTC"]["ready"])
+        self.assertEqual(desk.anchor.get("BTC", 0), 0)
+
+    def test_daily_close_appended_on_new_day(self):
+        t0 = 1_600_000_000 - 1_600_000_000 % DAY
+        desk = _replay({"BTC": [(t0 + i * 3600, 20_000 + i) for i in range(3)]}, TICKS="1")
+        desk.step({"BTC": 100.0}, now=t0 + 3600)
+        desk.step({"BTC": 101.0}, now=t0 + 7200)
+        desk.step({"BTC": 105.0}, now=t0 + DAY + 3600)
+        self.assertEqual(list(desk.daily_hist["BTC"]), [101.0])

@@ -143,6 +143,11 @@ class Desk:
         # Trend anchor (trading/trend_anchor.py): the 200-bar average on daily bars, per symbol.
         self.anchor_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=trend_anchor.LOOKBACK + 1))
         self.anchor: dict[str, int] = {}
+        # Intraday desks: one close per UTC day (backfilled at boot by the engine), for the same 200-day anchor.
+        self.daily_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=trend_anchor.LOOKBACK + 1))
+        self._day: dict[str, tuple[str, float]] = {}
+        self.gaps: deque = deque(maxlen=5)
+        self.bar_len: float | None = None
         self.anchor_period: dict[str, str | None] = {}
         self.meta = MetaGate()  # walk-forward meta-label gate on desk entries (trading/meta_gate.py)
         self.regime: dict[str, str] = {}
@@ -164,10 +169,14 @@ class Desk:
         indicators.begin_tick(self.ticks)  # each symbol's rolling numbers are worked out once this tick
         if now is not None and self.now is not None and now > self.now:
             self.bar_seconds = now - self.now
+            self.gaps.append(self.bar_seconds)
         self.now = now
         # Session-of-day rules (Asia x0.75, weekend x0.5, open-fake waits) mean nothing on daily bars, whose time
         # stamp is just the day's close: they only shrank every daily order below the floor.
-        daily = self.bar_seconds is not None and self.bar_seconds >= trend_anchor.DAILY
+        # Bar length for the anchor and the clock: the shortest of the last few gaps, so a weekend or holiday gap on
+        # hourly stock bars doesn't make one bar look daily.
+        self.bar_len = min(self.gaps) if self.gaps else None
+        daily = self.bar_len is not None and self.bar_len >= trend_anchor.DAILY
         self.clock = sessions.clock(now) if self.use_clock and not daily else None
         if self.clock is not None:
             self.session_avg.update(self.clock, prices)
@@ -178,6 +187,12 @@ class Desk:
             self.price_hist[symbol].append(price)
             self.long_hist[symbol].append(price)
             self.anchor_hist[symbol].append(price)
+            if now is not None and not daily:
+                day = trend_anchor.period_day(now)
+                prev = self._day.get(symbol)
+                if prev and prev[0] != day:
+                    self.daily_hist[symbol].append(prev[1])  # yesterday's last price is its daily close
+                self._day[symbol] = (day, price)
         exits.BAR_SECONDS = self.bar_seconds
         self.meta.update(prices)
         if self.beta:
@@ -279,10 +294,17 @@ class Desk:
             if sniper.active(self.bar_seconds) and self.broker.position(symbol) * score <= 0 and abs(score) < sniper.bar():
                 score = 0.0  # sniper: opening (or flipping) needs 0.82; holding keeps the 0.5 bar
             period = trend_anchor.period(self.now)
+            intraday = (trend_anchor.ENABLED and trend_anchor.INTRADAY and self.now is not None
+                        and not trend_anchor.bars_for(self.bar_len))
+            hist = self.daily_hist[symbol] if intraday else self.anchor_hist[symbol]
             if not self.anchor.get(symbol) or self.anchor_period.get(symbol) != period:
-                self.anchor[symbol] = trend_anchor.direction(self.anchor_hist[symbol], self.bar_seconds)
+                self.anchor[symbol] = trend_anchor.direction(hist, trend_anchor.DAILY if intraday else self.bar_len)
                 self.anchor_period[symbol] = period
-            anchor = self.anchor[symbol] if trend_anchor.bars_for(self.bar_seconds) else 0
+            anchor = self.anchor[symbol] if (intraday or trend_anchor.bars_for(self.bar_len)) else 0
+            fx_anchor = trend_anchor.fx_gate(symbol, anchor, self.broker.position(symbol), hist)
+            if anchor and not fx_anchor:
+                score = 0.0  # forex rule: no new trend trade here (an open one against the trend still closes)
+            anchor = fx_anchor
             score = trend_anchor.apply(score, anchor)  # with the 200-day trend only, and held while it lasts
             if self.risk.killed:
                 score = 0.0  # kill switch: close everything
@@ -421,7 +443,7 @@ class Desk:
             proven=self.proven_count(), clock=self.clock.snapshot() if self.clock else None,
             stopped=self.risk.stop_reason, stale=sorted(self.risk.frozen), killed=self.risk.killed,
             risk=self._risk_gauges(prices, equity),
-            prices={s: round(p, 4) for s, p in prices.items()}, **extra,
+            prices={s: round(p, 4) for s, p in prices.items()}, anchor=self.anchor_status(), **extra,
         )
         if self.review_ticks and self.ticks % self.review_ticks == 0:
             self._review()
@@ -578,6 +600,21 @@ class Desk:
                 "coach_status": self.coach.status() if self.coach else {"claude": False},
                 "checks": dict(self.checks), "desk_trades": self.journal.closed, "memory": self.memory,
                 "minds": self.minds()}
+
+    def anchor_status(self) -> dict:
+        """Per symbol: the 200-day trend anchor's direction, days of daily history, and whether it is ready."""
+        daily_bars = bool(trend_anchor.bars_for(self.bar_len))
+        out = {}
+        for symbol in self.symbols:
+            days = len(self.anchor_hist[symbol] if daily_bars else self.daily_hist[symbol])
+            out[symbol] = {"dir": self.anchor.get(symbol, 0), "days": days,
+                           "ready": trend_anchor.ENABLED and days >= trend_anchor.LOOKBACK + 1}
+        return out
+
+    def seed_daily(self, closes: dict[str, list[float]]) -> None:
+        """Intraday desks: load past daily closes (oldest first) so the 200-day trend anchor works from bar 1."""
+        for symbol, rows in closes.items():
+            self.daily_hist[symbol].extend(rows[-(trend_anchor.LOOKBACK + 1):])
 
     def _clears_costs(self, symbol: str) -> bool:
         p = list(self.price_hist[symbol])[-(ROUTER_FAST + 1):]

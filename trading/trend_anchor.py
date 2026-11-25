@@ -13,8 +13,11 @@ The anchor is plain time-series momentum (price above or below its 200-day avera
 edges there is (Moskowitz, Ooi and Pedersen 2012; decades of managed-futures returns). The rule is fixed from the
 textbook, not fitted to our data:
 
-- **Direction**: price above its 200-bar average means up, below means down. Daily bars only (see `bars_for`):
-  faster bars would need months of warm-up, so live intraday desks leave it idle until they have the history.
+- **Direction**: price above its 200-day average means up, below means down. On daily bars it reads the bars
+  themselves. Intraday desks (live 1h/15m) read a separate daily-close history: at boot the engine backfills
+  ~250 daily closes from Yahoo (`backfill`), and each new UTC day appends the previous day's last price, so the
+  anchor is active from the first bar instead of after 200 days. Env TREND_ANCHOR_INTRADAY=off keeps intraday
+  desks without it. Validated on daily bars only; on intraday desks it is new (paper only).
 - **Review**: the direction is re-read every bar. Reading it only monthly (Faber 2007) or weekly cuts the
   flip-flops around the average, but it did not hold up: monthly looked best on 2020-22 (PF 2.45) and then lost
   on 2023-26 (PF 0.84), weekly lost on both. Env TREND_ANCHOR_REVIEW=week|month keeps them for testing.
@@ -23,6 +26,15 @@ textbook, not fitted to our data:
   so a trend is held until the average is crossed, not until conviction fades. Agents agreeing above BASE
   still size it up to the full position. Bucket sizing (a symbol's recent desk record) scales only that extra
   part, not the base.
+- **Forex** (mina, 25 Nov): forex majors ranged through 2023-26 and chopped every trend rule up. FX_MODE (env
+  TREND_ANCHOR_FX): "majors" (default, mina's plan) benches EURUSD/GBPUSD/AUDUSD on daily bars and keeps USDJPY;
+  "off" benches all forex; "adx" lets a new forex trend trade open only when ADX(14) >= 25; "keep" trades all.
+  Replay, realized PF 2020-22 / 2023-26: keep 2.06 / 1.22, adx 1.95 / 1.08, off 1.55 / 2.62, majors 1.93 / 1.61.
+  "majors" beat "off" on 2020-22, so it was the pick between the two benching options; benching at all was
+  decided after seeing 2023-26 (forex made money in 2020-22), so the 1.61 is not a fully clean unseen number.
+- **Exits tested and not used**: a two-stage exit (2x ATR stop, 30% off at +1.5R, 2.5-2.75x ATR chandelier,
+  close under the 50/20 EMA) did worse than holding to the 200-day cross on gold and shares in both periods
+  (monthly PF 1.20 vs 1.26 in 2020-22, 0.92 vs 1.32 in 2023-26).
 - **Band**: the held size only rebalances when it is more than BAND away from the new target, so day-to-day
   changes in the stop width don't churn fees.
 
@@ -37,6 +49,12 @@ BASE = 0.75  # minimum share of the normal size held while the trend lasts (0.5 
 BAND = 0.25  # rebalance a held anchor position only when off target by more than this share
 REVIEW = "day"  # how often the direction is re-read: "day" (default), "week" or "month" (Faber's rule)
 EXTRA = 1.0  # how far the agents' conviction above BASE can size the position up (0 = the anchor alone)
+FX_MODE = "majors"  # forex on daily bars: "majors" (default: EURUSD/GBPUSD/AUDUSD benched, USDJPY kept), "off"
+# (all forex benched), "adx" (new trend entries need ADX >= FX_ADX) or "keep"
+FX_KEEP = {"USDJPY"}  # forex pairs "majors" mode still trades
+FX_ADX, ADX_N = 26.0, 14  # mina: ADX >= 26 before forex majors may trade again ("adx" mode)
+INTRADAY = True  # intraday desks use the daily-close history (backfilled at boot)
+BACKFILL_DAYS = "1y"  # Yahoo range for the boot backfill (about 250 trading days)
 DAILY = 20 * 3600  # bars at least this long count as daily
 
 
@@ -57,6 +75,57 @@ def direction(prices, bar_seconds: float | None) -> int:
     return 1 if p[-1] > avg else -1 if p[-1] < avg else 0
 
 
+def backfill(symbols, get=None) -> dict[str, list[float]]:
+    """Daily closes for each symbol from Yahoo (oldest first). Symbols that fail are left out: their anchor
+    then warms up on its own."""
+    from . import backtest
+    out = {}
+    for s in symbols:
+        try:
+            bars = backtest.fetch_history([s], "1d", BACKFILL_DAYS, get=get).get(s, [])
+        except Exception:  # noqa: BLE001 - no network or no such ticker: the desk runs without it
+            continue
+        if bars:
+            out[s] = [c for _, c in bars]
+    return out
+
+
+def is_fx(symbol: str) -> bool:
+    from .markets.catalog import BY_SYMBOL
+    p = BY_SYMBOL.get(symbol.upper())
+    return p is not None and p.kind == "forex"
+
+
+def adx(prices, n: int = ADX_N) -> float:
+    """Wilder's ADX (0-100) from closes only: our free daily history has no highs and lows, so the
+    directional moves are the up and down closes and the true range is the absolute close move."""
+    p = list(prices)
+    pdm = mdm = tr = 0.0
+    value = None
+    for i in range(1, len(p)):
+        up, down = max(p[i] - p[i - 1], 0.0), max(p[i - 1] - p[i], 0.0)
+        pdm += up - pdm / n
+        mdm += down - mdm / n
+        tr += abs(p[i] - p[i - 1]) - tr / n
+        if i > n and tr > 0:
+            dx = abs(pdm - mdm) / (pdm + mdm) if pdm + mdm else 0.0
+            value = dx if value is None else value + (dx - value) / n
+    return 100.0 * (value or 0.0)
+
+
+def fx_gate(symbol: str, anchor: int, position: float, prices) -> int:
+    """The anchor after the forex rule. Forex majors ranged through 2023-26 and every trend rule lost there."""
+    if not anchor or FX_MODE == "keep" or not is_fx(symbol):
+        return anchor
+    if FX_MODE == "off" or (FX_MODE == "majors" and symbol.upper() not in FX_KEEP):
+        return 0
+    if FX_MODE == "majors":
+        return anchor
+    if position * anchor > 0:
+        return anchor  # already riding the trend: keep holding it
+    return anchor if adx(prices) >= FX_ADX else 0
+
+
 def period(now: float | None) -> str | None:
     """The review period a bar falls in (direction changes only when this changes)."""
     if now is None:
@@ -68,6 +137,11 @@ def period(now: float | None) -> str | None:
     if REVIEW == "week":
         return time.strftime("%G-%V", t)
     return time.strftime("%Y-%m", t)
+
+
+def period_day(now: float) -> str:
+    import time
+    return time.strftime("%Y-%m-%d", time.gmtime(now))
 
 
 def apply(score: float, anchor: int) -> float:

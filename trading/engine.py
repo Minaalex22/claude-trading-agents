@@ -49,7 +49,7 @@ Configured with environment variables so the same image runs as any shard:
   SESSION_RHYTHM "on": Asia calm (trust reversion), London breaks it (trust trend), New York finishes (default off)
   OPEN_FAKE     how to treat the first 30 minutes after London and New York open: "wait" (default), "fade" or "off"
   HA_SHARE      share of the Entry (trend) department trading Heikin Ashi colour flips (signal only; fills real), default 0 (lost money)
-  RSI2_SHARE    share of the Reversion department trading Larry Connors' RSI(2), 0..1 (default 0: tested, lower win rate)
+  RSI2_SHARE    share of the Reversion department trading Larry Connors' RSI(2), 0..1 (default 1 since 25 Nov)
   DUAL_BRAIN    "on" (default): each trader's slow half audits its fast half's setups (trading/dual_brain.py)
   CONSENSUS     "on" (default): desk drops whisper votes and weighs setups by sqrt(group size) (trading/desk.py)
   TREND_ANCHOR  "on" (default): daily bars trade only with the 200-day trend and hold it (trading/trend_anchor.py)
@@ -215,6 +215,8 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     trend_anchor.BAND = float(env.get("TREND_ANCHOR_BAND", 0.25))
     trend_anchor.EXTRA = float(env.get("TREND_ANCHOR_EXTRA", 1.0))
     trend_anchor.REVIEW = env.get("TREND_ANCHOR_REVIEW", "day").lower()
+    trend_anchor.FX_MODE = env.get("TREND_ANCHOR_FX", "majors").lower()
+    trend_anchor.INTRADAY = on("TREND_ANCHOR_INTRADAY")
     desk_rules.SIGNAL_THRESHOLD = float(env.get("SIGNAL_THRESHOLD", 0.72))
     from . import hooks as hook_rules
     hook_rules.DEAD_ZONE = on("DEAD_ZONE")
@@ -272,6 +274,9 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
         from . import event_guard
         desk.calendar = event_guard.Calendar(symbols)
         desk.calendar.start()
+    if live_market and market is None and trend_anchor.ENABLED and trend_anchor.INTRADAY:
+        # Backfill ~250 daily closes so the 200-day trend anchor is live from the first intraday bar.
+        desk.seed_daily(trend_anchor.backfill(symbols))
     if live_market and env.get("NEWS_TO_DESK", "on").lower() in ("on", "1", "true", "yes"):
         from .news_pipeline import NewsPipeline
         desk.pipeline = NewsPipeline()
