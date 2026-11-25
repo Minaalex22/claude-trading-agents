@@ -14,7 +14,8 @@ Endpoints:
   /jarvis       JARVIS, the owner's voice assistant with the hologram (trading/jarvis.py)
   /api/order-check ?symbol=&side=&score=&price=&stop=: one order through the nine-stage master pipeline
   /api/promotion  the 3-gate live-promotion check per arm (trading/strategy_lab.py); say "sign off <arm>" to JARVIS
-  /api/jarvis   GET her status; POST /api/jarvis/unlock {"passphrase"} and /api/jarvis/ask {"question"}
+  /api/jarvis   GET her status; POST /api/jarvis/unlock {"passphrase"} and /api/jarvis/ask {"question", "mode"}
+                ("mode": "fast" asks Mini-JARVIS, the cheap desk copilot: trading/jarvis_mini.py)
   /api/platforms  real platform connectors: mode and whether keys are set (names only)
   /api/mt5      MetaTrader 5 account and open positions (read only, via MetaApi cloud)
   /api/mt5/report?days=30  where the money went: win rate, losers by symbol, costs, drawdown, notes
@@ -456,6 +457,9 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     report_token = env.get("REPORT_TOKEN", "")
     report_on = len(report_token) >= MIN_BRIDGE_TOKEN
     jarvis = jarvis or Jarvis(None, required=auth.enabled)
+    if getattr(jarvis, "mini", None) is None:  # fast mode: Mini-JARVIS desk copilot (trading/jarvis_mini.py)
+        from . import jarvis_mini
+        jarvis.mini = jarvis_mini.MiniJarvis(hub.events_dir, lambda: list(hub.closed), env=env)
     assets = {path: (_read(name), ctype) for path, (name, ctype) in STATIC.items()}
     index = _read("index.html")
     cluster_page = _read("3d.html")
@@ -1589,8 +1593,25 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                     snap["session_brief"] = session_brief.text(briefs["brief"])
                 if briefs["close"]:
                     snap["daily_close"] = daily_close.text(briefs["close"], briefs["weekly"])
-            reply = jarvis.ask(client, question, snap)
-            self._json(200, {"reply": reply, "brain": jarvis.brain.name})
+            def paper_only_locked() -> bool:  # true until an Orbit arm passes all three live-unlock gates
+                from . import strategy_lab
+                return not any(a["promoted"] for a in strategy_lab.check(list(hub.closed), hub.events_dir).values())
+            fast = body.get("mode") == "fast" and jarvis.mini is not None
+            if body.get("reset_history"):
+                jarvis.forget(client)
+            try:  # the /orbit page's account equity (7-year replay + paper trades, heat sizing on)
+                snap["orbit_equity"] = orbit_kit.report(
+                    [{**t, "kind": "backtest"} for t in orbit_data.get("trades", [])]
+                    + orbit_kit.live_trades(hub.trades()["trades"]), True,
+                    float(orbit_data.get("desk_cash_per_arm") or orbit_kit.START_CASH))["combined"]["end"]
+            except Exception:
+                snap["orbit_equity"] = None
+            reply = jarvis.ask(client, question, snap, brain=jarvis.mini if fast else None)
+            self._json(200, {"reply": reply, "brain": jarvis.mini.name if fast else jarvis.brain.name,
+                             "model": getattr(getattr(jarvis.mini, "brain", None), "model", None) if fast else
+                             getattr(jarvis.brain, "model", None),
+                             "orbit_equity": None if snap["orbit_equity"] is None else round(snap["orbit_equity"], 2),
+                             "paper_only_locked": paper_only_locked()})
 
         def stream(self):
             self._headers(200, "text/event-stream", extra={"Cache-Control": "no-cache", "Connection": "close"})
