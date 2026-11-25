@@ -10,9 +10,12 @@ MT5 and BTCC bridges:
   (or BETFAIR_SESSION_TOKEN instead of username + password)
 - **Paper** by default: real Betfair prices, bets fill on our own paper book ($EVENTS_DIR/betfair_paper.json).
   Betfair has no demo account, so paper is the practice mode.
-- **Real money** only when ALL of these hold:
+- **Real money** only when ALL of these hold (validate_prediction_market_order, mina 25 Nov 2026):
     1. the owner sets BETFAIR_REAL_MONEY=on on Render,
-    2. the order says live=true and confirm="REAL MONEY",
+    2. the live-unlock gate is open: at least one Orbit arm is promoted (trading/strategy_lab.py: 50+ real-price
+       trades, 60%+ win rate, PF 1.35+, sim-vs-real within 8 points, mina's sign-off),
+    3. the order says live=true and confirm is exactly "REAL MONEY" (capitals, nothing else),
+    4. a hard A$50 per-bet ceiling (MAX_REAL_STAKE_AUD) on top of the money rules below,
     3. the money rules pass: stake <= BETFAIR_MAX_STAKE (default A$10) and <= BETFAIR_RISK_PCT (default 1, max 10) % of available balance,
        at most 2 open real bets, daily real stake <= BETFAIR_DAILY_STAKE (default A$50),
        odds between 1.1 and 20, lay liability inside the same caps.
@@ -38,6 +41,7 @@ LOGIN_URL = "https://identitysso.betfair.com.au/api/login"
 API_BASE = "https://api.betfair.com/exchange"
 ENV_KEYS = ("BETFAIR_APP_KEY", "BETFAIR_USERNAME", "BETFAIR_PASSWORD")
 REAL_CONFIRM = "REAL MONEY"
+MAX_REAL_STAKE_AUD = 50.0  # hard ceiling per real bet, whatever BETFAIR_MAX_STAKE says
 MIN_ODDS, MAX_ODDS = 1.1, 20.0
 MAX_OPEN_REAL = 2
 PAPER_START = 1_000.0  # A$
@@ -52,6 +56,34 @@ class Refused(PermissionError):
 
 class NotConnected(RuntimeError):
     pass
+
+
+def validate_prediction_market_order(platform: str, mode: str, typed_confirmation: str, live_gate_unlocked: bool,
+                                     stake_aud: float, max_betfair_aud: float = MAX_REAL_STAKE_AUD,
+                                     env=os.environ) -> tuple[bool, str]:
+    """Australian rules for prediction-market orders. Returns (allowed, reason).
+
+    Polymarket: paper only (blocked in Australia by ACMA), never live. Betfair AU: paper always; live only with
+    the BETFAIR_REAL_MONEY switch, the live-unlock gate open, the exact typed "REAL MONEY" and a stake within cap."""
+    plat, run_mode = str(platform).strip().upper(), str(mode).strip().upper()
+    if plat == "POLYMARKET":
+        if run_mode != "PAPER":
+            return False, "BLOCKED_AU_COMPLIANCE: Polymarket is restricted in Australia (paper/read-only only)"
+        return True, "PASS_POLYMARKET_PAPER"
+    if plat == "BETFAIR":
+        if run_mode == "PAPER":
+            return True, "PASS_BETFAIR_PAPER"
+        if not real_switch_on(env):
+            return False, "BLOCKED_SWITCH: Real money is off. The owner turns it on with BETFAIR_REAL_MONEY=on on Render."
+        if not live_gate_unlocked:
+            return False, ("BLOCKED_LIVE_UNLOCK_GATE: Real money stays locked until an Orbit arm passes the live-unlock "
+                           "gates (50+ trades, 60%+ win rate, PF 1.35+, sim vs real, sign-off)")
+        if str(typed_confirmation).strip() != REAL_CONFIRM:
+            return False, f'BLOCKED_CONFIRMATION: Type exactly "{REAL_CONFIRM}" to confirm a real Betfair bet'
+        if not 0 < float(stake_aud) <= max_betfair_aud:
+            return False, f"BLOCKED_STAKE_CAP: A${float(stake_aud):.2f} is over the A${max_betfair_aud:.2f} cap per real bet"
+        return True, "PASS_BETFAIR_AU_LIVE"
+    return False, f"UNKNOWN_PREDICTION_PLATFORM ({platform})"
 
 
 def configured(env=os.environ) -> bool:
@@ -266,6 +298,7 @@ class Bridge:
 
     def __init__(self, env=os.environ, folder: str | Path | None = None, client: Betfair | None = None, now=time.time):
         self.env, self.now = env, now
+        self.unlocked = lambda: False  # the live-unlock gate; the dashboard wires it to trading/strategy_lab.py
         self.path = Path(folder or env.get("EVENTS_DIR") or ".") / "betfair_paper.json"
         self.lock = threading.Lock()
         self.client = client
@@ -375,10 +408,9 @@ class Bridge:
     def _place_real(self, market_id: str, selection_id: int, side: str, stake: float, odds, confirm: str) -> dict:
         if not configured(self.env):
             raise Refused("Betfair isn't connected. Add the keys on Render first.")
-        if not real_switch_on(self.env):
-            raise Refused("Real money is off. The owner turns it on with BETFAIR_REAL_MONEY=on on Render.")
-        if str(confirm).strip().upper() != REAL_CONFIRM:
-            raise Refused(f'Type "{REAL_CONFIRM}" to confirm a real bet.')
+        ok, why = validate_prediction_market_order("BETFAIR", "LIVE", confirm, bool(self.unlocked()), stake, env=self.env)
+        if not ok:
+            raise Refused(why.split(": ", 1)[-1])
         if odds is None:
             raise Refused("Real bets need the odds you want (a limit price).")
         price = tick_price(float(odds))
