@@ -3,16 +3,19 @@
 import io
 import math
 import unittest
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta, timezone
 
 from trading import backtest, engine, noise_band
-
-NY = ZoneInfo("America/New_York")
+from trading.sessions import _ny
 
 
 def ny(y, m, d, hh, mm):
-    return datetime(y, m, d, hh, mm, tzinfo=NY).timestamp()
+    """Unix time of a New York wall-clock time (no tz database: Windows CI has none)."""
+    for off in (-5, -4):
+        ts = datetime(y, m, d, hh, mm, tzinfo=timezone(timedelta(hours=off))).timestamp()
+        if (_ny(ts).hour, _ny(ts).minute) == (hh, mm):
+            return ts
+    raise ValueError("not a New York time")
 
 
 def sessions(days, path, start=datetime(2025, 3, 3)):
@@ -21,8 +24,7 @@ def sessions(days, path, start=datetime(2025, 3, 3)):
     while n < days:
         if d.weekday() < 5:
             for k in range(16):  # bar ends 09:00, 09:30, ..., 16:30
-                t = datetime(d.year, d.month, d.day, 9, 0, tzinfo=NY) + timedelta(minutes=30 * k)
-                bars.append((t.timestamp(), path(n, k)))
+                bars.append((ny(d.year, d.month, d.day, 9, 0) + 1800 * k, path(n, k)))
             n += 1
         d += timedelta(days=1)
     return bars
@@ -42,7 +44,7 @@ class SessionTests(unittest.TestCase):
 
     def test_gold_and_crypto_sessions(self):
         self.assertEqual(noise_band.session_clock("GOLD", ny(2025, 3, 4, 3, 30))[1], 30)
-        midnight = datetime(2025, 3, 5, tzinfo=ZoneInfo("UTC")).timestamp()
+        midnight = datetime(2025, 3, 5, tzinfo=timezone.utc).timestamp()
         self.assertEqual(noise_band.session_clock("BTC", midnight), ("2025-03-04", 1440, 1440))
 
     def test_default_markets(self):
@@ -105,7 +107,7 @@ class BandTests(unittest.TestCase):
         r = noise_band.replay(sessions(40, path), "SPX", cost_bps=1.0)
         self.assertGreater(r["n"], 0)
         for t in r["trades"]:
-            local = datetime.fromtimestamp(t["t"], NY)
+            local = _ny(t["t"])
             self.assertLessEqual(local.hour * 60 + local.minute, 16 * 60)
         self.assertGreater(r["win_rate"], 0)
 

@@ -49,10 +49,10 @@ import math
 import statistics
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone
 
 from .night_shift import asset_class
+from .sessions import _ny
 
 ENABLED = True
 LOOKBACK = 14  # sessions in the noise average and the volatility estimate (paper: 14)
@@ -65,15 +65,19 @@ LEV_CAP = 4.0  # most leverage the sizing may ask for (paper: 4)
 DEFAULT_MARKETS = "gold"  # the only market where it helped the whole desk (see RESULTS below)
 MARKETS = DEFAULT_MARKETS  # env NOISE_BAND_MARKETS: "all" or a comma list of indices,stocks,gold,forex,crypto
 
-# market -> (time zone, open minute, close minute) in that zone's wall clock
+# market -> (clock, open minute, close minute) in that clock's wall time. "ny" = New York with its daylight saving
+# (trading/sessions.py, no tz database needed: Windows has none without the tzdata package).
 SESSIONS = {
-    "indices": ("America/New_York", 9 * 60 + 30, 16 * 60),
-    "stocks": ("America/New_York", 9 * 60 + 30, 16 * 60),
-    "gold": ("America/New_York", 3 * 60, 16 * 60 + 30),
-    "forex": ("America/New_York", 3 * 60, 16 * 60 + 30),
-    "crypto": ("UTC", 0, 24 * 60),
+    "indices": ("ny", 9 * 60 + 30, 16 * 60),
+    "stocks": ("ny", 9 * 60 + 30, 16 * 60),
+    "gold": ("ny", 3 * 60, 16 * 60 + 30),
+    "forex": ("ny", 3 * 60, 16 * 60 + 30),
+    "crypto": ("utc", 0, 24 * 60),
 }
-_ZONES: dict[str, ZoneInfo] = {}
+
+
+def _local(zone: str, ts: float) -> datetime:
+    return _ny(ts) if zone == "ny" else datetime.fromtimestamp(ts, timezone.utc)
 
 
 INDEX_SYMBOLS = {"SPX", "SPY", "US500", "QQQ", "NDX", "NAS100", "DIA", "US30", "IWM"}
@@ -96,13 +100,12 @@ def session_clock(symbol: str, ts: float) -> tuple[str, int, int] | None:
 
     A bar ending exactly at the open belongs to no session (it is the last pre-open price)."""
     zone, start, end = SESSIONS[market_of(symbol)]
-    tz = _ZONES.setdefault(zone, ZoneInfo(zone))
-    local = datetime.fromtimestamp(ts, tz)
+    local = _local(zone, ts)
     if local.weekday() >= 5 and market_of(symbol) != "crypto":
         return None
     minute = local.hour * 60 + local.minute + local.second / 60
     if end == 24 * 60 and minute == 0:  # a 24h session: midnight closes yesterday's session
-        prev = datetime.fromtimestamp(ts - 1, tz)
+        prev = _local(zone, ts - 1)
         return prev.strftime("%Y-%m-%d"), end - start, end - start
     if not start < minute <= end:
         return None
