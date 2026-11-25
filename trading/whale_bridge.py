@@ -31,14 +31,13 @@ import time
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timezone
-from zoneinfo import ZoneInfo
 
 from . import option_flows
+from .sessions import _ny
 
 URL = "https://api.unusualwhales.com/api/option-trades/flow-alerts"
 TICKERS = ("SPX", "SPXW", "SPY", "QQQ", "NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOGL", "TSLA")
 MIN_PREMIUM = 3_000_000
-NY = ZoneInfo("America/New_York")
 YAHOO = {"SPX": "%5EGSPC", "SPXW": "%5EGSPC"}
 OCC = re.compile(r"^([A-Z.]+?)(\d{6})([CP])(\d{8})$")
 HTTP_TIMEOUT = 15
@@ -51,9 +50,14 @@ def _http(url: str, headers: dict) -> dict:
         return json.loads(r.read() or b"null")
 
 
+def ny_time(now: datetime | None = None) -> datetime:
+    """New York local time without tzdata (Windows has none): the desk's own DST rules."""
+    return _ny((now or datetime.now(timezone.utc)).timestamp())
+
+
 def us_rth_open(now: datetime | None = None) -> bool:
     """US regular hours, 09:30-16:00 New York time on weekdays (holidays just return no alerts)."""
-    t = (now or datetime.now(timezone.utc)).astimezone(NY)
+    t = ny_time(now)
     if t.weekday() >= 5:
         return False
     mins = t.hour * 60 + t.minute
@@ -120,7 +124,7 @@ def to_print(row: dict, levels: dict[str, dict], spots: dict[str, float] | None 
             expiry = date.fromisoformat(str(row["expiry"])[:10])
         except ValueError:
             pass
-    today = today or datetime.now(timezone.utc).astimezone(NY).date()
+    today = today or ny_time().date()
     dte = (expiry - today).days if expiry else 0
     ask, bid = _num(row.get("total_ask_side_prem")), _num(row.get("total_bid_side_prem"))
     action = "SELL_TO_OPEN" if bid > ask else "BUY_TO_OPEN"
@@ -177,7 +181,7 @@ class WhaleBridge:
                 continue
 
     def _budget_ok(self) -> bool:
-        day = datetime.fromtimestamp(self.clock(), timezone.utc).astimezone(NY).strftime("%Y-%m-%d")
+        day = ny_time(datetime.fromtimestamp(self.clock(), timezone.utc)).strftime("%Y-%m-%d")
         if day != self.day:
             self.day, self.calls = day, 0
         return self.calls < self.max_day
