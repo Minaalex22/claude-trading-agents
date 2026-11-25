@@ -36,6 +36,30 @@ class AnchorRuleTests(unittest.TestCase):
         self.assertFalse(trend_anchor.hold(0, 4_500))
 
 
+class ForexRuleTests(unittest.TestCase):
+    def tearDown(self):
+        trend_anchor.FX_MODE = "off"
+
+    def test_forex_benched_by_default(self):
+        self.assertEqual(trend_anchor.FX_MODE, "off")
+        self.assertEqual(trend_anchor.fx_gate("EURUSD", 1, 0.0, [1.0] * 30), 0)
+        self.assertEqual(trend_anchor.fx_gate("GOLD", 1, 0.0, [1.0] * 30), 1)  # not forex: untouched
+
+    def test_adx_gate(self):
+        trend_anchor.FX_MODE = "adx"
+        trending = [1.0 + 0.001 * i for i in range(60)]
+        choppy = [1.0 + 0.001 * (i % 2) for i in range(60)]
+        self.assertGreater(trend_anchor.adx(trending), 25)
+        self.assertLess(trend_anchor.adx(choppy), 25)
+        self.assertEqual(trend_anchor.fx_gate("GBPUSD", 1, 0.0, trending), 1)
+        self.assertEqual(trend_anchor.fx_gate("GBPUSD", 1, 0.0, choppy), 0)
+        self.assertEqual(trend_anchor.fx_gate("GBPUSD", 1, 5.0, choppy), 1)  # already holding: keep it
+
+    def test_keep(self):
+        trend_anchor.FX_MODE = "keep"
+        self.assertEqual(trend_anchor.fx_gate("USDJPY", -1, 0.0, [1.0] * 30), -1)
+
+
 def _replay(bars, **env):
     market = backtest.HistoricalMarket(bars, max_gap=5 * DAY)
     base = {"MARKET": "history", "FEE_BPS": "3", "TICKS": str(len(market)), "TICK_SECONDS": "0",

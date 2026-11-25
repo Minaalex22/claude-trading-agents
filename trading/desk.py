@@ -283,6 +283,10 @@ class Desk:
                 self.anchor[symbol] = trend_anchor.direction(self.anchor_hist[symbol], self.bar_seconds)
                 self.anchor_period[symbol] = period
             anchor = self.anchor[symbol] if trend_anchor.bars_for(self.bar_seconds) else 0
+            fx_anchor = trend_anchor.fx_gate(symbol, anchor, self.broker.position(symbol), self.anchor_hist[symbol])
+            if anchor and not fx_anchor:
+                score = 0.0  # forex rule: no new trend trade here (an open one against the trend still closes)
+            anchor = fx_anchor
             score = trend_anchor.apply(score, anchor)  # with the 200-day trend only, and held while it lasts
             if self.risk.killed:
                 score = 0.0  # kill switch: close everything

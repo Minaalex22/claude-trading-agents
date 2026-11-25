@@ -23,6 +23,14 @@ textbook, not fitted to our data:
   so a trend is held until the average is crossed, not until conviction fades. Agents agreeing above BASE
   still size it up to the full position. Bucket sizing (a symbol's recent desk record) scales only that extra
   part, not the base.
+- **Forex** (mina, 25 Nov): forex majors ranged through 2023-26 and chopped every trend rule up (USDJPY, AUDUSD,
+  GBPUSD lost $3.9k there). FX_MODE (env TREND_ANCHOR_FX): "off" (default, mina's pick) benches forex on daily
+  bars; "adx" lets a new forex trend trade open only when ADX(14) >= 25; "keep" treats it like any market.
+  Replay, realized PF 2020-22 / 2023-26: keep 2.06 / 1.22, adx 1.95 / 1.08, off 1.55 / 2.62. Benching was
+  chosen after seeing 2023-26 (forex made money in 2020-22), so its 2.62 is not a clean out-of-sample number.
+- **Exits tested and not used**: a two-stage exit (2x ATR stop, 30% off at +1.5R, 2.5-2.75x ATR chandelier,
+  close under the 50/20 EMA) did worse than holding to the 200-day cross on gold and shares in both periods
+  (monthly PF 1.20 vs 1.26 in 2020-22, 0.92 vs 1.32 in 2023-26).
 - **Band**: the held size only rebalances when it is more than BAND away from the new target, so day-to-day
   changes in the stop width don't churn fees.
 
@@ -37,6 +45,8 @@ BASE = 0.75  # minimum share of the normal size held while the trend lasts (0.5 
 BAND = 0.25  # rebalance a held anchor position only when off target by more than this share
 REVIEW = "day"  # how often the direction is re-read: "day" (default), "week" or "month" (Faber's rule)
 EXTRA = 1.0  # how far the agents' conviction above BASE can size the position up (0 = the anchor alone)
+FX_MODE = "off"  # forex on daily bars: "off" (benched, default), "adx" (new trend entries need ADX >= FX_ADX) or "keep"
+FX_ADX, ADX_N = 25.0, 14
 DAILY = 20 * 3600  # bars at least this long count as daily
 
 
@@ -55,6 +65,40 @@ def direction(prices, bar_seconds: float | None) -> int:
         return 0
     avg = sum(p[-(n + 1):]) / (n + 1)
     return 1 if p[-1] > avg else -1 if p[-1] < avg else 0
+
+
+def is_fx(symbol: str) -> bool:
+    from .markets.catalog import BY_SYMBOL
+    p = BY_SYMBOL.get(symbol.upper())
+    return p is not None and p.kind == "forex"
+
+
+def adx(prices, n: int = ADX_N) -> float:
+    """Wilder's ADX (0-100) from closes only: our free daily history has no highs and lows, so the
+    directional moves are the up and down closes and the true range is the absolute close move."""
+    p = list(prices)
+    pdm = mdm = tr = 0.0
+    value = None
+    for i in range(1, len(p)):
+        up, down = max(p[i] - p[i - 1], 0.0), max(p[i - 1] - p[i], 0.0)
+        pdm += up - pdm / n
+        mdm += down - mdm / n
+        tr += abs(p[i] - p[i - 1]) - tr / n
+        if i > n and tr > 0:
+            dx = abs(pdm - mdm) / (pdm + mdm) if pdm + mdm else 0.0
+            value = dx if value is None else value + (dx - value) / n
+    return 100.0 * (value or 0.0)
+
+
+def fx_gate(symbol: str, anchor: int, position: float, prices) -> int:
+    """The anchor after the forex rule. Forex majors ranged through 2023-26 and every trend rule lost there."""
+    if not anchor or FX_MODE == "keep" or not is_fx(symbol):
+        return anchor
+    if FX_MODE == "off":
+        return 0
+    if position * anchor > 0:
+        return anchor  # already riding the trend: keep holding it
+    return anchor if adx(prices) >= FX_ADX else 0
 
 
 def period(now: float | None) -> str | None:

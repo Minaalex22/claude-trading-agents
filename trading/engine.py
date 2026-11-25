@@ -215,6 +215,7 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     trend_anchor.BAND = float(env.get("TREND_ANCHOR_BAND", 0.25))
     trend_anchor.EXTRA = float(env.get("TREND_ANCHOR_EXTRA", 1.0))
     trend_anchor.REVIEW = env.get("TREND_ANCHOR_REVIEW", "day").lower()
+    trend_anchor.FX_MODE = env.get("TREND_ANCHOR_FX", "off").lower()
     desk_rules.SIGNAL_THRESHOLD = float(env.get("SIGNAL_THRESHOLD", 0.72))
     from . import hooks as hook_rules
     hook_rules.DEAD_ZONE = on("DEAD_ZONE")
