@@ -74,7 +74,7 @@ class BrainTests(unittest.TestCase):
         self.assertEqual(brain.answer("fails?", {"a": 1}, [{"role": "user", "content": "hi"}] * 20), "Two fails.")
         kw = calls[0]
         self.assertEqual(kw["model"], "claude-haiku-5-5")
-        self.assertEqual(kw["system"][0]["cache_control"], {"type": "ephemeral"})
+        self.assertEqual(kw["system"][-1]["cache_control"], {"type": "ephemeral"})
         self.assertLessEqual(len(kw["messages"]), M.HISTORY_TURNS * 2 + 1)
         self.assertIn("LIVE DESK SNAPSHOT", kw["messages"][-1]["content"])
 

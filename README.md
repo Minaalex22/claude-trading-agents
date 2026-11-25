@@ -523,6 +523,11 @@ listens, talks back and knows the whole application.
 - **Two brains.** Set `ANTHROPIC_API_KEY` and she answers with Claude (`JARVIS_MODEL`, default
   `claude-opus-5-5`, with the server-side refusal fallback on). Without a key she answers from her built-in
   handbook and the live numbers, with no network calls. If Claude is unreachable she falls back on her own.
+- **She knows the whole project.** `trading/knowledge/` holds the whole-system and agents blueprints, the four
+  brain-code guides, Claude's 11 functions and day-trader blueprints, the every-request checklist and
+  `00-latest-status.md` (newest results, unlock rules, parked items). Both JARVIS and Mini-JARVIS load it
+  (`trading/project_knowledge.py`): Claude gets all of it as a prompt-cached block, a local model gets the best
+  matching sections, and the built-in brain answers from it too. To teach her something new, edit or add a file there.
 - **⚡ Fast mode: Mini-JARVIS** (`trading/jarvis_mini.py`). Tick "fast mode" on /jarvis for the quick, cheap
   desk copilot. Each question gets a small live desk snapshot: Sentinel's newest PASS/FAIL verdicts and top
   fail reasons (`desk_audit.jsonl`), what's saved in `desk_state.sqlite`, every Orbit arm against the
