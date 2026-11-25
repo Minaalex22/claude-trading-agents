@@ -45,7 +45,7 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import btcc, control, mitrade, live_orders, markets, metaapi, option_flows, platforms, training_report
+from . import btcc, control, mitrade, live_apis, live_orders, markets, metaapi, option_flows, platforms, training_report
 from .alerts import Alerts
 from .atlas_sources import AtlasSources
 from .jarvis import UNLOCK_COOKIE, Jarvis, snapshot
@@ -614,7 +614,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
         try:
             val = (fn(), None)
         except Exception as e:  # noqa: BLE001  (a broker that doesn't answer shows as an error, never crashes)
-            val = (None, metaapi.explain(e) if key.startswith("mt5") else f"{type(e).__name__}")
+            val = (None, metaapi.explain(e) if key.startswith("mt5") else live_apis.explain(e))
         broker_cache[key] = (time.time(), val)
         return val
 
@@ -630,7 +630,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 one_account.from_cfd("btcc", "BTCC practice desk", get_btcc().snapshot()),
                 one_account.from_poly(poly["book"].snapshot() if "book" in poly else None),
                 one_account.from_betfair(poly["bf"].snapshot() if "bf" in poly else None)]
-        if metaapi.configured(env) and (not live or env.get("METAAPI_LIVE_ACCOUNT_ID")):
+        if metaapi.configured(env):
             snap, err = _cached(f"mt5-{live}", lambda: metaapi.MetaApi(one_account.mt5_env(env, live)).snapshot())
             rows.append(one_account.from_mt5(snap, err, live))
         else:
@@ -640,6 +640,11 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             rows.append(one_account.from_etoro(port, err, live))
         else:
             rows.append(one_account.from_etoro(None, live=live))
+        if env.get("IBKR_GATEWAY_URL"):
+            snap, err = _cached(f"ibkr-{live}", lambda: live_apis.Ibkr(env).snapshot())
+            rows.append(live_apis.from_ibkr(snap, err, live))
+        else:
+            rows.append(live_apis.from_ibkr(None, live=live))
         rows.append(one_account.from_atas(atas.status(env)))
         return rows
 
@@ -909,6 +914,11 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._send(200, account_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/account":
                 self._json(200, one_view())
+            elif path == "/api/account/keys":
+                self._json(200, {"platforms": live_apis.keys_status(env), "mode": mode_switch.mode,
+                                 "note": "Names only. Values are never shown. Add them in Render > Environment."})
+            elif path == "/api/mt5/accounts":
+                self._mt5_accounts()
             elif path == "/api/atas":
                 self._json(200, atas.status(env))
             elif path == "/api/atas/install":
@@ -1110,7 +1120,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._atas_feed(raw)
             if path == "/api/atas/hello":
                 return self._atas_hello(raw)
-            if path in ("/api/account/mode", "/api/account/order"):
+            if path in ("/api/account/mode", "/api/account/order", "/api/account/close"):
                 return self._account_post(path, raw)
             if path == "/api/mt5/order":
                 return self._mt5_order(raw)
@@ -1151,12 +1161,25 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             auth.record_failure(client)
             self._redirect("/login?error=1")
 
+        def _mt5_accounts(self):
+            """Every MT5 account in MetaApi (any broker): name, server, login tail, state. Never passwords."""
+            if not metaapi.configured(env):
+                return self._json(200, {"connected": False, "accounts": []})
+            try:
+                rows = live_apis.mt5_accounts(env["METAAPI_TOKEN"].strip())
+            except Exception as e:  # noqa: BLE001
+                return self._json(502, {"connected": False, "error": metaapi.explain(e)})
+            for r in rows:
+                r["login"] = ("…" + r["login"][-4:]) if r["login"] else ""
+            self._json(200, {"connected": True, "accounts": rows})
+
         def _mt5_get(self, path: str):
             if not metaapi.configured(env):
                 return self._json(200, {"connected": False, "needs": list(metaapi.ENV_KEYS),
                                         "help": "Add METAAPI_TOKEN on Render (Environment). The account is found from it."})
             try:
-                api = metaapi.MetaApi(env)
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                api = metaapi.MetaApi(one_account.mt5_env(env, query.get("account", [""])[0] == "live"))
                 if path == "/api/mt5":
                     body = {"connected": True, **api.snapshot()}
                 else:
@@ -1453,14 +1476,14 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 if path == "/api/account/mode":
                     return self._json(200, mode_switch.set(str(b.get("mode", "")), str(b.get("confirm", "")), env))
                 live = mode_switch.mode == "live" and one_account.armed(env)
+                if path == "/api/account/close":
+                    return self._account_close(b, live)
                 pf, side = str(b["platform"]), str(b["side"])
                 sl = float(b["stop_loss"]) if b.get("stop_loss") not in (None, "") else None
                 tp = float(b["take_profit"]) if b.get("take_profit") not in (None, "") else None
                 entry = float(b["entry"]) if b.get("entry") not in (None, "") else None
                 if pf == "mt5":
                     symbol, volume = str(b["symbol"])[:32], float(b["volume"])
-                    if live and not env.get("METAAPI_LIVE_ACCOUNT_ID"):
-                        raise one_account.Refused("Live MT5 needs METAAPI_LIVE_ACCOUNT_ID on Render.")
                     api = metaapi.MetaApi(one_account.mt5_env(env, live))
                     notional = float(b.get("notional") or 0)
                     guard("mt5", symbol, notional, sl, entry)
@@ -1469,20 +1492,51 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                     if not (env.get("ETORO_API_KEY") and env.get("ETORO_USER_KEY")):
                         raise one_account.Refused("Add ETORO_API_KEY and ETORO_USER_KEY on Render first.")
                     amount, lev = float(b["amount"]), int(b.get("leverage") or 1)
-                    guard("etoro", f"#{int(b['instrument_id'])}", amount * lev, sl, entry)
+                    inst = int(b["instrument_id"]) if str(b.get("instrument_id") or "").strip() else \
+                        live_apis.etoro_instrument_id(env, str(b["symbol"])[:32])
+                    guard("etoro", f"#{inst}", amount * lev, sl, entry)
                     if live and not sl:
                         raise one_account.Refused("Live orders need a stop loss.")
-                    fill = one_account.etoro_order(env, live, int(b["instrument_id"]), side, amount, lev, sl, tp)
+                    fill = one_account.etoro_order(env, live, inst, side, amount, lev, sl, tp)
+                elif pf == "ibkr":
+                    symbol, qty = str(b["symbol"])[:32], float(b["volume"])
+                    guard("ibkr", symbol, float(b.get("notional") or (qty * (entry or 0))), sl, entry)
+                    fill = live_apis.Ibkr(env).order(live, symbol, side, qty, sl, tp)
                 else:
                     raise one_account.Refused("Use the platform's own page for that one (Mitrade, BTCC, Betfair, Polymarket).")
                 broker_cache.clear()
-            except (one_account.Refused, platforms.LiveTradingLocked, metaapi.NotDemo) as e:
+            except (one_account.Refused, live_apis.Refused, platforms.LiveTradingLocked, metaapi.NotDemo) as e:
                 return self._json(403, {"error": str(e)})
             except (ValueError, KeyError, TypeError, AssertionError) as e:
                 return self._json(400, {"error": f"check the order: {e}"})
             except Exception as e:  # noqa: BLE001
-                return self._json(502, {"error": f"broker did not take it: {type(e).__name__}"})
+                return self._json(502, {"error": f"broker did not take it: {live_apis.explain(e)}"})
             self._json(200, {"order": fill, "mode": "live" if live else "demo"})
+
+        def _account_close(self, b: dict, live: bool):
+            """Close one position on MT5, eToro or IBKR, in the switch's mode. Closing never needs the limits."""
+            try:
+                pf = str(b["platform"])
+                if pf == "mt5":
+                    api = metaapi.MetaApi(one_account.mt5_env(env, live))
+                    res = live_apis.mt5_close(api, live, str(b["position_id"]))
+                elif pf == "etoro":
+                    if not (env.get("ETORO_API_KEY") and env.get("ETORO_USER_KEY")):
+                        raise one_account.Refused("Add ETORO_API_KEY and ETORO_USER_KEY on Render first.")
+                    res = live_apis.etoro_close(env, live, int(b["position_id"]),
+                                                int(b["instrument_id"]) if b.get("instrument_id") else None)
+                elif pf == "ibkr":
+                    res = live_apis.Ibkr(env).close(live, str(b["symbol"])[:32])
+                else:
+                    raise one_account.Refused("Close that one on its own page.")
+                broker_cache.clear()
+            except (one_account.Refused, live_apis.Refused, metaapi.NotDemo) as e:
+                return self._json(403, {"error": str(e)})
+            except (ValueError, KeyError, TypeError) as e:
+                return self._json(400, {"error": f"check the request: {e}"})
+            except Exception as e:  # noqa: BLE001
+                return self._json(502, {"error": f"broker did not take it: {live_apis.explain(e)}"})
+            self._json(200, {"closed": res, "mode": "live" if live else "demo"})
 
         def _bridge_authed(self) -> bool:
             sent = self.headers.get("Authorization", "")

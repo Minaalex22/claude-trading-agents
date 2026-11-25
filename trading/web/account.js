@@ -123,11 +123,83 @@
     setTimeout(() => { $('atas-copy').textContent = 'Copy'; }, 2000);
   });
 
+  // Keys: every platform's Render env vars, set or not (names only).
+  async function loadKeys() {
+    try {
+      const r = await fetch('/api/account/keys', { cache: 'no-store' });
+      if (!r.ok) return;
+      const k = await r.json();
+      const box = $('keys'); box.replaceChildren();
+      k.platforms.forEach((p) => {
+        const card = el('div', 'oa-key');
+        const head = el('div', 'oa-key-h');
+        head.append(el('b', '', p.name), el('small', '', p.api), tag(p.demo_ready ? 'DEMO READY' : 'DEMO: KEYS NEEDED', p.demo_ready ? 'demo' : '').node,
+          tag(!p.live_possible ? 'NO LIVE API' : p.live_ready ? 'LIVE READY' : 'LIVE: KEYS NEEDED', p.live_ready ? 'live' : '').node);
+        card.append(head);
+        if (p.vars.length) {
+          const ul = el('ul', 'oa-vars');
+          p.vars.forEach((v) => {
+            const li = el('li', v.set ? 'set' : v.need === 'optional' ? 'opt' : 'miss');
+            li.append(el('code', '', v.var), el('span', '', v.set ? ' set ' : v.need === 'optional' ? ' optional ' : ' missing '), el('small', '', v.what));
+            ul.append(li);
+          });
+          card.append(ul);
+        }
+        card.append(el('div', 'small', p.how));
+        box.append(card);
+      });
+    } catch (e) { /* keys panel is extra; the page still works */ }
+  }
+
+  // Open positions on MT5, eToro and IBKR, each with a close button.
+  function renderPositions(d) {
+    const rows = d.positions.filter((p) => ['mt5', 'etoro', 'ibkr'].includes(p.platform));
+    const box = $('positions'); box.replaceChildren();
+    if (!rows.length) { box.append(el('div', 'small', 'No open broker positions.')); return; }
+    box.append(table(['Platform', 'Symbol', 'Side', 'P&L', ''], rows.map((p) => {
+      const b = el('button', 'oa-close', 'Close'); b.type = 'button';
+      b.onclick = async () => {
+        if (data && data.mode === 'live' && !window.confirm(`REAL MONEY: close ${p.symbol} on ${p.platform}?`)) return;
+        b.disabled = true;
+        try {
+          await post('/api/account/close', { platform: p.platform, position_id: p.id, symbol: p.symbol, instrument_id: p.instrument_id });
+          b.textContent = 'Closed'; load();
+        } catch (e) { b.textContent = e.message.slice(0, 60); b.disabled = false; }
+      };
+      return [p.platform, p.symbol, p.side, { text: money(p.pnl), cls: 'r ' + sign(p.pnl) }, { node: b }];
+    })));
+  }
+
+  // MetaTrader 5: the accounts MetaApi holds (any broker) and the loss report.
+  let mt5Which = 'demo';
+  async function loadMt5() {
+    const box = $('mt5'); box.replaceChildren(el('div', 'small', 'Loading MetaTrader 5...'));
+    try {
+      const [a, r] = await Promise.all([fetch('/api/mt5/accounts', { cache: 'no-store' }),
+        fetch('/api/mt5/report?days=30' + (mt5Which === 'live' ? '&account=live' : ''), { cache: 'no-store' })]);
+      const acc = await a.json(); const rep = await r.json();
+      box.replaceChildren();
+      if (!acc.connected && !acc.error) { box.append(el('div', 'small', 'Add METAAPI_TOKEN on Render to connect MetaTrader 5 (any broker).')); return; }
+      if (acc.accounts && acc.accounts.length) {
+        box.append(table(['Account', 'Server', 'State'], acc.accounts.map((x) => [{ text: x.name || x.id, sub: x.login }, x.server || '', tag(x.state || '', x.state === 'DEPLOYED' ? 'demo' : '')])));
+      }
+      if (rep.error) { box.append(el('div', 'oa-breach', rep.error)); return; }
+      if (!rep.connected) return;
+      const k = el('div', 'small');
+      k.textContent = `Last 30 days: ${rep.trades} trades, net ${money(rep.net)}` + (rep.net_pct_of_start != null ? ` (${rep.net_pct_of_start}% of the starting balance)` : '') +
+        (rep.win_rate != null ? `, ${Math.round(rep.win_rate * 100)}% won` : '') + `, worst drawdown ${money(rep.max_drawdown)}.`;
+      box.append(k);
+      (rep.notes || []).forEach((n) => box.append(el('div', 'oa-note', n)));
+    } catch (e) { box.replaceChildren(el('div', 'small', 'Could not reach MetaTrader 5 right now.')); }
+  }
+  $('r-demo').onclick = () => { mt5Which = 'demo'; $('r-demo').className = 'on'; $('r-live').className = ''; loadMt5(); };
+  $('r-live').onclick = () => { mt5Which = 'live'; $('r-live').className = 'on live'; $('r-demo').className = ''; loadMt5(); };
+
   async function load() {
     try {
       const [r, a] = await Promise.all([fetch('/api/account', { cache: 'no-store' }), fetch('/api/atas', { cache: 'no-store' })]);
       if (r.status === 401) { location.href = '/login'; return; }
-      render(await r.json());
+      const d = await r.json(); render(d); renderPositions(d);
       if (a.ok) renderAtas(await a.json());
     } catch (e) { $('switch-msg').textContent = 'Could not load the account. Retrying.'; }
   }
@@ -155,14 +227,13 @@
 
   $('t-pf').onchange = () => {
     const et = $('t-pf').value === 'etoro';
-    ['l-sym', 'l-vol'].forEach((id) => { $(id).hidden = et; });
-    ['l-inst', 'l-amt'].forEach((id) => { $(id).hidden = !et; });
+    $('l-vol').hidden = et; $('l-amt').hidden = !et;
   };
   async function order(side) {
     const pf = $('t-pf').value;
-    const body = { platform: pf, side, entry: $('t-entry').value, stop_loss: $('t-sl').value, take_profit: $('t-tp').value };
-    if (pf === 'mt5') Object.assign(body, { symbol: $('t-sym').value.trim(), volume: $('t-vol').value });
-    else Object.assign(body, { instrument_id: $('t-inst').value, amount: $('t-amt').value, leverage: 1 });
+    const body = { platform: pf, side, symbol: $('t-sym').value.trim(), entry: $('t-entry').value, stop_loss: $('t-sl').value, take_profit: $('t-tp').value };
+    if (pf === 'etoro') Object.assign(body, { amount: $('t-amt').value, leverage: 1 });
+    else Object.assign(body, { volume: $('t-vol').value });
     if (data && data.mode === 'live' && !window.confirm(`REAL MONEY: ${side.toUpperCase()} on ${pf}. Send it?`)) return;
     try { const j = await post('/api/account/order', body); $('t-msg').textContent = `Sent (${j.mode}): ${JSON.stringify(j.order).slice(0, 160)}`; load(); }
     catch (e) { $('t-msg').textContent = e.message; }
@@ -170,6 +241,7 @@
   $('t-buy').onclick = () => order('buy');
   $('t-sell').onclick = () => order('sell');
 
-  load();
+  load(); loadKeys(); loadMt5();
   setInterval(load, 15000);
+  setInterval(loadKeys, 60000);
 })();

@@ -2,7 +2,8 @@
 
 Sources (each one is optional; a platform that is not connected just shows as such):
   agents' paper desk, practice wallet cash, Mitrade practice desk, BTCC practice desk, Polymarket paper book,
-  Betfair paper book, MetaTrader 5 (MetaApi), eToro (demo or real portfolio, read with the owner's keys), ATAS.
+  Betfair paper book, MetaTrader 5 (MetaApi, any broker), eToro (demo or real portfolio, read with the owner's keys),
+  Interactive Brokers (Client Portal gateway), ATAS. Keys for each: trading/live_apis.py.
 
 What "one account" means here:
 - One balance: equity of every connected account added up, with its starting money, so P&L is one number.
@@ -113,11 +114,17 @@ def routes(env, mode: str) -> list[dict]:
 
     live_on = mode == "live" and armed(env)
     rows = [
-        ("mt5", "MetaTrader 5", has("METAAPI_TOKEN"), has("METAAPI_TOKEN", "METAAPI_LIVE_ACCOUNT_ID"),
-         "MT5 demo account (MetaApi)", "your real MT5 account (MetaApi)",
-         "add METAAPI_TOKEN" if not has("METAAPI_TOKEN") else "add METAAPI_LIVE_ACCOUNT_ID (your real account's id in MetaApi)"),
+        ("mt5", "MetaTrader 5 (any broker)", has("METAAPI_TOKEN"), has("METAAPI_TOKEN"),
+         "MT5 demo account (MetaApi)", "your real MT5 account (MetaApi; found from the token or METAAPI_LIVE_ACCOUNT_ID)",
+         "add METAAPI_TOKEN"),
         ("etoro", "eToro", has("ETORO_API_KEY", "ETORO_USER_KEY"), has("ETORO_API_KEY", "ETORO_USER_KEY"),
          "eToro virtual portfolio", "your real eToro account", "add ETORO_API_KEY and ETORO_USER_KEY"),
+        ("ibkr", "Interactive Brokers", has("IBKR_GATEWAY_URL"), has("IBKR_GATEWAY_URL"),
+         "IBKR paper account (gateway signed in with the paper login)", "your real IBKR account (gateway signed in with the real login)",
+         "add IBKR_GATEWAY_URL (your signed-in IBKR gateway)"),
+        ("moomoo", "moomoo", True, has("BRIDGE_TOKEN", "LIVE_SYMBOLS", "LIVE_MAX_ORDER_USD"),
+         "agents' paper desk", "your real moomoo account (approve each order; bridge on your computer)",
+         "add BRIDGE_TOKEN, LIVE_SYMBOLS, LIVE_MAX_ORDER_USD and run the bridge next to moomoo OpenD"),
         ("betfair", "Betfair (AU)", True, has("BETFAIR_APP_KEY", "BETFAIR_USERNAME", "BETFAIR_PASSWORD"),
          "Betfair paper book at real Betfair prices", "your real Betfair account (bets on /polymarket)",
          "add BETFAIR_APP_KEY, BETFAIR_USERNAME, BETFAIR_PASSWORD"),
@@ -134,7 +141,7 @@ def routes(env, mode: str) -> list[dict]:
     for key, name, demo_ok, live_ready, demo_to, live_to, why in rows:
         live = live_on and live_ready
         out.append({"key": key, "name": name, "goes_to": live_to if live else demo_to,
-                    "mode": "live" if live else ("demo" if key in ("mt5", "etoro") and demo_ok else "practice"),
+                    "mode": "live" if live else ("demo" if key in ("mt5", "etoro", "ibkr") and demo_ok else "practice"),
                     "live_ready": live_ready and armed(env), "live_possible": live_to is not None,
                     "why": None if live_ready and armed(env) else (why if live_to is None or not live_ready else "add LIVE_MONEY=on")})
     return out
@@ -213,7 +220,7 @@ def from_mt5(snap: dict | None, error: str | None = None, live: bool = False) ->
     for p in snap.get("positions") or []:
         side = "buy" if "BUY" in str(p.get("type", "")) else "sell"
         price = p.get("currentPrice") or p.get("openPrice") or 0
-        pos.append({"platform": "mt5", "symbol": p.get("symbol"), "side": side, "lots": p.get("volume"),
+        pos.append({"platform": "mt5", "id": p.get("id"), "symbol": p.get("symbol"), "side": side, "lots": p.get("volume"),
                     "notional": None, "pnl": float(p.get("profit") or 0), "entry": p.get("openPrice"), "mark": price,
                     "stop_loss": p.get("stopLoss")})
     upnl = sum(p["pnl"] for p in pos)
@@ -234,7 +241,9 @@ def from_etoro(portfolio: dict | None, error: str | None = None, live: bool = Fa
     for p in cp.get("positions") or []:
         u = p.get("unrealizedPnL") or {}
         pnl = float(u.get("pnL") if isinstance(u, dict) and u.get("pnL") is not None else p.get("pnL") or 0)
-        pos.append({"platform": "etoro", "symbol": f"#{p.get('instrumentID') or p.get('instrumentId')}",
+        pos.append({"platform": "etoro", "id": p.get("positionID") or p.get("positionId"),
+                    "instrument_id": p.get("instrumentID") or p.get("instrumentId"),
+                    "symbol": f"#{p.get('instrumentID') or p.get('instrumentId')}",
                     "side": "buy" if p.get("isBuy") else "sell",
                     "notional": round(float(p.get("amount") or 0) * float(p.get("leverage") or 1), 2), "pnl": pnl,
                     "stop_loss": p.get("stopLossRate"), "entry": p.get("openRate")})
@@ -417,12 +426,30 @@ def etoro_order(env, live: bool, instrument_id: int, side: str, amount: float, l
             "amount": float(amount), "leverage": int(leverage), "result": res}
 
 
-def mt5_env(env, live: bool) -> dict:
-    """The env MetaApi should use: the real account id in Live, the demo account in Demo."""
+def mt5_env(env, live: bool, http=None) -> dict:
+    """The env MetaApi should use: the real account in Live, the demo account in Demo.
+
+    Live: METAAPI_LIVE_ACCOUNT_ID, else MT5_LIVE_LOGIN/PASSWORD/SERVER added to MetaApi, else the one account MetaApi
+    reports as real (any broker). Live never falls back to a demo account: no real account means Refused.
+    Demo: METAAPI_ACCOUNT_ID, else MT5_DEMO_LOGIN/PASSWORD/SERVER added to MetaApi, else MetaApi's demo account."""
+    from . import live_apis
+    kw = {"http": http} if http else {}
     e = dict(env)
     if live:
-        e["METAAPI_ACCOUNT_ID"] = env.get("METAAPI_LIVE_ACCOUNT_ID", "")
-        e.pop("METAAPI_MT5_DEMO_ACCOUNT_ID", None)  # Live never falls back to the demo account
+        try:
+            acc_id, region = live_apis.mt5_live_account(env, **kw)
+        except live_apis.Refused as err:
+            raise Refused(str(err)) from err
+        e["METAAPI_ACCOUNT_ID"] = acc_id
+        e["METAAPI_REGION"] = env.get("METAAPI_REGION") or region
+        e.pop("METAAPI_MT5_DEMO_ACCOUNT_ID", None)
+    elif not (env.get("METAAPI_ACCOUNT_ID") or env.get("METAAPI_MT5_DEMO_ACCOUNT_ID")):
+        try:
+            added = live_apis.mt5_provision(env, "demo", **kw)
+        except live_apis.Refused as err:
+            raise Refused(str(err)) from err
+        if added:
+            e["METAAPI_ACCOUNT_ID"] = added
     return e
 
 
