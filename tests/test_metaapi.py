@@ -168,5 +168,45 @@ class ReportTests(unittest.TestCase):
         self.assertIn("2026-11-15T00%3A00%3A00.000Z", url)
 
 
+class DemoSetupTests(unittest.TestCase):
+    """mina's MT5 demo guide (25 Nov 2026): METAAPI_MT5_DEMO_ACCOUNT_ID / METAAPI_MODE names and the verify script."""
+
+    def test_demo_account_alias(self):
+        http, calls = fake()
+        api = M.MetaApi({"METAAPI_TOKEN": "t", "METAAPI_MT5_DEMO_ACCOUNT_ID": "demo-uuid"}, http)
+        api.account()
+        self.assertIn("/accounts/demo-uuid/", calls[-1][1])
+
+    def test_live_never_uses_the_demo_alias(self):
+        from trading import one_account
+        e = one_account.mt5_env({"METAAPI_TOKEN": "t", "METAAPI_MT5_DEMO_ACCOUNT_ID": "demo-uuid",
+                                 "METAAPI_LIVE_ACCOUNT_ID": "live-uuid"}, live=True)
+        self.assertEqual(e["METAAPI_ACCOUNT_ID"], "live-uuid")
+        self.assertNotIn("METAAPI_MT5_DEMO_ACCOUNT_ID", e)
+
+    def _verify(self):
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        import verify_metaapi_demo
+        return verify_metaapi_demo.verify
+
+    def test_verify_script_reports_demo_equity_and_drift(self):
+        http, _ = fake()
+        r = self._verify()({"METAAPI_TOKEN": "t", "METAAPI_MT5_DEMO_ACCOUNT_ID": "d"}, "EURUSD", 1.2, http)
+        self.assertTrue(r["ok"])
+        self.assertTrue(r["demo"])
+        self.assertEqual(r["account"]["equity"], 860.0)
+        self.assertEqual(r["drift"]["gap_pct"], 0.0)
+        self.assertTrue(r["drift"]["within"])
+        self.assertNotIn("t", [str(v) for v in r["account"].values()])
+
+    def test_verify_script_flags_a_real_account(self):
+        http, _ = fake(account_type="ACCOUNT_TRADE_MODE_REAL")
+        r = self._verify()({"METAAPI_TOKEN": "t", "METAAPI_ACCOUNT_ID": "x"}, "EURUSD", None, http)
+        self.assertFalse(r["ok"])
+        self.assertIn("NOT a demo", r["error"])
+
+
 if __name__ == "__main__":
     unittest.main()

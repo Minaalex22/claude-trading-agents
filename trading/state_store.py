@@ -23,6 +23,7 @@ import json
 import sqlite3
 import time
 from contextlib import contextmanager
+import os
 from pathlib import Path
 
 ENABLED = True  # STATE_STORE=off: JSON memory files only
@@ -32,7 +33,9 @@ KEEP = 8  # snapshots kept per namespace
 class DeskStateStore:
     """Namespaced JSON snapshots in one SQLite file, written in WAL mode."""
 
-    def __init__(self, db_path: str | Path = "data/desk_state.sqlite") -> None:
+    def __init__(self, db_path: str | Path | None = None) -> None:
+        if db_path is None:  # the persistent disk when there is one, else ./data as before
+            db_path = Path(os.environ.get("DESK_DATA_DIR", "").strip() or "data") / "desk_state.sqlite"
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:

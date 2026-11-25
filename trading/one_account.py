@@ -422,6 +422,7 @@ def mt5_env(env, live: bool) -> dict:
     e = dict(env)
     if live:
         e["METAAPI_ACCOUNT_ID"] = env.get("METAAPI_LIVE_ACCOUNT_ID", "")
+        e.pop("METAAPI_MT5_DEMO_ACCOUNT_ID", None)  # Live never falls back to the demo account
     return e
 
 

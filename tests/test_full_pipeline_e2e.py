@@ -139,6 +139,24 @@ class FullPipelineE2E(unittest.TestCase):
             self.assertFalse(out["arms"]["fx"]["promoted"])
             self.assertTrue((d / "chosen_trades_orbit.csv").exists())
 
+    def test_desk_data_dir_puts_every_runtime_file_on_the_disk(self):
+        import os
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+        root = str(Path(__file__).resolve().parents[1])
+        with tempfile.TemporaryDirectory() as d:
+            code = ("import os, trading; from trading.state_store import DeskStateStore; "
+                    "print(os.environ['EVENTS_DIR'], DeskStateStore().db_path)")
+            env = {**os.environ, "DESK_DATA_DIR": d, "EVENTS_DIR": "/somewhere/else"}
+            out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=root, env=env)
+            self.assertEqual(out.stdout.split(), [d, str(Path(d) / "desk_state.sqlite")], out.stderr[-300:])
+            env.pop("DESK_DATA_DIR")
+            out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=d, env={
+                **env, "PYTHONPATH": root})
+            self.assertEqual(out.stdout.split(), ["/somewhere/else", str(Path("data") / "desk_state.sqlite")], out.stderr[-300:])
+
 
 if __name__ == "__main__":
     unittest.main()

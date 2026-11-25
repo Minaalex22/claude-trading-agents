@@ -169,7 +169,7 @@ def handoffs(now: datetime, n: int = 6) -> list[dict]:
 
 def route(env) -> dict:
     """Where a desk's orders go. Always the paper desk; the MT5 demo bridge shows as ready once it is set up."""
-    mt5 = bool(env.get("METAAPI_TOKEN")) and (env.get("MT5_MODE") or "demo").lower() == "demo"
+    mt5 = bool(env.get("METAAPI_TOKEN")) and (env.get("MT5_MODE") or env.get("METAAPI_MODE") or "demo").lower() == "demo"
     return {"orders_to": "paper", "mt5_demo": "ready" if mt5 else "not set up", "real_money": "locked"}
 
 
