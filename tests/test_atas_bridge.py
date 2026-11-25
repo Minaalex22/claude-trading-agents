@@ -148,3 +148,39 @@ class BridgeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LockedBridgeTests(unittest.TestCase):
+    def test_locked_copy_checks_token_and_refuses_web_pages(self):
+        src = (Path(B.__file__).parent / "atas_install" / "McpBridgeStrategy.cs").read_text()
+        self.assertIn('req.Headers["X-Bridge-Token"]', src)
+        self.assertIn("CryptographicOperations.FixedTimeEquals", src)
+        self.assertIn('req.Headers["Origin"]', src)
+        self.assertIn("token.Length < 32", src)  # no token saved: everything refused
+        self.assertNotIn("Access-Control-Allow", src)  # never opens CORS
+        self.assertIn("MIT License", src)  # the original licence travels with the copy
+        # the guard runs before any route, including the event stream
+        self.assertLess(src.index("var refused = Refuse(req);"), src.index('if (path == "/api/stream"'))
+
+    def test_installers_carry_the_bridge_and_a_token(self):
+        from trading import atas_feed as A
+        sh = A.installer("sh", "https://ats.example.com", "t" * 40)
+        ps = A.installer("ps1", "https://ats.example.com", "t" * 40)
+        for text in (sh, ps):
+            self.assertIn("class McpBridgeStrategy : ChartStrategy", text)
+            self.assertIn("bridge_token=", text)
+            self.assertIn("AtsMatrix.McpBridge.dll", text)
+        self.assertIn("openssl rand -hex 24", sh)
+        self.assertIn("RandomNumberGenerator", ps)
+
+    def test_client_uses_the_saved_bridge_token(self):
+        import os
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, ".jarvisfeed").mkdir()
+            Path(home, ".jarvisfeed", "config").write_text("url=https://a.example\ntoken=" + "f" * 40 +
+                                                           "\nbridge_token=" + "b" * 48 + "\n")
+            with mock.patch.dict(os.environ, {"HOME": home, "USERPROFILE": home}, clear=False):
+                os.environ.pop("ATAS_BRIDGE_TOKEN", None)
+                bridge = B.from_config()
+        self.assertEqual(bridge.token, "b" * 48)

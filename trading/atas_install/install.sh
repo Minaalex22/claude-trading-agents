@@ -81,6 +81,36 @@ if ! "$DOTNET" build "$B/JarvisFeed.csproj" -c Release -o "$B/out" -nologo -v qu
   die "the build failed. Send a screenshot of the lines above in the chat and it gets fixed."
 fi
 
+# The locked MCP Bridge (orders and DOM for the agents on this computer). Optional: a failed build doesn't stop the feed.
+BRIDGE_OK=""
+mkdir -p "$B/bridge"
+cat > "$B/bridge/McpBridgeStrategy.cs" <<'MCPBRIDGE_CS_END'
+__MCPBRIDGE_CS__
+MCPBRIDGE_CS_END
+brefs=""
+for n in ATAS.DataFeedsCore ATAS.Indicators ATAS.Strategies ATAS.Types Utils.Common OFT.Attributes; do
+  [ -f "$LIB/$n.dll" ] && brefs="$brefs<Reference Include=\"$n\"><HintPath>$LIB/$n.dll</HintPath><Private>false</Private></Reference>"
+done
+cat > "$B/bridge/McpBridge.csproj" <<BRIDGEPROJ
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net$NET.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AssemblyName>AtsMatrix.McpBridge</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <NoWarn>CS1591;CA1416;NU1701;1705</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>$brefs</ItemGroup>
+</Project>
+BRIDGEPROJ
+if "$DOTNET" build "$B/bridge/McpBridge.csproj" -c Release -o "$B/bridge/out" -nologo -v quiet > "$B/bridge.log" 2>&1; then
+  BRIDGE_OK=1
+else
+  say "The order bridge didn't build (the data feed still works). Log: $B/bridge.log"
+fi
+
 DEST="$HOME/Library/Application Support/ATAS/Indicators"
 if [ ! -d "$HOME/Library/Application Support/ATAS" ] && [ -d "$HOME/Library/Application Support/ATAS X" ]; then
   DEST="$HOME/Library/Application Support/ATAS X/Indicators"
@@ -88,10 +118,19 @@ fi
 mkdir -p "$DEST"
 cp "$B/out/JarvisFeed.dll" "$DEST/JarvisFeed.dll"
 say "Installed to $DEST"
+if [ -n "$BRIDGE_OK" ]; then
+  SDEST="$(dirname "$DEST")/Strategies"
+  mkdir -p "$SDEST"
+  cp "$B/bridge/out/AtsMatrix.McpBridge.dll" "$SDEST/AtsMatrix.McpBridge.dll"
+  say "Locked order bridge installed to $SDEST"
+fi
 
 mkdir -p "$WORK"
 umask 077
-printf 'url=%s\ntoken=%s\n' "$APP_URL" "$TOKEN" > "$WORK/config"
+# the bridge password stays the same when this runs again, so nothing else needs updating
+BT=$(grep '^bridge_token=' "$WORK/config" 2>/dev/null | cut -d= -f2 || true)
+[ ${#BT} -ge 32 ] || BT=$(openssl rand -hex 24)
+printf 'url=%s\ntoken=%s\nbridge_token=%s\n' "$APP_URL" "$TOKEN" "$BT" > "$WORK/config"
 chmod 600 "$WORK/config"
 say "Saved the app link and token (only readable by you)"
 
@@ -100,3 +139,6 @@ curl -fsS -m 10 -X POST "$APP_URL/api/atas/hello" -H "Authorization: Bearer $TOK
 
 printf '\n\033[38;5;208mDone.\033[0m Last step: in ATAS X open a chart (1 minute is good), Indicators, add "JarvisFeed (ATS Matrix)", OK.\n'
 printf 'No settings to type. One account in the app turns LIVE within a minute or two.\n'
+if [ -n "$BRIDGE_OK" ]; then
+  printf 'For agent orders (optional): Strategies, add "MCP Bridge (locked, ATS Matrix)", pick your Sim portfolio, tick IsActivated.\n'
+fi

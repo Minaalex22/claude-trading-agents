@@ -90,14 +90,61 @@ if ($LASTEXITCODE -ne 0) {
   Stop-Install 'the build failed. Send a screenshot of the lines above in the chat and it gets fixed.'
 }
 
+# The locked MCP Bridge (orders and DOM for the agents on this computer). Optional: a failed build doesn't stop the feed.
+$BridgeOk = $false
+$BB = Join-Path $B 'bridge'
+New-Item -ItemType Directory -Force -Path $BB | Out-Null
+$bsource = @'
+__MCPBRIDGE_CS__
+'@
+Set-Content -Path "$BB\McpBridgeStrategy.cs" -Value $bsource -Encoding UTF8
+$brefs = ''
+foreach ($n in 'ATAS.DataFeedsCore', 'ATAS.Indicators', 'ATAS.Strategies', 'ATAS.Types', 'Utils.Common', 'OFT.Attributes') {
+  $p = Join-Path $Lib "$n.dll"
+  if (Test-Path $p) { $brefs += "<Reference Include=`"$n`"><HintPath>$p</HintPath><Private>false</Private></Reference>" }
+}
+$bproj = @"
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net$Net.0-windows</TargetFramework>
+    <AssemblyName>AtsMatrix.McpBridge</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <NoWarn>CS1591;CA1416;NU1701;1705</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>$brefs</ItemGroup>
+</Project>
+"@
+Set-Content -Path "$BB\McpBridge.csproj" -Value $bproj -Encoding UTF8
+& $Dotnet build "$BB\McpBridge.csproj" -c Release -o "$BB\out" -nologo -v quiet *> "$B\bridge.log"
+if ($LASTEXITCODE -eq 0) { $BridgeOk = $true } else { Say "The order bridge didn't build (the data feed still works). Log: $B\bridge.log" }
+
 foreach ($i in $installs) {
   New-Item -ItemType Directory -Force -Path $i.Dest | Out-Null
   Copy-Item "$B\out\JarvisFeed.dll" (Join-Path $i.Dest 'JarvisFeed.dll') -Force
   Say "Installed to $($i.Dest)"
+  if ($BridgeOk) {
+    $sdest = Join-Path (Split-Path $i.Dest -Parent) 'Strategies'
+    New-Item -ItemType Directory -Force -Path $sdest | Out-Null
+    Copy-Item "$BB\out\AtsMatrix.McpBridge.dll" (Join-Path $sdest 'AtsMatrix.McpBridge.dll') -Force
+    Say "Locked order bridge installed to $sdest"
+  }
 }
 
 New-Item -ItemType Directory -Force -Path $Work | Out-Null
-Set-Content -Path "$Work\config" -Value "url=$AppUrl`ntoken=$Token" -Encoding ASCII
+# the bridge password stays the same when this runs again, so nothing else needs updating
+$BT = ''
+if (Test-Path "$Work\config") {
+  $m = Select-String -Path "$Work\config" -Pattern '^bridge_token=(.+)$' | Select-Object -First 1
+  if ($m) { $BT = $m.Matches[0].Groups[1].Value.Trim() }
+}
+if ($BT.Length -lt 32) {
+  $bytes = New-Object byte[] 24
+  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+  $BT = -join ($bytes | ForEach-Object { $_.ToString('x2') })
+}
+Set-Content -Path "$Work\config" -Value "url=$AppUrl`ntoken=$Token`nbridge_token=$BT" -Encoding ASCII
 Say 'Saved the app link and token in your user folder'
 
 try {
@@ -109,3 +156,4 @@ try {
 Write-Host ''
 Write-Host 'Done. Last step: restart ATAS, open a chart (1 minute is good), Indicators, add "JarvisFeed (ATS Matrix)", OK.' -ForegroundColor DarkYellow
 Write-Host 'No settings to type. One account in the app turns LIVE within a minute or two.'
+if ($BridgeOk) { Write-Host 'For agent orders (optional): Strategies, add "MCP Bridge (locked, ATS Matrix)", pick your Sim portfolio, tick IsActivated.' }
