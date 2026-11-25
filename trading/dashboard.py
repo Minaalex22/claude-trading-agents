@@ -63,7 +63,7 @@ from . import news_lab
 from . import decision_desk
 from .smart_money import SmartMoney
 from . import session_desks
-from . import atas_feed, one_account
+from . import atas_feed, one_account, whale_bridge
 from . import night_shift
 from .hooks import should_suppress_alert
 from .org import DEPARTMENTS, finish_school, manager_reports
@@ -645,6 +645,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     atas_token = atas_feed.token(env)  # ATAS_TOKEN, or one derived from DASHBOARD_PASSWORD
     atas_codes = atas_feed.InstallCodes()
     mode_switch = one_account.ModeSwitch(hub.events_dir)
+    whale = whale_bridge.start({**env, "EVENTS_DIR": str(hub.events_dir or "")})  # UW 0DTE whale prints, 1/min in US hours
     broker_cache: dict = {}  # MT5 / eToro reads, kept 20 seconds so the page and order checks don't hammer them
 
     def _cached(key: str, fn):
@@ -833,7 +834,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._send(200, orderflow_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/option-flow" and self._authed():
                 self._json(200, {"spy": option_flows.FEED.view("SPY"), "qqq": option_flows.FEED.view("QQQ"),
-                                 "recent": option_flows.FEED.recent, "ignored": option_flows.FEED.ignored})
+                                 "recent": option_flows.FEED.recent, "ignored": option_flows.FEED.ignored,
+                                 "bridge": whale.status()})
             elif path == "/api/orderflow":
                 self._json(200, hub.sources.page_data())
             elif path == "/api/atlas/check":
@@ -1439,6 +1441,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             except (ValueError, TypeError, AttributeError) as e:
                 return self._json(400, {"error": f"bad prints: {e}"})
             decoded = [option_flows.FEED.ingest(p).__dict__ for p in prints]
+            for p in prints:
+                option_flows.FEED.record(p, hub.events_dir)  # so the engine desks see webhook prints too
             return self._json(200, {"decoded": decoded, "used": sum(d["bias"] != "IGNORE" for d in decoded),
                                     "spy": option_flows.FEED.view("SPY"), "qqq": option_flows.FEED.view("QQQ")})
 

@@ -128,6 +128,11 @@ KEYS = (
               _v("GROK_REFRESH_MINS", "optional", "minutes between X reads of each market (default 30)")],
      "how": "console.x.ai > API Keys > Create, paste it into XAI_API_KEY on Render. Grok reads X for each market, "
             "gives a second opinion on /decision and answers in JARVIS fast mode. It never places orders."},
+    {"key": "whales", "name": "Unusual Whales (0DTE whale flow)", "api": "Unusual Whales API (data only)",
+     "live_possible": False,
+     "vars": [_v("UW_API_TOKEN", "demo", "API token from unusualwhales.com > API dashboard"),
+              _v("UW_MAX_CALLS_DAY", "optional", "hard cap on calls per US day (default 450)")],
+     "how": "Polls $3M+ 0DTE opening prints once a minute in US hours and feeds them to every desk."},
     {"key": "desks", "name": "Session desks (Sydney, Asia, Europe, London, New York)", "api": "through the platforms above",
      "live_possible": True, "vars": [],
      "how": "No keys of their own: each desk sends its orders to the platform you pick, in the switch's mode."},
