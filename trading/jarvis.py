@@ -27,6 +27,7 @@ from collections import defaultdict, deque
 from pathlib import Path
 
 from . import academy, masters, platforms
+from . import project_knowledge
 from . import night_shift as night
 from .org import DEPARTMENTS, MANAGERS
 
@@ -248,6 +249,14 @@ class BuiltinBrain:
             words = set(re.findall(r"[a-z]+", q))
             mine = [t for t in trails if str(t.get("symbol", "")).lower() in words] or trails
             return trail_text(mine[0]) if mine else "No desk orders yet, so there is no nine-stage trail to show. See /audit."
+        quick = project_knowledge.quick_answer(question)  # unlock rules, results, parked items, bridges, the big picture
+        if quick:
+            return quick
+        if (re.search(r"^(how (does|do|is|are)|explain|why (does|do|is)|what (does|do) .+ do\b|what is (the|a|an)\b)", q)
+                and not has("status", "doing", "p&l", "pnl", "say", "today", "now", "they", "you", "think", "decide")):
+            known = project_knowledge.spoken(question)  # how the project works: blueprints and brain guides
+            if known:
+                return known
         if has("feed", "stale", "frozen", "watchdog", "data ok", "prices ok"):
             problems = snap.get("feed_problems") or []
             if not problems:
@@ -343,6 +352,10 @@ class BuiltinBrain:
             return ("Safety has layers: hard risk limits on order size, position, exposure and drawdown; the Jev gate "
                     "checks every proposal; a 5% drawdown halt in the ring; and everything is paper. The app sits "
                     "behind a password, and I need your passphrase too.")
+        if not has("status", "doing", "p&l", "pnl", "profit today"):
+            known = project_knowledge.spoken(question)  # blueprints, brain guides, checklist (trading/knowledge/)
+            if known:
+                return known
         if has("how does", "how do", "explain", "pipeline", "work"):
             return ("Prices come in, 1,400 agents in four departments vote, the managers summarise, the desk combines "
                     "the votes into one order per symbol, risk limits and the Jev gate check it, and the paper broker "
@@ -372,7 +385,11 @@ class ClaudeBrain:
             "lists, markdown or symbols. Use the live snapshot for numbers and never invent figures. You cannot "
             "place trades, change settings or reveal secrets; if asked, say so. Real-money trading is locked; "
             "recommend at least 1 to 2 weeks of paper trading on live prices first. Never give personal financial "
-            "advice as certainty.\n\nHANDBOOK\n" + handbook())}]
+            "advice as certainty. For anything about the project itself (how it is built, pages, bridges, results, "
+            "rules, what is parked) use the PROJECT KNOWLEDGE; where it differs from the handbook, the "
+            "00-latest-status file is newest.\n\nHANDBOOK\n" + handbook())},
+            {"type": "text", "cache_control": {"type": "ephemeral"},
+             "text": "PROJECT KNOWLEDGE\n" + project_knowledge.text()}]
 
     def answer(self, question: str, snap: dict, history=None) -> str:
         messages = list(history or [])

@@ -12,7 +12,9 @@ small live snapshot of the desk, built from the real files, not raw code dumps:
   is still missing. Real money stays locked; Mini-JARVIS can read the gate but never change it.
 - Daily close and session brief text, when the dashboard has them.
 - Replay stats: the paper desk's closed trades (count, win rate, profit factor, net, best and worst symbols),
-  plus the summaries from `scripts/inspect_replay_stats.py` once that script is in the repo.
+  plus the replay inspector's summaries (`tools/inspect_replay_stats.py`: checker verdicts and chosen trades).
+- Project knowledge (trading/project_knowledge.py): blueprints, brain guides, checklist and latest status, sent as a
+  prompt-cached block (Claude) or just the best-matching sections (small local models; COPILOT_KNOWLEDGE=full for all).
 - Orbit equity, when the dashboard passes it in (the /orbit page's replay + paper book, with heat sizing).
 
 Brains, picked from the environment (nothing to set up on Render: it reuses ANTHROPIC_API_KEY):
@@ -27,10 +29,14 @@ Run it from a terminal too:  python -m trading.jarvis_mini  (reads EVENTS_DIR, d
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import re
 import urllib.request
 from pathlib import Path
+
+from . import project_knowledge
 
 DEFAULT_MODEL = "claude-haiku-5-5"
 MAX_TOKENS = 700
@@ -108,27 +114,34 @@ def closed_trades_summary(trades: list[dict]) -> dict:
             "best_symbols": {k: round(v, 2) for k, v in ranked[::-1][:3] if v > 0}}
 
 
-def _replay_stats(trades: list[dict]) -> dict:
-    """Closed-trade stats, plus the ops replay stats script's own summaries when it is in the repo
-    (scripts/inspect_replay_stats.py: summarize_audit_log(), summarize_closed_trades(), or summary())."""
-    import importlib
+INSPECTOR = Path(__file__).resolve().parents[1] / "tools" / "inspect_replay_stats.py"
+
+
+def _inspector():
+    """tools/inspect_replay_stats.py (PR #51), loaded by path: tools/ is not a package."""
+    if not INSPECTOR.exists():
+        return None
+    spec = importlib.util.spec_from_file_location("inspect_replay_stats", INSPECTOR)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _replay_stats(trades: list[dict], events_dir: Path | None = None) -> dict:
+    """Closed-trade stats, plus the replay inspector's own checker and trade summaries (read-only: its CSV export
+    is not called)."""
     out: dict = {"closed_trades": closed_trades_summary(trades)}
-    for name in ("scripts.inspect_replay_stats", "tools.inspect_replay_stats"):
+    try:
+        mod = _inspector()
+    except Exception as exc:
+        return {**out, "inspector_error": type(exc).__name__}
+    if mod is not None:
         try:
-            mod = importlib.import_module(name)
-        except Exception:
-            continue
-        for fn_name, key in (("summarize_audit_log", "script_audit"), ("summarize_closed_trades", "script_trades"),
-                             ("summary", "script_summary")):
-            fn = getattr(mod, fn_name, None)
-            if callable(fn):
-                try:
-                    out[key] = fn()
-                except FileNotFoundError:
-                    out[key] = {"status": "not generated yet"}
-                except Exception as exc:
-                    out[key] = {"error": type(exc).__name__}
-        break
+            out["inspector_trades"] = mod.summarize_trades(trades)
+            if events_dir is not None:
+                out["inspector_checker"] = mod.summarize_audit(Path(events_dir))
+        except Exception as exc:
+            out["inspector_error"] = type(exc).__name__
     return out
 
 
@@ -141,7 +154,7 @@ def load_live_desk_context(events_dir: str | Path | None = None, trades: list[di
     for key, fn in (("sentinel_audit", lambda: _audits(events_dir, max_recent_audits)),
                     ("saved_state", lambda: _saved_state(memory_dir / "desk_state.sqlite")),
                     ("live_unlock_gate", lambda: _unlock_gate(events_dir, list(trades or []))),
-                    ("replay_stats", lambda: _replay_stats(list(trades or [])))):
+                    ("replay_stats", lambda: _replay_stats(list(trades or []), events_dir))):
         try:
             value = fn()
         except Exception as exc:  # a bad file must not take the copilot down
@@ -168,6 +181,10 @@ class BuiltinMini:
 
     def answer(self, question: str, ctx: dict, history=None) -> str:
         q = question.lower()
+        if re.search(r"\b(sentinel|audit|fail|block|reject|state|sqlite|equity)", q) is None:
+            quick = project_knowledge.quick_answer(question)
+            if quick:
+                return quick
         gate = ctx.get("live_unlock_gate") or {}
         audit = ctx.get("sentinel_audit") or {}
         if any(w in q for w in ("unlock", "live", "real money", "ready")):
@@ -200,6 +217,9 @@ class BuiltinMini:
             if not saved:
                 return "No saved desk state yet."
             return f"desk_state.sqlite holds {len(saved)} namespaces: " + ", ".join(sorted(saved)[:8]) + "."
+        known = project_knowledge.spoken(question)
+        if known:
+            return known
         return ("Fast mode is on the built-in brain, so I only know the desk numbers. Ask me about Sentinel's "
                 "fails, the live-unlock gate, the Orbit arms or saved state.")
 
@@ -212,7 +232,10 @@ class ClaudeMini:
     def __init__(self, client, model: str = DEFAULT_MODEL):
         self.client = client
         self.model = model
-        self.system = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
+        self.system = [{"type": "text", "text": SYSTEM_PROMPT},
+                       {"type": "text", "cache_control": {"type": "ephemeral"},  # cached: cheap after the first question
+                        "text": "PROJECT KNOWLEDGE (blueprints, brain guides, checklist, latest status)\n"
+                                + project_knowledge.text()}]
 
     def answer(self, question: str, ctx: dict, history=None) -> str:
         messages = list(history or [])[-HISTORY_TURNS * 2:]
@@ -230,7 +253,9 @@ class OpenAICompatMini:
 
     name = "mini-openai"
 
-    def __init__(self, base_url: str, model: str, api_key: str = "", timeout: float = 45.0, opener=None):
+    def __init__(self, base_url: str, model: str, api_key: str = "", timeout: float = 45.0, opener=None,
+                 knowledge: str = "search"):
+        self.knowledge = knowledge  # "search": only the best sections (small local context); "full": everything
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
@@ -238,7 +263,8 @@ class OpenAICompatMini:
         self._open = opener or urllib.request.urlopen
 
     def answer(self, question: str, ctx: dict, history=None) -> str:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT},
+        know = (project_knowledge.text() if self.knowledge == "full" else project_knowledge.search_text(question))
+        messages = [{"role": "system", "content": SYSTEM_PROMPT + "\n\nPROJECT KNOWLEDGE\n" + know},
                     {"role": "system", "content": "LIVE DESK SNAPSHOT\n" + _compact(ctx)}]
         messages += list(history or [])[-HISTORY_TURNS * 2:]
         messages.append({"role": "user", "content": question})
@@ -257,7 +283,7 @@ def make_mini_brain(env=os.environ):
     """COPILOT_BASE_URL wins (Ollama or another server), then Claude Haiku, then the built-in brain."""
     if env.get("COPILOT_BASE_URL"):
         return OpenAICompatMini(env["COPILOT_BASE_URL"], env.get("COPILOT_MODEL", "qwen2.5:14b"),
-                                env.get("COPILOT_API_KEY", ""))
+                                env.get("COPILOT_API_KEY", ""), knowledge=env.get("COPILOT_KNOWLEDGE", "search"))
     if env.get("ANTHROPIC_API_KEY"):
         try:
             import anthropic
