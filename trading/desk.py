@@ -5,7 +5,7 @@ from collections import defaultdict, deque
 
 from . import agents as agents_mod
 
-from . import academy, accounts, coach as coaching, event_guard, execution_guard, master_pipeline, exits, hooks, indicators, review, sessions, smt_filter, sniper
+from . import academy, accounts, coach as coaching, event_guard, execution_guard, master_pipeline, exits, hooks, indicators, review, sessions, smt_filter, sniper, team_relay
 from . import execution_integrity as integrity, option_flows
 from .meta_gate import MetaGate
 from . import mind as mindmod
@@ -132,6 +132,8 @@ class Desk:
         self.passive = execution_guard.PassiveBook()  # resting Scalper limits (trading/execution_guard.py)
         self.broker_mids: dict[str, float] = {}  # live broker mids (engine fills these from Mitrade's quotes)
         self.drift = {"checked": 0, "blocked": 0, "last": {}}
+        self.boards: dict[str, team_relay.MarketBlackboard] = {}  # this bar's team-relay blackboard per symbol
+        self.relay = {"bars": 0, "vetoed": 0, "regimes": {"BREAKOUT": 0, "TRANSITION": 0, "CHOP": 0}}
         self.hour_start = 0
         self.hour_stats: dict[str, dict] = {}
         self.price_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=ROUTER_SLOW + 1))
@@ -182,9 +184,18 @@ class Desk:
         by_symbol = defaultdict(list)
         for headline in headlines or ():
             by_symbol[headline["symbol"]].append(headline)
-        for agent in self.agents:
+        relay_on = team_relay.ENABLED
+        # Team relay: analysts and risk monitors go first, then the traders see their blackboard before voting.
+        ordered = ([a for a in self.agents if not isinstance(a, Trader)] + [a for a in self.agents if isinstance(a, Trader)]
+                   if relay_on else self.agents)
+        boards_ready = not relay_on
+        self.boards = {}
+        for agent in ordered:
             if agent.symbol not in prices:
                 continue
+            if not boards_ready and isinstance(agent, Trader):
+                self._relay_boards(votes, prices)
+                boards_ready = True
             if agent.role == "analyst":
                 agent.forget_news()
                 for headline in by_symbol.get(agent.symbol, ()):
@@ -195,6 +206,7 @@ class Desk:
             if agent.role == "trader":
                 agent.news_view = self.news_view.get(agent.symbol)
                 agent.view = views.get(agent.symbol)
+                agent.blackboard = self.boards.get(agent.symbol)
             vote = agent.observe(prices[agent.symbol])
             if isinstance(agent, Trader) and (agent.must_practice or (vote is not None and vote.practice)):
                 continue  # hard wall: a practice-quota trade is the agent's homework, never a desk order
@@ -212,6 +224,8 @@ class Desk:
             else:
                 votes[agent.symbol][vote.role].append(vote.value)
 
+        if not boards_ready:
+            self._relay_boards(votes, prices)
         self.tagged = tagged
         self.horizons = horizons
         self.news_view = {s: sum(v["macro"]) / len(v["macro"]) for s, v in votes.items() if v["macro"]}
@@ -241,7 +255,10 @@ class Desk:
                     self.passive.cancel(symbol)  # a stop or the kill switch: never leave new risk resting
                 else:
                     continue  # a resting limit is working this symbol; wait for it to fill or cancel
-            score = self._score(votes[symbol], symbol) * exposure
+            if relay_on and symbol in self.boards:
+                score = self._relay_score(symbol)  # Atlas's floor on Sage's regime and Sentinel's sizing
+            else:
+                score = self._score(votes[symbol], symbol) * exposure
             score = option_flows.FEED.boost(symbol, score, self.now)  # 0DTE whale prints agreeing: x1.12-1.25
             if self.proven_only:
                 # Only agents with a proven record steer: no trade on a symbol without enough of them.
@@ -304,7 +321,8 @@ class Desk:
                         threshold=self.signal_threshold, event_ok=ev_ok, event_reason=ev_reason,
                         costs_ok=self._clears_costs(symbol) if self._hurdle() else None,
                         room_direction=getattr(view, "direction", None),
-                        room_confident=bool(getattr(view, "confident", False)), tick=self.ticks, now=self.now)
+                        room_confident=bool(getattr(view, "confident", False)), tick=self.ticks, now=self.now,
+                        board=self.boards[symbol].snapshot() if symbol in self.boards else None)
                     if not rec.passed:
                         self.checks["blocked"] += 1
                         self.log.emit("checker", symbol=symbol, wanted=round(desired, 4), verdict=rec.verdict)
@@ -560,6 +578,28 @@ class Desk:
         if er < ROUTER_CHOP and ratio < 1.0:
             return "chop"
         return "transition"
+
+    def _relay_boards(self, votes, prices: dict) -> None:
+        """Team relay phases 1-2 (trading/team_relay.py): Sage's regime, then Sentinel's size, stop and target."""
+        for symbol in prices:
+            v = votes[symbol]
+            bb = team_relay.MarketBlackboard(symbol, "1h" if (self.bar_seconds or 0) >= 3600 else "intraday")
+            team_relay.phase1_sage(bb, v["analyst"], self.news_view.get(symbol, 0.0),
+                                   option_flows.FEED.bias(symbol, self.now)[0])
+            team_relay.phase2_sentinel(bb, v["risk"])
+            self.boards[symbol] = bb
+
+    def _relay_score(self, symbol: str) -> float:
+        """Team relay phase 3: only the department that suits the regime votes; fast clusters need slow ones."""
+        bb = self.boards[symbol]
+        team_relay.phase3_atlas(bb, self.horizons.get(symbol) or {})
+        self.relay["bars"] += 1
+        self.relay["regimes"][bb.regime_label] += 1
+        if bb.veto_reasons:
+            self.relay["vetoed"] += 1
+        self.lead_style[symbol] = "trend" if bb.active_style == "Entry" else "reversion" if bb.active_style == "Scalper" \
+            else self.lead_style.get(symbol, "trend")
+        return team_relay.score(bb)
 
     def _quote_drift(self, symbol: str, price: float) -> str | None:
         """Broker parity: no new risk when the broker's live mid is more than 0.15% from the desk's price."""

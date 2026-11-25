@@ -164,7 +164,8 @@ def desk_trace(desk, symbol: str, qty: float, price: float, score: float, notes)
                        "whale": next((n for n in shrunk if n.startswith("against_whale")), "PASS"),
                        "sizing_cap": round(cap, 2),
                        "night": "capsule" if desk.risk.night_active else "day",
-                       "checker": "PASS" if desk.checker else "off"}}
+                       "checker": "PASS" if desk.checker else "off"},
+            "board": desk.boards[symbol].snapshot() if symbol in getattr(desk, "boards", {}) else None}
 
 
 def trail_text(ev: dict) -> str:

@@ -40,6 +40,7 @@ class AuditRecord:
     room: float | None
     passed: bool
     verdict: str
+    board: dict | None = None  # the team relay's blackboard for this order (trading/team_relay.py)
 
 
 class TradeChecker:
@@ -53,7 +54,7 @@ class TradeChecker:
     def review(self, *, symbol: str, qty: float, price: float, desk_score: float, threshold: float,
                event_ok: bool = True, event_reason: str = "PASS", costs_ok: bool | None = None,
                room_direction: float | None = None, room_confident: bool = False, tick: int = 0,
-               now: float | None = None) -> AuditRecord:
+               now: float | None = None, board: dict | None = None) -> AuditRecord:
         side = 1.0 if qty > 0 else -1.0
         reasons = []
         if abs(desk_score) < threshold:
@@ -71,7 +72,8 @@ class TradeChecker:
             side="BUY" if side > 0 else "SELL", qty=round(qty, 6), price=round(price, 6),
             desk_score=round(desk_score, 4), threshold=round(threshold, 4), event=event_reason,
             costs_ok=costs_ok, room=None if room_direction is None else round(room_direction, 3), passed=passed,
-            verdict="PASS: score, event, cost and news checks cleared" if passed else "FAIL: " + "; ".join(reasons))
+            verdict="PASS: score, event, cost and news checks cleared" if passed else "FAIL: " + "; ".join(reasons),
+            board=board)
         row = asdict(rec)
         with self._lock:
             self.counts["pass" if passed else "fail"] += 1

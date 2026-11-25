@@ -70,6 +70,12 @@ def open_trade(agent) -> None:
     snap = _mean_snap(agent)
     w["exit_plan"] = {"r": r, "stop_r": -TREND_STOP_R if trail else -sniper.STOP_R if snap else -1.0,
                       "best_r": 0.0, "held": 0}
+    bb = getattr(agent, "blackboard", None)
+    if bb is not None and not snap:
+        # Team relay (trading/team_relay.py): Sentinel set this bar's stop width and target for the regime.
+        plan = w["exit_plan"]
+        plan["stop_r"] = -TREND_STOP_R * bb.suggested_stop_r / 1.25 if trail else -bb.suggested_stop_r
+        plan["target_r"] = bb.suggested_target_r
 
 
 def _mean_snap(agent) -> bool:
@@ -104,7 +110,7 @@ def check(agent) -> str | None:
         plan["share"] = sniper.FIRST_TP_SHARE if snap else SCALE_SHARE
         plan["stop_r"] = max(plan["stop_r"], keep_stop)
         return "scale"  # bank part of it (agents.py keeps the rest)
-    if not trail and now_r >= (sniper.RUNNER_TP_R if snap else TARGET_R):
+    if not trail and now_r >= (sniper.RUNNER_TP_R if snap else plan.get("target_r", TARGET_R)):
         return "target"
     if now_r <= plan["stop_r"]:
         return "breakeven" if plan["stop_r"] >= 0 else "stop"
