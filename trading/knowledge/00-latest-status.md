@@ -25,11 +25,15 @@ Real daily prices 2020-2026, costs included (`tools/orbit_backtest.py`). Setting
 |---|---|---|---|
 | Before trend anchor | 0.32 (all) | 0.55 | -$5.8k |
 | Trend anchor, PR #50 | 1.65 (all) | 1.22 | +$13.2k |
-| **Forex benched + RSI(2), PR #53 (now)** | **2.58** | **1.72** | **+$18.8k** |
+| Forex benched + RSI(2), PR #53 | 2.58 | 1.72 | +$18.8k |
+| **USDJPY benched too (25 Nov, now)** | **2.49** | **2.56** | **+$19.6k** |
 
-Forex majors were the weak spot and are now benched. **USDJPY is the last losing arm.** The desk makes money in the
-replay mostly by riding long trends. On mina's payoff bar the 2023-26 replay passes overall (44.6% wins, PF 1.72,
-payoff 2.13); per arm, every arm is still short of 50 trades, and crypto (payoff 1.41) and USDJPY fail the win bar. Real money is still locked: the live gates need real-price paper trades, not a replay.
+All forex is now benched (USDJPY won 22% of its 2023-26 trades). Win rate 2023-26 went from 44.6% to 53.8%. The
+desk makes money in the replay mostly by riding long trends. On mina's payoff bar the 2023-26 replay passes overall
+(80 trades, 53.8% wins, PF 2.56, payoff 2.21); per arm, every arm is still short of 50 trades, and crypto (payoff 1.41)
+fails the win bar. mina's other win-rate ideas (pullback-only entries, a trim at +2R with an ATR trail, turning down
+the agents' extra confidence) all did worse on both periods and are off (numbers in trading/trend_anchor.py).
+Sleeves: crypto 37.5%, US shares 37.5%, gold 25%, forex 0%. Real money is still locked: the live gates need real-price paper trades, not a replay.
 
 ## The live-unlock rules (real money stays locked until all pass)
 

@@ -149,6 +149,7 @@ class Desk:
         self.gaps: deque = deque(maxlen=5)
         self.bar_len: float | None = None
         self.anchor_period: dict[str, str | None] = {}
+        self.anchor_ride: dict[str, dict] = {}  # per symbol: entry, R, best close, trimmed, stopped (trim/trail tests)
         self.meta = MetaGate()  # walk-forward meta-label gate on desk entries (trading/meta_gate.py)
         self.regime: dict[str, str] = {}
         self.pipeline = None  # live feeds: a NewsPipeline whose sure, confirmed reads nudge the desk (engine)
@@ -322,6 +323,7 @@ class Desk:
                 # The anchor's base is its own sleeve at full cap; only the agents' extra conviction on top of it is
                 # scaled by the symbol's bucket record (a few choppy trims must not shrink the trend hold to dust).
                 target_value = trend_anchor.target(score, anchor, cap, self._bucket_mult(symbol)) * self.orbit.heat(symbol)
+                target_value = self._anchor_ride(symbol, anchor, prices[symbol], hist, target_value)
             else:
                 target_value = score * cap * self._bucket_mult(symbol) * self.orbit.heat(symbol)
             desired = target_value / prices[symbol] - self.broker.position(symbol)
@@ -600,6 +602,43 @@ class Desk:
                 "coach_status": self.coach.status() if self.coach else {"claude": False},
                 "checks": dict(self.checks), "desk_trades": self.journal.closed, "memory": self.memory,
                 "minds": self.minds()}
+
+    def _anchor_ride(self, symbol: str, anchor: int, price: float, hist, target_value: float) -> float:
+        """mina's trend-ride tests (off by default): pullback-only entries, a partial trim at +TRIM_R x R and a
+        chandelier trail. R is TRAIL_ATR (or 2.75) x ATR at entry."""
+        ta = trend_anchor
+        if ta.PULLBACK == "off" and not ta.TRIM_R and not ta.TRAIL_ATR:
+            return target_value
+        pos = self.broker.position(symbol) * price
+        ride = self.anchor_ride.get(symbol)
+        if ride and ride["dir"] != anchor:
+            ride = self.anchor_ride.pop(symbol)
+            ride = None
+        a = ta.atr(hist)
+        if ride and ride.get("stopped"):
+            # stopped out by the trail: back in only when price closes beyond the best close it reached
+            if anchor * (price - ride["best"]) > 0:
+                ride = None
+                self.anchor_ride.pop(symbol, None)
+            else:
+                return 0.0
+        if pos * anchor <= 0 or ride is None:
+            if not ta.pulled_back(anchor, hist):
+                return pos if pos * anchor > 0 else 0.0  # wait for the pullback (an open wrong-way position closes)
+            ride = self.anchor_ride[symbol] = {"dir": anchor, "entry": price, "best": price, "trimmed": False,
+                                               "R": max(1e-12, (ta.TRAIL_ATR or 2.75) * a)}
+            return target_value
+        ride["best"] = max(ride["best"], price) if anchor > 0 else min(ride["best"], price)
+        if ta.TRAIL_ATR and a and anchor * (ride["best"] - price) >= ta.TRAIL_ATR * a:
+            ride["stopped"] = True
+            return 0.0
+        if ta.TRIM_R and anchor * (price - ride["entry"]) >= ta.TRIM_R * ride["R"]:
+            ride["trimmed"] = True
+        if ride["trimmed"]:
+            target_value *= 1 - ta.TRIM
+        if abs(target_value) > abs(pos) and not ta.pulled_back(anchor, hist):
+            return pos  # adds wait for a pullback too
+        return target_value
 
     def anchor_status(self) -> dict:
         """Per symbol: the 200-day trend anchor's direction, days of daily history, and whether it is ready."""

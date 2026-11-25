@@ -32,6 +32,17 @@ textbook, not fitted to our data:
   Replay, realized PF 2020-22 / 2023-26: keep 2.06 / 1.22, adx 1.95 / 1.08, off 1.55 / 2.62, majors 1.93 / 1.61.
   "majors" beat "off" on 2020-22, so it was the pick between the two benching options; benching at all was
   decided after seeing 2023-26 (forex made money in 2020-22), so the 1.61 is not a fully clean unseen number.
+  Later the same day mina asked to test benching USDJPY too (it won 22% of its 2023-26 trades, PF 0.21): with
+  RSI(2) on, 2020-22 went PF 2.58 -> 2.49 (USDJPY made +$750 there) and 2023-26 PF 1.72 -> 2.56, win rate 44.6% ->
+  53.8%. Default is now "off". Like the majors, this was decided after seeing 2023-26.
+- **mina's win-rate ideas tested and not used** (25 Nov, realized 2020-22 / 2023-26, win rate and PF):
+  pullback-only entries (close within 1 ATR of the 20-EMA: 37.5% PF 2.82 / 29.1% PF 1.02; RSI(2) <= 15: 40.2% 2.42
+  / 31.9% 1.12; either: 36.4% 2.21 / 32.9% 1.29) missed the start of trends and then bought dips that kept
+  falling. A 25% trim at +2R with a 2.75x ATR trail: 34.7% 1.01 / 37.7% 0.90 (the trail shook out of every trend).
+  The trim alone: 49.5% 2.41 / 48.9% 1.47 (more wins, but payoff fell to 1.54, under the 1.85 unlock bar).
+  Agents' extra confidence off (EXTRA 0): 46.4% 2.58 / 45.3% 1.39; halved: 46.4% 2.59 / 43.2% 1.74. Baseline:
+  46.4% 2.58 / 44.6% 1.72. Knobs stay in for testing, all off: TREND_ANCHOR_PULLBACK, _PB_ATR, _TRIM_R, _TRIM,
+  _TRAIL_ATR.
 - **Exits tested and not used**: a two-stage exit (2x ATR stop, 30% off at +1.5R, 2.5-2.75x ATR chandelier,
   close under the 50/20 EMA) did worse than holding to the 200-day cross on gold and shares in both periods
   (monthly PF 1.20 vs 1.26 in 2020-22, 0.92 vs 1.32 in 2023-26).
@@ -49,13 +60,57 @@ BASE = 0.75  # minimum share of the normal size held while the trend lasts (0.5 
 BAND = 0.25  # rebalance a held anchor position only when off target by more than this share
 REVIEW = "day"  # how often the direction is re-read: "day" (default), "week" or "month" (Faber's rule)
 EXTRA = 1.0  # how far the agents' conviction above BASE can size the position up (0 = the anchor alone)
-FX_MODE = "majors"  # forex on daily bars: "majors" (default: EURUSD/GBPUSD/AUDUSD benched, USDJPY kept), "off"
-# (all forex benched), "adx" (new trend entries need ADX >= FX_ADX) or "keep"
+FX_MODE = "off"  # forex: "off" (default since 25 Nov: all forex benched, USDJPY too), "majors" (EURUSD/GBPUSD/
+# AUDUSD benched, USDJPY kept), "adx" (new trend entries need ADX >= FX_ADX) or "keep"
 FX_KEEP = {"USDJPY"}  # forex pairs "majors" mode still trades
 FX_ADX, ADX_N = 26.0, 14  # mina: ADX >= 26 before forex majors may trade again ("adx" mode)
 INTRADAY = True  # intraday desks use the daily-close history (backfilled at boot)
 BACKFILL_DAYS = "1y"  # Yahoo range for the boot backfill (about 250 trading days)
 DAILY = 20 * 3600  # bars at least this long count as daily
+# mina's win-rate ideas (25 Nov 2026), test knobs; defaults are off unless the replay showed they help.
+PULLBACK = "off"  # new anchor exposure only on a pullback: "ema" (close within PB_ATR x ATR of the 20-EMA),
+# "rsi2" (RSI(2) <= 15 long / >= 85 short), "either", or "off"
+PB_ATR = 1.0
+TRIM_R, TRIM = 0.0, 0.25  # trim TRIM of the anchor hold once price is TRIM_R x R in profit (0 = off)
+TRAIL_ATR = 0.0  # chandelier trail on the anchor hold: exit when close is TRAIL_ATR x ATR off the best close (0 = off)
+
+
+def ema(prices, n: int = 20) -> float:
+    p = list(prices)
+    k = 2 / (n + 1)
+    e = p[0]
+    for x in p[1:]:
+        e += k * (x - e)
+    return e
+
+
+def atr(prices, n: int = 14) -> float:
+    """Close-only ATR (our free daily history has no highs and lows): the mean absolute close move."""
+    p = list(prices)[-(n + 1):]
+    moves = [abs(b - a) for a, b in zip(p, p[1:])]
+    return sum(moves) / len(moves) if moves else 0.0
+
+
+def rsi2(prices) -> float:
+    p = list(prices)[-3:]
+    if len(p) < 3:
+        return 50.0
+    up = sum(max(b - a, 0) for a, b in zip(p, p[1:]))
+    down = sum(max(a - b, 0) for a, b in zip(p, p[1:]))
+    return 100.0 if not down else 100 - 100 / (1 + up / down)
+
+
+def pulled_back(anchor: int, prices) -> bool:
+    """True when a new trend entry is allowed under PULLBACK (always True when off)."""
+    if PULLBACK == "off" or not anchor:
+        return True
+    p = list(prices)
+    if len(p) < 21:
+        return True
+    near = anchor * (p[-1] - ema(p[-60:])) <= PB_ATR * atr(p)
+    r = rsi2(p)
+    dip = r <= 15 if anchor > 0 else r >= 85
+    return {"ema": near, "rsi2": dip, "either": near or dip}.get(PULLBACK, True)
 
 
 def bars_for(bar_seconds: float | None) -> int | None:
