@@ -3,7 +3,7 @@
 import io
 import json
 
-import pytest
+import unittest
 
 from trading import grok
 from trading import live_apis
@@ -35,14 +35,14 @@ def opener_for(text, seen=None, x_posts=7):
 READ = '{"lean": 0.6, "confidence": 0.8, "why": "traders cheer ETF inflows", "posts": 40, "tag": "inference"}'
 
 
-def test_off_without_key():
+def check_off_without_key():
     assert grok.GrokClient.from_env({}) is None
     assert grok.GrokClient.from_env({"XAI_API_KEY": "k", "GROK": "off"}) is None
     p = grok.XPulse.from_env({})
     assert not p.on and p.read("BTC", 0) is None and p.snapshot()["on"] is False
 
 
-def test_client_sends_x_search_and_parses():
+def check_client_sends_x_search_and_parses():
     seen = []
     c = grok.GrokClient("secret", "grok-4.7", opener=opener_for(READ, seen))
     r = c.respond("hi", x_search={"from_date": "2026-11-01", "to_date": "2026-11-02"})
@@ -53,25 +53,29 @@ def test_client_sends_x_search_and_parses():
     assert c.status()["x_searches_today"] == 2 and "secret" not in json.dumps(c.status())
 
 
-def test_daily_cap():
+def check_daily_cap():
     c = grok.GrokClient("k", daily_calls=2, opener=opener_for(READ), clock=lambda: 1_700_000_000)
     c.respond("a"); c.respond("b")
-    with pytest.raises(grok.GrokLimit):
+    try:
         c.respond("c")
+    except grok.GrokLimit:
+        pass
+    else:
+        raise AssertionError("cap not enforced")
 
 
-def test_parse_read_clamps_and_rejects():
+def check_parse_read_clamps_and_rejects():
     p = grok.parse_read('sure: {"lean": 3, "confidence": -1, "why": "x"}')
     assert p["lean"] == 1.0 and p["confidence"] == 0.0 and p["tag"] == "unknown"
     assert grok.parse_read("no json here") is None
     assert grok.parse_read('{"lean": "up"}') is None
 
 
-def test_pulse_votes_and_scores():
+def check_pulse_votes_and_scores():
     p = grok.XPulse(grok.GrokClient("k", opener=opener_for(READ)), refresh_mins=30, score_hours=4)
     assert p.due(["BTC", "ETH"], 10_000) == ["BTC", "ETH"]
     assert p.round({"BTC": 100.0}, 10_000) == 1
-    assert p.lean("BTC", 10_000) == pytest.approx(0.48)
+    assert abs(p.lean("BTC", 10_000) - 0.48) < 1e-9
     assert p.votes(["BTC", "ETH"], 10_000) == {"BTC": 0.48, "ETH": None}
     assert p.due(["BTC"], 10_000 + 60) == []
     p.score({"BTC": 101.0}, 10_000 + 4 * 3600)
@@ -80,14 +84,14 @@ def test_pulse_votes_and_scores():
     assert p.lean("BTC", 10_000 + 10 * 3600) is None  # stale pulse abstains
 
 
-def test_weight_falls_when_grok_is_wrong():
+def check_weight_falls_when_grok_is_wrong():
     p = grok.XPulse(None)
     p.scored.extend({"symbol": "BTC", "lean": 0.5, "confidence": 0.8, "move": -0.01, "hit": False, "at": 0}
                     for _ in range(30))
     assert p.weight() == 0.25
 
 
-def test_replay_scores_next_day():
+def check_replay_scores_next_day():
     day = 86_400
     closes = {"BTC": [(day * i, 100.0 + i) for i in range(1, 8)]}  # always up: a bullish Grok hits every day
     out = grok.replay(grok.GrokClient("k", opener=opener_for(READ)), closes, days=5)
@@ -96,7 +100,7 @@ def test_replay_scores_next_day():
     assert grok.verdict(0.6, 40).startswith("helps")
 
 
-def test_pipeline_adds_crowd_on_deep_read():
+def check_pipeline_adds_crowd_on_deep_read():
     pl = NewsPipeline(seed=1)
     pl.crowd = lambda sym: 0.5
     rec = pl.run({"symbol": "BTC", "text": "Fed holds interest rate"})
@@ -107,7 +111,7 @@ def test_pipeline_adds_crowd_on_deep_read():
     assert rec["deep"]["lean"] != rec2["deep"]["lean"] or rec2["deep"]["lean"] == 0.5
 
 
-def test_decision_desk_grok_head():
+def check_decision_desk_grok_head():
     from trading import decision_desk
     trades = {"trades": [], "by_symbol": {}, "totals": {}}
     prices = {"history": [{"prices": {"BTC": 100.0, "ETH": 10.0}}]}
@@ -119,7 +123,7 @@ def test_decision_desk_grok_head():
     assert all("grok" not in {h["head"] for h in d["heads"]} for d in without["decisions"])
 
 
-def test_keys_panel_lists_xai_key_without_value():
+def check_keys_panel_lists_xai_key_without_value():
     rows = {r["key"]: r for r in live_apis.keys_status({"XAI_API_KEY": "xai-very-secret"})}
     g = rows["grok"]
     assert g["demo_ready"] and not g["live_possible"]
@@ -128,8 +132,47 @@ def test_keys_panel_lists_xai_key_without_value():
     assert not {r["key"]: r for r in live_apis.keys_status({})}["grok"]["demo_ready"]
 
 
-def test_grok_mini_answers_and_handles_cap():
+def check_grok_mini_answers_and_handles_cap():
     c = grok.GrokClient("k", daily_calls=1, opener=opener_for("Sentinel blocked 2 orders."))
     m = grok.GrokMini(c)
     assert m.answer("what are people saying on X about BTC?", {}) == "Sentinel blocked 2 orders."
     assert "cap" in m.answer("again?", {})
+
+
+class GrokTests(unittest.TestCase):
+    def test_off_without_key(self):
+        check_off_without_key()
+
+    def test_client_sends_x_search_and_parses(self):
+        check_client_sends_x_search_and_parses()
+
+    def test_daily_cap(self):
+        check_daily_cap()
+
+    def test_parse_read_clamps_and_rejects(self):
+        check_parse_read_clamps_and_rejects()
+
+    def test_pulse_votes_and_scores(self):
+        check_pulse_votes_and_scores()
+
+    def test_weight_falls_when_grok_is_wrong(self):
+        check_weight_falls_when_grok_is_wrong()
+
+    def test_replay_scores_next_day(self):
+        check_replay_scores_next_day()
+
+    def test_pipeline_adds_crowd_on_deep_read(self):
+        check_pipeline_adds_crowd_on_deep_read()
+
+    def test_decision_desk_grok_head(self):
+        check_decision_desk_grok_head()
+
+    def test_keys_panel_lists_xai_key_without_value(self):
+        check_keys_panel_lists_xai_key_without_value()
+
+    def test_grok_mini_answers_and_handles_cap(self):
+        check_grok_mini_answers_and_handles_cap()
+
+
+if __name__ == "__main__":
+    unittest.main()
