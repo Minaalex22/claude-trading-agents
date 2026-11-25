@@ -19,19 +19,22 @@ SPX prints count 0.85x for SPY, QQQ and Big Tech; a print on the symbol itself c
   - /decision: the "order flow" panel shows the whale bias
   - POST /api/option-flow takes JSON prints or pasted DeepCharts lines (see `parse_line`)
 
-There's no live data source yet: someone has to send prints (a DeepCharts/Unusual Whales/Polygon alert webhook, or
-paste lines). History for a backtest needs CBOE/OPRA option trades (e.g. Polygon's options trades) with premium,
+Live source: trading/whale_bridge.py polls Unusual Whales once a minute in US hours (UW_API_TOKEN on Render).
+Prints can also be sent by webhook or pasted. Every print is appended to $EVENTS_DIR/whale_prints.jsonl, which the
+engine processes read (`FEED.source`), so the desks see prints that arrive in the web process. History for a backtest needs CBOE/OPRA option trades (e.g. Polygon's options trades) with premium,
 side and open/close; our free price history has none, so the backtest can't measure this signal.
 Switch: env OPTION_FLOWS (default on).
 """
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 OPTION_FLOWS = True
 MIN_PREMIUM = 3_000_000.0
@@ -163,11 +166,60 @@ def from_json(d: dict, at: float | None = None) -> FlowPrint:
 class FlowFeed:
     """Time-decayed ledger of decoded whale prints."""
 
+    SYNC_EVERY = 15.0
+
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.active: list[tuple[float, str, Decoded]] = []
         self.recent: list[dict] = []  # last 30 decoded prints, shown on /decision
         self.ignored = 0
+        self.source: Path | None = None  # engine processes: read prints the web process wrote
+        self._offset = 0
+        self._synced = 0.0
+
+    def record(self, p: FlowPrint, folder) -> None:
+        """Append a print to the shared file so the engine processes pick it up."""
+        if not folder:
+            return
+        try:
+            path = Path(folder) / "whale_prints.jsonl"
+            if path.exists() and path.stat().st_size > 5_000_000:
+                path.replace(path.with_suffix(".old"))
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(asdict(p)) + "\n")
+        except OSError:
+            pass
+
+    def follow(self, folder) -> None:
+        """Read new prints from $EVENTS_DIR/whale_prints.jsonl from now on (skips what is already there)."""
+        self.source = Path(folder) / "whale_prints.jsonl" if folder else None
+        try:
+            self._offset = self.source.stat().st_size if self.source else 0
+        except OSError:
+            self._offset = 0
+
+    def sync(self, force: bool = False) -> int:
+        if not self.source or (not force and time.time() - self._synced < self.SYNC_EVERY):
+            return 0
+        self._synced = time.time()
+        try:
+            size = self.source.stat().st_size
+            if size < self._offset:
+                self._offset = 0  # file was rotated
+            with self.source.open("r", encoding="utf-8") as f:
+                f.seek(self._offset)
+                lines = f.readlines()
+                self._offset = f.tell()
+        except OSError:
+            return 0
+        n = 0
+        for line in lines:
+            try:
+                self.ingest(FlowPrint(**json.loads(line)))
+                n += 1
+            except (ValueError, TypeError):
+                continue
+        return n
 
     def ingest(self, p: FlowPrint) -> Decoded:
         d = decode(p)
@@ -186,6 +238,7 @@ class FlowFeed:
         if not OPTION_FLOWS or sym not in FOLLOWERS:
             return 0.0, False
         now = time.time() if now is None else now
+        self.sync()
         total, key = 0.0, False
         with self.lock:
             self.active = [a for a in self.active if (now - a[0]) / 60 <= MAX_AGE_MINS]

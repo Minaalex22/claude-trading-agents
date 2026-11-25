@@ -204,6 +204,8 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     execution_integrity.EXEC_NEXT_BAR = on("EXEC_NEXT_BAR")
     from . import option_flows
     option_flows.OPTION_FLOWS = on("OPTION_FLOWS")
+    if env.get("EVENTS_DIR"):
+        option_flows.FEED.follow(env["EVENTS_DIR"])  # prints from the web process (whale bridge, webhook)
     desk_rules.Desk.meta_on = meta_gate.ENABLED
     from . import agents as agent_rules
     agent_rules.NEWS_SPLIT = on("NEWS_SPLIT")
