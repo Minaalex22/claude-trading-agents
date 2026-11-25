@@ -5,3 +5,4 @@ session.json
 events/
 .jarvis-secrets
 .venv/
+trader/
