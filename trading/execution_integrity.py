@@ -21,11 +21,29 @@ from dataclasses import dataclass, field
 EXEC_NEXT_BAR = True
 SPREAD_BPS = 2.0    # full bid/ask spread; a fill pays half of it
 SLIPPAGE_BPS = 1.0  # on top of the broker's 1 bp fee
+BAR_TOLERANCE = 0.0005  # 0.05%: float / tick-aggregation drift in raw OHLC feeds, clamped not crashed
 
 
 def friction() -> float:
     """Adverse price move per fill, as a fraction of price: half the spread plus slippage."""
     return (SPREAD_BPS / 2 + SLIPPAGE_BPS) / 10_000
+
+
+class CorruptBar(ValueError):
+    """An OHLC bar whose open or close sits well outside its own high-low range: bad data, not rounding."""
+
+
+def clean_bar(o: float, h: float, l: float, c: float, tol: float | None = None) -> tuple[float, float, float, float]:
+    """Noisy CSV/API bars (mina, 25 Nov 2026): swap an inverted high/low, clamp an open or close that is only a
+    rounding hair (<= 0.05%) outside [low, high], and raise CorruptBar only on a real spike beyond that."""
+    tol = BAR_TOLERANCE if tol is None else tol
+    if l > h:
+        l, h = h, l
+    for name, v in (("open", o), ("close", c)):
+        slack = max(1e-6, abs(v) * tol)
+        if v < l - slack or v > h + slack:
+            raise CorruptBar(f"corrupt bar: real {name} {v:g} outside real [{l:g}, {h:g}]")
+    return max(l, min(h, o)), h, l, max(l, min(h, c))
 
 
 def fill_price(qty: float, real_price: float) -> float:
@@ -58,6 +76,7 @@ def heikin_ashi(bars: list[dict]) -> list[DualBar]:
         o = float(b.get("open", prev_close if prev_close is not None else c))
         h = float(b.get("high", max(o, c)))
         l = float(b.get("low", min(o, c)))
+        o, h, l, c = clean_bar(o, h, l, c)
         ha_close = (o + h + l + c) / 4
         ha_open = (o + c) / 2 if prev_ha_open is None else (prev_ha_open + prev_ha_close) / 2
         out.append(DualBar(o, h, l, c, ha_open, max(h, ha_open, ha_close), min(l, ha_open, ha_close), ha_close))
@@ -86,7 +105,9 @@ class FillAudit:
     def check(self, symbol: str, decided_tick: int, fill_tick: int, price: float, low: float, high: float,
               qty: float) -> None:
         self.fills += 1
-        slack = max(abs(low), abs(high)) * (friction() + 1e-9)
+        if low > high:
+            low, high = high, low  # inverted ticks in a noisy feed
+        slack = max(abs(low), abs(high)) * (friction() + BAR_TOLERANCE)  # spread + slippage + rounding drift
         problem = None
         if fill_tick <= decided_tick:
             self.same_bar += 1
