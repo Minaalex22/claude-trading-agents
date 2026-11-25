@@ -109,9 +109,9 @@ QUICK = [
      "sign-off. Then the Demo/Live switch, live keys on Render and typing GO LIVE."),
     (r"\b(results?|profit factor|backtest|replay|how (are|is) (we|the desk) doing on real|losing arm|loser|"
      r"which arm)",
-     "On real daily prices 2020 to 2026 after costs, the desk now has profit factor 2.58 on the 2020 to 2022 years it was "
-     "tuned on and 1.72 on unseen 2023 to 2026, ending up 18.8 thousand dollars. Forex majors are benched; USDJPY is the "
-     "last losing arm. Real money stays locked until the live gates pass on real-price paper trades."),
+     "On real daily prices 2020 to 2026 after costs, the desk now has profit factor 2.49 on the 2020 to 2022 years and "
+     "2.56 on unseen 2023 to 2026 with 53.8 percent wins, ending up 19.6 thousand dollars. All forex, USDJPY included, "
+     "is benched. Real money stays locked until the live gates pass on real-price paper trades."),
     (r"\b(parked|needs? me|waiting on me|what do i (need|have) to do|my (to ?do|jobs?)|left for me)",
      "Five things wait for you: run the ATAS one-liner on your Mac once; add your MetaTrader 5 account in MetaApi; add "
      "live keys on Render when you want to go live; upload the LangChain guide PDF; and a paid data feed for 0DTE whale "
@@ -127,7 +127,7 @@ QUICK = [
      "Galaxy, 3D, Hunter vs Judge, Decision, Smart money, Order flow, Pairs, Calculator, Time Machine, Audit, Brief and "
      "close, the event log, and me on /jarvis."),
     (r"\b(sleeves?|orbit arms?|five arms|5 arms)\b",
-     "Orbit has five arms: crypto 30 percent, US shares 30 percent, gold 20 percent, USDJPY 20 percent and forex majors "
+     "Orbit has five arms: crypto 37.5 percent, US shares 37.5 percent, gold 25 percent, and USDJPY and forex majors "
      "0 percent, because they are benched. Each arm's size also moves with its heat."),
     (r"\b(what (is|does) (this|the) (project|system|app)|explain (the )?(whole )?(project|system)|big picture)",
      "ATS Matrix is one web app running a desk of 1,400 AI agents on live prices with a paper broker. Agents read charts "

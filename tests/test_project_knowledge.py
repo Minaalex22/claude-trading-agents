@@ -46,7 +46,7 @@ class JarvisAnswersProjectQuestions(unittest.TestCase):
 
     def test_latest_results(self):
         reply = self.ask("What are the latest results on real prices?")
-        self.assertIn("1.72", reply)
+        self.assertIn("2.56", reply)
         self.assertIn("USDJPY", reply)
 
     def test_parked_items(self):
@@ -57,7 +57,7 @@ class JarvisAnswersProjectQuestions(unittest.TestCase):
     def test_bridges_pages_and_sleeves(self):
         self.assertIn("Polymarket", self.ask("what's the bridge status?"))
         self.assertIn("Orbit", self.ask("what pages are there?"))
-        self.assertIn("30 percent", self.ask("how are the orbit sleeves split?"))
+        self.assertIn("37.5 percent", self.ask("how are the orbit sleeves split?"))
 
     def test_how_parts_of_the_system_work(self):
         self.assertIn("Sentinel", self.ask("What does Sentinel do every hour?"))
@@ -99,7 +99,7 @@ class BrainsCarryTheKnowledge(unittest.TestCase):
         self.assertLess(len(system), len(K.text()) // 4)
 
     def test_builtin_mini_answers_project_questions(self):
-        self.assertIn("1.72", M.BuiltinMini().answer("what are the latest results?", {}))
+        self.assertIn("2.56", M.BuiltinMini().answer("what are the latest results?", {}))
 
 
 if __name__ == "__main__":

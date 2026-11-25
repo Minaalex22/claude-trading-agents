@@ -39,7 +39,7 @@ class Coordinator(unittest.TestCase):
 
     def test_budget_and_switch(self):
         c = orbit.OrbitPortfolioCoordinator()
-        self.assertEqual(c.compute_arm_order_budget("BTC", "4h"), round(100_000 * 0.3 * 0.01 * 0.85, 2))  # crypto sleeve 30% since 25 Nov
+        self.assertEqual(c.compute_arm_order_budget("BTC", "4h"), round(100_000 * 0.375 * 0.01 * 0.85, 2))  # crypto sleeve 37.5% since 25 Nov
         off = orbit.OrbitPortfolioCoordinator.from_env({"ORBIT_HEAT": "off"})
         self.assertEqual(off.heat("BTC"), 1.0)
         self.assertEqual(orbit.OrbitPortfolioCoordinator.from_env({}).heat("BTC"), 0.85)
@@ -49,7 +49,7 @@ class Book(unittest.TestCase):
     def test_sleeve_scaling_and_dollar_profit_factor(self):
         r = orbit.report([trade(1, "gold", 100.0), trade(2, "gold", -50.0)], use_heat=False)
         c = r["combined"]
-        self.assertAlmostEqual(c["net"], 20.0 - 10.0 * 1.0002, places=2)  # 20% sleeve, compounding
+        self.assertAlmostEqual(c["net"], 25.0 - 12.5 * 1.00025, places=2)  # 25% gold sleeve, compounding
         self.assertAlmostEqual(c["profit_factor"], 2.0, places=2)
 
     def test_heat_shrinks_a_cold_arm(self):

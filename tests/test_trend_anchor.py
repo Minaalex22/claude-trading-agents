@@ -38,10 +38,15 @@ class AnchorRuleTests(unittest.TestCase):
 
 class ForexRuleTests(unittest.TestCase):
     def tearDown(self):
-        trend_anchor.FX_MODE = "majors"
+        trend_anchor.FX_MODE = "off"
 
-    def test_majors_benched_usdjpy_kept_by_default(self):
-        self.assertEqual(trend_anchor.FX_MODE, "majors")
+    def test_all_forex_benched_by_default(self):
+        self.assertEqual(trend_anchor.FX_MODE, "off")
+        self.assertEqual(trend_anchor.fx_gate("USDJPY", -1, 0.0, [1.0] * 30), 0)
+        self.assertEqual(trend_anchor.fx_gate("GOLD", 1, 0.0, [1.0] * 30), 1)
+
+    def test_majors_mode_keeps_usdjpy(self):
+        trend_anchor.FX_MODE = "majors"
         self.assertEqual(trend_anchor.fx_gate("EURUSD", 1, 0.0, [1.0] * 30), 0)
         self.assertEqual(trend_anchor.fx_gate("USDJPY", -1, 0.0, [1.0] * 30), -1)
         self.assertEqual(trend_anchor.fx_gate("GOLD", 1, 0.0, [1.0] * 30), 1)  # not forex: untouched
@@ -121,3 +126,23 @@ class IntradayAnchorTests(unittest.TestCase):
         desk.step({"BTC": 101.0}, now=t0 + 7200)
         desk.step({"BTC": 105.0}, now=t0 + DAY + 3600)
         self.assertEqual(list(desk.daily_hist["BTC"]), [101.0])
+
+
+class WinRateIdeaKnobTests(unittest.TestCase):
+    """mina's 25 Nov ideas stay as off-by-default test knobs (they did worse in the replay)."""
+
+    def tearDown(self):
+        trend_anchor.PULLBACK = "off"
+
+    def test_off_by_default(self):
+        self.assertEqual((trend_anchor.PULLBACK, trend_anchor.TRIM_R, trend_anchor.TRAIL_ATR), ("off", 0.0, 0.0))
+
+    def test_pullback_rules(self):
+        extended = [100 + i for i in range(60)]  # straight up: far above the 20-EMA, RSI(2) 100
+        dipped = extended[:-2] + [extended[-3] - 3, extended[-3] - 6]
+        trend_anchor.PULLBACK = "ema"
+        self.assertFalse(trend_anchor.pulled_back(1, extended))
+        trend_anchor.PULLBACK = "rsi2"
+        self.assertFalse(trend_anchor.pulled_back(1, extended))
+        self.assertTrue(trend_anchor.pulled_back(1, dipped))
+        self.assertEqual(trend_anchor.rsi2(dipped), 0.0)

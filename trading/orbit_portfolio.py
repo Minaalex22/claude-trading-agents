@@ -11,7 +11,7 @@ is measured on the MIX: per-arm and combined profit factor, drawdown, and how al
   arm 5  Crypto bicameral          BTC ETH                        dual brain regime router + night capsule
 
 Rules:
-- sleeves of account equity: crypto 30%, US shares 30%, gold 20%, USDJPY 20%, forex majors 0% (benched 25 Nov);
+- sleeves of account equity: crypto 37.5%, US shares 37.5%, gold 25%, USDJPY and forex majors 0% (benched 25 Nov);
   arms never share positions (no interference);
 - heat: an arm's size shrinks to 0.35x while it is cold (losing, win rate < 45% over its last 25 trades) and
   grows to 1.45x while it is hot (making money, win rate >= 58%); 0.85x until it has 5 trades;
@@ -67,21 +67,21 @@ def heat(recent) -> float:
     return 1.0
 
 
-# Sleeves (mina, 25 Nov 2026): forex majors benched (0%), their 20% moved to crypto and US shares (30% each); gold
-# and USDJPY stay at 20%. On 2020-26 real daily prices the forex majors were the only arm still losing in 2023-26.
+# Sleeves (mina, 25 Nov 2026): forex majors benched (0%), then USDJPY benched too (it won 22% of its 2023-26 replay
+# trades at PF 0.21). Their share moved to the other arms in proportion: gold 25%, US shares 37.5%, crypto 37.5%.
 def _arms() -> list[OrbitArm]:
     return [
         OrbitArm(1, "usdjpy", "USDJPY_4H_MACRO", "USDJPY 4H macro", ("USDJPY",), "4h",
-                 "Trend + macro rate divergence", ("USDJPY",), 0.20),
+                 "Trend + macro rate divergence", ("USDJPY",), 0.0),
         OrbitArm(2, "fx", "FX_MAJOR_SMT_REV", "FX majors SMT", ("EURUSD", "GBPUSD", "AUDUSD"), "1h",
                  "Reversion + SMT sister-pair check", ("EURUSD", "GBPUSD", "AUDUSD"), 0.0),
         OrbitArm(3, "gold", "GOLD_PAXG_REV", "Gold PAXG", ("GOLD", "PAXG", "XAUUSD"), "1h",
-                 "Reversion + macro shock guard", ("GOLD",), 0.20),
+                 "Reversion + macro shock guard", ("GOLD",), 0.25),
         OrbitArm(4, "us", "US_EQUITY_WHALE_FLOW", "US equity whale flow",
                  ("SPX", "SPY", "NDX", "QQQ", "DJI", "NVDA", "AAPL", "MSFT", "AMZN", "META", "GOOG", "GOOGL", "TSLA"),
-                 "1h", "Reversion + option whale flow", ("SPX", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN"), 0.30),
+                 "1h", "Reversion + option whale flow", ("SPX", "AAPL", "MSFT", "NVDA", "TSLA", "AMZN"), 0.375),
         OrbitArm(5, "crypto", "CRYPTO_BICAMERAL", "Crypto bicameral", ("BTC", "ETH"), "4h",
-                 "Dual brain regime router + night capsule", ("BTC", "ETH"), 0.30),
+                 "Dual brain regime router + night capsule", ("BTC", "ETH"), 0.375),
     ]
 
 
