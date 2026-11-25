@@ -155,7 +155,7 @@ class FullPipelineE2E(unittest.TestCase):
             env.pop("DESK_DATA_DIR")
             out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=d, env={
                 **env, "PYTHONPATH": root})
-            self.assertEqual(out.stdout.split(), ["/somewhere/else", "data/desk_state.sqlite"], out.stderr[-300:])
+            self.assertEqual(out.stdout.split(), ["/somewhere/else", str(Path("data") / "desk_state.sqlite")], out.stderr[-300:])
 
 
 if __name__ == "__main__":
