@@ -1,11 +1,12 @@
 """Unlock audit: the Orbit replay split into 2020-22 (where settings were chosen) and unseen 2023-26, checked
-against the live-unlock bar (trading/strategy_lab.py: 50+ trades, 60%+ win rate, PF 1.35+, max drawdown 8%).
+against the live-unlock bar (trading/strategy_lab.py: 50+ trades, PF 1.35+, max drawdown 8%,
+and 60%+ wins or 42%+ wins with payoff ratio 1.85+).
 
   python tools/audit_2023_2026_unlock.py                 # reads trading/data/orbit_backtest.json
   python tools/audit_2023_2026_unlock.py --file X.json
 
 Run tools/orbit_backtest.py first to refresh the replay. This only reports: the real unlock still needs the
-same numbers on the paper desk's own real-price trades, sim-vs-real within 8 points, and mina's sign-off.
+same numbers on the paper desk's own real-price trades, sim-vs-real within 15 points, and mina's sign-off.
 Drawdown is per arm on its desk cash (closed trades in order); combined is the weighted Orbit account.
 """
 from __future__ import annotations
@@ -26,9 +27,11 @@ OOS_START = "2023-01-01"
 
 def metrics(pnls: list[float], cash: float) -> dict:
     if not pnls:
-        return {"trades": 0, "win_rate_pct": 0.0, "profit_factor": 0.0, "net_pnl": 0.0, "max_dd_pct": 0.0}
+        return {"trades": 0, "win_rate_pct": 0.0, "profit_factor": 0.0, "payoff": None, "net_pnl": 0.0,
+                "max_dd_pct": 0.0}
     wins = sum(x for x in pnls if x > 0)
     losses = -sum(x for x in pnls if x <= 0)
+    n_w = sum(x > 0 for x in pnls)
     eq = peak = cash
     dd = 0.0
     for x in pnls:
@@ -36,7 +39,9 @@ def metrics(pnls: list[float], cash: float) -> dict:
         peak = max(peak, eq)
         dd = max(dd, (peak - eq) / peak)
     return {"trades": len(pnls), "win_rate_pct": round(100 * sum(x > 0 for x in pnls) / len(pnls), 1),
-            "profit_factor": round(wins / losses, 2) if losses else 99.0, "net_pnl": round(wins - losses, 2),
+            "profit_factor": round(wins / losses, 2) if losses else 99.0,
+            "payoff": strategy_lab.payoff_ratio(n_w / len(pnls), wins / losses if losses else 99.0),
+            "net_pnl": round(wins - losses, 2),
             "max_dd_pct": round(100 * dd, 2)}
 
 
@@ -44,8 +49,10 @@ def blockers(m: dict) -> list[str]:
     out = []
     if m["trades"] < strategy_lab.MIN_TRADES:
         out.append(f"trades {m['trades']} < {strategy_lab.MIN_TRADES}")
-    if m["win_rate_pct"] < 100 * strategy_lab.MIN_WIN_RATE:
-        out.append(f"win rate {m['win_rate_pct']}% < {100 * strategy_lab.MIN_WIN_RATE:.0f}%")
+    if not strategy_lab.win_bar_ok(m["win_rate_pct"] / 100, m.get("payoff")):
+        out.append(f"win rate {m['win_rate_pct']}% with payoff {m.get('payoff')}: needs "
+                   f"{100 * strategy_lab.MIN_WIN_RATE:.0f}%+ or {100 * strategy_lab.ALT_MIN_WIN_RATE:.0f}%+ "
+                   f"with payoff {strategy_lab.MIN_PAYOFF}+")
     if m["profit_factor"] < strategy_lab.MIN_PROFIT_FACTOR:
         out.append(f"profit factor {m['profit_factor']} < {strategy_lab.MIN_PROFIT_FACTOR}")
     if m["max_dd_pct"] > 100 * strategy_lab.MAX_DRAWDOWN:

@@ -27,3 +27,14 @@ class AuditTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PayoffRouteTests(unittest.TestCase):
+    def test_saved_replay_passes_on_payoff_route(self):
+        import json
+        from pathlib import Path
+        r = audit.audit(json.loads(Path(audit.DATA).read_text()))
+        u = r["unseen_2023_2026"]
+        self.assertLess(u["win_rate_pct"], 60)  # a trend follower: under 60% wins...
+        self.assertGreaterEqual(u["payoff"], 1.85)  # ...but winners about twice the losers
+        self.assertTrue(r["replay_passes_unlock_bar"])

@@ -48,8 +48,8 @@ repo claude-trading-agents). You speak to one person: the owner.
 Your job:
 1. Explain Sentinel's PASS/FAIL verdicts, replay and test results, and how the 5-arm Orbit portfolio is doing.
 2. Hold the rules: fills on real OHLC prices only (never Heikin Ashi), practice-quota trades never count, and real
-money stays locked until an arm has 50+ chosen trades, 60%+ wins, profit factor 1.35+ and drawdown 8% or less,
-plus a sim-vs-real check and the owner's sign-off.
+money stays locked until an arm has 50+ chosen trades, profit factor 1.35+, drawdown 8% or less, and 60%+ wins
+or 42%+ wins with payoff ratio 1.85+ (PF x (1 - win) / win), plus sim vs real within 15 points and the owner's sign-off.
 3. Give direct, concrete answers and short Python fixes when asked. No fluff.
 Use only the LIVE DESK SNAPSHOT for numbers and never invent figures; if something isn't in it, say so.
 You cannot place trades, change settings, unlock real money or reveal secrets.
@@ -88,9 +88,11 @@ def _unlock_gate(events_dir: Path, trades: list[dict]) -> dict:
     out = {}
     for key, arm in strategy_lab.check(trades, events_dir).items():
         out[key] = {"name": arm.get("name"), "trades": arm.get("trades"), "win_rate": arm.get("win_rate"),
-                    "profit_factor": arm.get("profit_factor"), "max_drawdown": arm.get("max_drawdown"),
+                    "profit_factor": arm.get("profit_factor"), "payoff": arm.get("payoff"),
+                    "max_drawdown": arm.get("max_drawdown"),
                     "promoted": arm.get("promoted"), "missing": arm.get("missing")}
     return {"rules": {"min_trades": strategy_lab.MIN_TRADES, "min_win_rate": strategy_lab.MIN_WIN_RATE,
+                      "alt_min_win_rate": strategy_lab.ALT_MIN_WIN_RATE, "min_payoff": strategy_lab.MIN_PAYOFF,
                       "min_profit_factor": strategy_lab.MIN_PROFIT_FACTOR,
                       "max_drawdown": strategy_lab.MAX_DRAWDOWN},
             "live_unlocked": any(a["promoted"] for a in out.values()), "arms": out}

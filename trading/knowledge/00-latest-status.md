@@ -28,14 +28,19 @@ Real daily prices 2020-2026, costs included (`tools/orbit_backtest.py`). Setting
 | **Forex benched + RSI(2), PR #53 (now)** | **2.58** | **1.72** | **+$18.8k** |
 
 Forex majors were the weak spot and are now benched. **USDJPY is the last losing arm.** The desk makes money in the
-replay mostly by riding long trends. Real money is still locked: the live gates need real-price paper trades, not a replay.
+replay mostly by riding long trends. On mina's payoff bar the 2023-26 replay passes overall (44.6% wins, PF 1.72,
+payoff 2.13); per arm, every arm is still short of 50 trades, and crypto (payoff 1.41) and USDJPY fail the win bar. Real money is still locked: the live gates need real-price paper trades, not a replay.
 
 ## The live-unlock rules (real money stays locked until all pass)
 
 Per Orbit arm, on the desk's own closed trades on real prices, after costs (`strategy_lab.py`):
-1. **Proof**: at least 50 chosen trades, win rate 60% or more, profit factor 1.35 or more, drawdown 8% or less of the
-   arm's sleeve. Practice-quota trades never count.
-2. **Sim vs real**: the arm's sim win rate and real-price win rate differ by less than 8 points.
+1. **Proof**: at least 50 chosen trades, profit factor 1.35 or more, drawdown 8% or less of the arm's sleeve, and
+   win rate 60% or more, OR win rate 42% or more with a payoff ratio (average win / average loss, worked out as PF x (1 - win) / win)
+   of 1.85 or more.
+   mina chose the payoff route on 25 Nov 2026 because the trend anchor wins less often but its winners are about
+   twice its losers. Practice-quota trades never count.
+2. **Sim vs real**: the arm's sim win rate and real-price win rate differ by 15 points or less (mina raised it
+   from 8 on 25 Nov 2026).
 3. **Owner sign-off**: mina says "sign off <arm>" to JARVIS (only accepted when gates 1 and 2 pass).
 Then the Demo/Live switch on /account, live keys on Render, and typing GO LIVE. Every real-money order still needs
 mina's approval. JARVIS and Mini-JARVIS can read the gates but can never unlock them.
