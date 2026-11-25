@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 ENABLED = True  # STATE_STORE=off: JSON memory files only
@@ -39,11 +40,17 @@ class DeskStateStore:
                          " payload TEXT NOT NULL)")
             conn.execute("CREATE INDEX IF NOT EXISTS snap_ns ON snapshots (namespace, saved)")
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self):
+        """One transaction on a connection that is always closed afterwards (Windows locks an open file)."""
         conn = sqlite3.connect(self.db_path, timeout=10)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        return conn
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            with conn:  # commit on success, roll back on error
+                yield conn
+        finally:
+            conn.close()
 
     def journal_mode(self) -> str:
         with self._connect() as conn:
