@@ -1,0 +1,25 @@
+name: atas add-on
+
+# Checks the ATAS add-on (JarvisFeed.cs) still compiles, against a stand-in for the ATAS API, and that the
+# Mac installer script is valid shell. The real build runs on the owner's computer via the One account installer.
+on:
+  push:
+    branches: [main]
+    paths: ["trading/atas_install/**", "tools/atas/**", ".github/workflows/atas.yml"]
+  pull_request:
+    paths: ["trading/atas_install/**", "tools/atas/**", ".github/workflows/atas.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - run: dotnet build tools/atas/stub/check.csproj -nologo
+      - run: bash -n trading/atas_install/install.sh

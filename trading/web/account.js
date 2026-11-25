@@ -81,7 +81,12 @@
     const state = { off: 'OFF', waiting: 'WAITING FOR ATAS', live: 'LIVE', stale: 'STALE' }[a.state] || a.state;
     const head = el('div'); head.append(tag(state, a.state === 'live' ? 'demo' : a.state === 'stale' ? 'live' : '').node); box.append(head);
     if (a.help) box.append(el('div', 'small', a.help));
-    if (a.state === 'waiting') box.append(el('div', 'small', 'Open ATAS on your computer with the JarvisFeed indicator on a chart. Bars appear here within a minute.'));
+    if (a.state === 'waiting') {
+      box.append(el('div', 'small', a.installed
+        ? `Add-on installed on your ${a.installed.system === 'windows' ? 'Windows PC' : a.installed.system === 'mac' ? 'Mac' : 'computer'}. Now open ATAS, add JarvisFeed (ATS Matrix) to a chart and bars appear here within a minute.`
+        : 'Not connected yet. Use Connect ATAS below: three steps, about two minutes.'));
+    }
+    $('atas-connect').hidden = a.state === 'live';
     if (a.books.length) {
       box.append(table(['Symbol', 'Close', 'Delta', 'Cum delta', 'POC'], a.books.map((b) => {
         const l = b.last || {};
@@ -91,6 +96,32 @@
     }
     if (a.account) box.append(el('div', 'small', `ATAS account ${a.account.name}: balance ${money(a.account.balance)}, open P&L ${money(a.account.open_pnl)}`));
   }
+
+  // Connect ATAS: a fresh 30-minute install line for the Mac or Windows computer with ATAS on it.
+  let lines = null; let os = /Win/.test(navigator.platform || navigator.userAgent) ? 'windows' : 'mac';
+  function showLine() {
+    $('os-mac').className = os === 'mac' ? 'on' : ''; $('os-win').className = os === 'windows' ? 'on' : '';
+    $('atas-line').textContent = lines ? lines[os] : '';
+    $('atas-note').textContent = lines ? `Works for ${lines.minutes} minutes. ${os === 'mac' ? 'Open Terminal (Cmd+Space, type Terminal), paste, press Enter.' : 'Open PowerShell (Start, type PowerShell), paste, press Enter.'} Safe to run again later to update.` : '';
+  }
+  $('atas-go').addEventListener('click', async () => {
+    $('atas-go').disabled = true;
+    try {
+      const r = await fetch('/api/atas/install', { cache: 'no-store' });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'could not make the install line');
+      lines = j; $('atas-lines').hidden = false; showLine();
+    } catch (e) { $('atas-lines').hidden = false; $('atas-line').textContent = ''; $('atas-note').textContent = String(e.message || e); }
+    $('atas-go').disabled = false; $('atas-go').textContent = 'New install line';
+  });
+  $('os-mac').addEventListener('click', () => { os = 'mac'; showLine(); });
+  $('os-win').addEventListener('click', () => { os = 'windows'; showLine(); });
+  $('atas-copy').addEventListener('click', async () => {
+    if (!lines) return;
+    try { await navigator.clipboard.writeText(lines[os]); $('atas-copy').textContent = 'Copied'; }
+    catch (e) { const r = document.createRange(); r.selectNodeContents($('atas-line')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); $('atas-copy').textContent = 'Selected'; }
+    setTimeout(() => { $('atas-copy').textContent = 'Copy'; }, 2000);
+  });
 
   async function load() {
     try {

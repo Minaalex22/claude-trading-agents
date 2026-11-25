@@ -4,31 +4,27 @@ ATAS has no cloud API, so this small indicator runs inside ATAS on your computer
 bar's order flow (delta, cumulative delta, volume, POC, big trades) to the app. It only sends data; it never
 places orders. The app shows it on **One account** and feeds big trades into Atlas's order-flow check.
 
-## What you do (once)
+## What you do (once, about two minutes)
 
-1. **Render**: open the ats-matrix-6la7 service > Environment > add `ATAS_TOKEN` with 32 or more random
-   characters (for example, a password manager's "generate" button). Save. Render redeploys.
-2. **Build the indicator** (Windows, where ATAS runs):
-   - Install the free *Visual Studio Community* with ".NET desktop development".
-   - New project > *Class Library* (.NET 8). Add references to `ATAS.Indicators.dll` and
-     `Utils.Common.dll` from the ATAS install folder (usually `C:\Program Files (x86)\ATAS Platform`).
-   - Replace the code with `JarvisFeed.cs`, Build. Copy the `.dll` from `bin\Release` to
-     `Documents\ATAS\Indicators`.
-3. **ATAS**: restart, open a chart (any symbol and timeframe, 1 minute is good), Indicators > *JarvisFeed (ATS Matrix)*.
-   Paste the same token into **Token**. Leave **App URL** as `https://ats-matrix-6la7.onrender.com`.
-4. Open **One account** in the app. The ATAS box turns **LIVE** within a bar or two.
+1. In the app open **One account** and tap **Connect ATAS**. Copy the line for your computer (Mac or Windows).
+2. Paste it in **Terminal** (Mac) or **PowerShell** (Windows) and press Enter. It finds your ATAS (ATAS X on a Mac,
+   classic ATAS or ATAS X on Windows), gets Microsoft's free .NET builder if needed, builds the indicator against
+   your own ATAS, copies it into the ATAS indicators folder and saves the app link and token in `~/.jarvisfeed/config`.
+3. In ATAS open a chart (1 minute is good), **Indicators**, add **JarvisFeed (ATS Matrix)**, OK. Nothing to type.
+   The ATAS box on One account turns **LIVE** within a minute or two.
 
-Put it on each chart you want the agents to see (one symbol per chart). ATAS must be open for data to flow.
+No Render setup is needed: without `ATAS_TOKEN`, the feed token is derived from `DASHBOARD_PASSWORD` (if you change
+that password, run the install line again). The install line works for 30 minutes and never contains the password.
+The indicator source is `trading/atas_install/JarvisFeed.cs`; the installer scripts sit next to it.
 
 ## If it does not show up
-- ATAS box says **OFF**: `ATAS_TOKEN` isn't set on Render (or is shorter than 32 characters).
-- Says **WAITING**: the indicator isn't sending. Check the token matches exactly, and the chart is getting data.
-- The code was written against the public ATAS indicator API but couldn't be compiled here (no ATAS in the
-  cloud). If Visual Studio shows an error, send a screenshot and it gets fixed.
+- ATAS box says **OFF**: neither `DASHBOARD_PASSWORD` nor `ATAS_TOKEN` is set on Render.
+- Says **WAITING**: the indicator isn't on a chart yet, or the chart has no data. Run the install line again if you changed the password.
+- If the installer says the build failed, send a screenshot of the lines it prints and it gets fixed.
 
 ## Test without ATAS
 ```
 curl -X POST https://ats-matrix-6la7.onrender.com/api/atas/feed \
-  -H "Authorization: Bearer YOUR_ATAS_TOKEN" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $(grep token ~/.jarvisfeed/config | cut -d= -f2)" -H "Content-Type: application/json" \
   -d '{"symbol":"ES","timeframe":"M1","bar":{"time":"t1","close":5000,"volume":1200,"delta":150}}'
 ```

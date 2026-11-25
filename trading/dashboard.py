@@ -591,7 +591,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
 
     account_page = _read("account.html")  # one account: every platform, desk and ATAS together
     atas = atas_feed.AtasFeed()
-    atas_token = env.get("ATAS_TOKEN", "")
+    atas_token = atas_feed.token(env)  # ATAS_TOKEN, or one derived from DASHBOARD_PASSWORD
+    atas_codes = atas_feed.InstallCodes()
     mode_switch = one_account.ModeSwitch(hub.events_dir)
     broker_cache: dict = {}  # MT5 / eToro reads, kept 20 seconds so the page and order checks don't hammer them
 
@@ -744,6 +745,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 if not self._bridge_authed():
                     return self._json(401, {"error": "bridge token required"})
                 self._json(200, {"order": live_orders.next_for_bridge(hub.events_dir)})
+            elif path in ("/atas/install.sh", "/atas/install.ps1"):
+                self._atas_installer(path)
             elif path == "/login":
                 if not auth.enabled or self._authed():
                     return self._redirect("/news")  # News is the first page
@@ -896,6 +899,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._json(200, one_view())
             elif path == "/api/atas":
                 self._json(200, atas.status(env))
+            elif path == "/api/atas/install":
+                self._atas_install_line()
             elif path == "/wallet":
                 self._send(200, wallet_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/wallet":
@@ -1081,6 +1086,8 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._orderflow_trades(raw)
             if path == "/api/atas/feed":
                 return self._atas_feed(raw)
+            if path == "/api/atas/hello":
+                return self._atas_hello(raw)
             if path in ("/api/account/mode", "/api/account/order"):
                 return self._account_post(path, raw)
             if path == "/api/mt5/order":
@@ -1351,11 +1358,52 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
             self._json(200, {"calls": [{"market": c.market, "direction": c.direction,
                                         "confidence": c.confidence} for c in calls]})
 
+        def _atas_token_ok(self) -> bool:
+            sent = self.headers.get("Authorization", "")
+            return atas_feed.enabled(env) and hmac.compare_digest(sent.encode(), f"Bearer {atas_token}".encode())
+
+        def _atas_url(self) -> str | None:
+            return atas_feed.app_url(self.headers.get("X-Forwarded-Host") or self.headers.get("Host"),
+                                     self.headers.get("X-Forwarded-Proto"))
+
+        def _atas_install_line(self):
+            """Signed in: a fresh 30-minute code and the one line to paste on the Mac or Windows computer with ATAS."""
+            url = self._atas_url()
+            if not atas_feed.enabled(env) or not url:
+                return self._json(409, {"error": "the ATAS feed is off: set DASHBOARD_PASSWORD or ATAS_TOKEN on Render"})
+            code = atas_codes.issue()
+            self._json(200, {"code": code, "minutes": atas_feed.CODE_SECONDS // 60,
+                             "mac": f"curl -fsSL '{url}/atas/install.sh?c={code}' | bash",
+                             "windows": f"powershell -ExecutionPolicy Bypass -c \"irm '{url}/atas/install.ps1?c={code}' | iex\""},
+                       )
+
+        def _atas_installer(self, path: str):
+            """The installer script itself, for a valid install code (no sign-in: the code is the pass)."""
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            url = self._atas_url()
+            if not (atas_feed.enabled(env) and url and atas_codes.valid(query.get("c", [""])[0])):
+                msg = "echo 'This install line has expired. Open One account in the app and copy a fresh one.'\n"
+                return self._send(403, msg.encode(), "text/plain; charset=utf-8", {"Cache-Control": "no-store"})
+            kind = "sh" if path.endswith(".sh") else "ps1"
+            try:
+                body = atas_feed.installer(kind, url, atas_token)
+            except atas_feed.FeedError as e:
+                return self._send(500, f"echo '{e}'\n".encode(), "text/plain; charset=utf-8")
+            self._send(200, body.encode(), "text/plain; charset=utf-8", {"Cache-Control": "no-store"})
+
+        def _atas_hello(self, raw: bytes):
+            """The installer saying it finished on the owner's computer, so One account can say "now add it to a chart"."""
+            if not self._atas_token_ok():
+                return self._json(401, {"error": "ATAS token required"})
+            try:
+                body = json.loads(raw or b"null")
+            except ValueError:
+                body = None
+            self._json(200, {"ok": True, **atas.say_hello(body)})
+
         def _atas_feed(self, raw: bytes):
             """One bar summary from the JarvisFeed indicator inside ATAS. Bearer ATAS_TOKEN (32+ characters)."""
-            sent = self.headers.get("Authorization", "")
-            token_ok = atas_feed.enabled(env) and hmac.compare_digest(sent.encode(), f"Bearer {atas_token}".encode())
-            if not (token_ok or self._authed()):
+            if not (self._atas_token_ok() or self._authed()):
                 return self._json(401, {"error": "ATAS token required (ATAS_TOKEN on Render, same value in the indicator)"})
             try:
                 body = json.loads(raw or b"null")
