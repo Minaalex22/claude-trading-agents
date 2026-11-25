@@ -429,6 +429,7 @@ class Jarvis:
         self.enabled = True
         self.brain = brain or BuiltinBrain()
         self.mini = None  # the fast Mini-JARVIS brain, set by the dashboard (trading/jarvis_mini.py)
+        self.grok = None  # Mini-JARVIS on Grok (trading/grok.py), set by the dashboard when XAI_API_KEY is on
         self.clock = clock
         self.ttl = int(unlock_hours * 3600)
         self.store = store
@@ -494,7 +495,7 @@ class Jarvis:
 
     def status(self, unlocked: bool) -> dict:
         return {"enabled": self.enabled, "unlocked": unlocked, "brain": self.brain.name,
-                "fast_brain": getattr(self.mini, "name", None),
+                "fast_brain": getattr(self.mini, "name", None), "grok_brain": self.grok is not None,
                 "needs_passphrase": self.needs_passphrase, "needs_setup": self.needs_setup, "reason": None}
 
     def check_passphrase(self, attempt: str) -> bool:

@@ -71,3 +71,5 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY   # optional: gives JARVIS and the reading room (news + chart reads) a Claude brain
         sync: false
+      - key: XAI_API_KEY         # optional: Grok reads X per market, second opinion on /decision, JARVIS fast mode
+        sync: false

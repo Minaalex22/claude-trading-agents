@@ -200,4 +200,26 @@ async function load() {
   seen = total;
   render();
 }
+// ---------- Grok: X crowd reads (trading/grok.py) ----------
+async function loadGrok() {
+  let g;
+  try { const r = await fetch("/api/grok", {cache: "no-store"}); if (!r.ok) return; g = await r.json(); } catch (e) { return; }
+  $("#g-on").textContent = g.on ? "ON" : "OFF";
+  $("#g-run").disabled = !g.on || (g.replay && g.replay.state === "running");
+  const ls = g.live_score || {};
+  $("#g-hit").textContent = ls.checked ? `${pct(ls.hit_rate)} of ${ls.checked}` : (g.on ? `scoring after ${ls.score_hours || 4}h` : "–");
+  $("#g-calls").textContent = g.client ? `${g.client.calls_today} / ${g.client.daily_cap}` : "–";
+  const rp = g.replay || {};
+  $("#g-replay").textContent = rp.state === "done" ? `${pct(rp.hit_rate)} of ${rp.votes}` : (rp.state || "not run");
+  $("#g-pulses").innerHTML = (g.pulses || []).map(p => `<tr><td>${esc(p.symbol)}</td><td class="r ${p.lean > 0 ? "up" : p.lean < 0 ? "dn" : ""}">${(p.lean > 0 ? "+" : "") + Number(p.lean).toFixed(2)}</td><td class="r">${pct(p.confidence)}</td><td>${esc(p.why)}</td><td class="hide-s">${esc(p.tag)}</td></tr>`).join("")
+    || `<tr><td colspan="5">${g.on ? "First X reads arrive within a few minutes." : "No reads: Grok is off."}</td></tr>`;
+  $("#g-note").textContent = !g.on ? g.how : rp.state === "done" ? `Replay verdict: ${rp.verdict}. Following Grok's daily lean: ${rp.follow_pnl_pct > 0 ? "+" : ""}${rp.follow_pnl_pct}% over ${rp.votes} votes.` + (g.weight != null ? ` /decision weight now ${g.weight}.` : "") : g.how;
+}
+$("#g-run").addEventListener("click", async () => {
+  $("#g-run").disabled = true;
+  try { await fetch("/api/grok/replay", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({days: 20})}); } catch (e) { /* shown on next load */ }
+  loadGrok();
+});
+loadGrok(); setInterval(loadGrok, 30000);
+
 load(); setInterval(load, 3000); pump();
