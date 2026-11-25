@@ -18,6 +18,20 @@ class SameDesignEverywhere(unittest.TestCase):
             self.assertIn('<script src="/nav.js"></script>', html, p.name)
             self.assertIn('href="/theme.css"', html, p.name)
 
+    def test_motion_layer_on_every_page(self):
+        """The 3D motion theme (fx3d.css last, fx3d.js after the menu) is on every page."""
+        for p in PAGES:
+            html = p.read_text(encoding="utf-8")
+            self.assertIn('<script src="/fx3d.js" defer></script>', html, p.name)
+            links = re.findall(r'<link rel="stylesheet" href="([^"]+)">', html)
+            self.assertEqual(links[-1], "/fx3d.css", p.name)
+
+    def test_motion_layer_has_no_inline_styles(self):
+        """The CSP blocks style="" attributes, so the script must set colours through the CSSOM."""
+        js = (WEB / "fx3d.js").read_text(encoding="utf-8")
+        self.assertNotIn('style="', js)
+        self.assertIn("prefers-reduced-motion", js)
+
     def test_every_page_has_a_title_except_market_detail(self):
         for p in PAGES:
             if p.stem == "market":  # the product name is its title
