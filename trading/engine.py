@@ -23,6 +23,8 @@ Configured with environment variables so the same image runs as any shard:
   READING_ROOM_PREFILTER "off": ask Claude about every headline, even ones the free word list is sure of (default on)
   VOL_SIZING    "off": flat dollar limits only; on (default) a symbol's position is also capped so its stop loses at most
                 VOL_RISK_PCT of equity (default 0.0075 = 0.75%; trading/ops_guard.py)
+  CORRELATION_GUARD "off": no net-USD cap (on: new desk risk is blocked when forex, gold, shares and crypto
+                together would put more than 2.5% of equity on the dollar; trading/correlation_guard.py)
   TEAM_RELAY "off": the old blind parallel vote instead of the Sage -> Sentinel -> Atlas relay on one shared
                 blackboard (trading/team_relay.py; default on)
   BROKER_DRIFT "off": live desk skips the broker parity check (no new risk when Mitrade's mid is >0.15% from the
@@ -235,7 +237,8 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
         room.prefilter = env.get("READING_ROOM_PREFILTER", "on").lower() not in ("off", "0", "false", "no")
     from . import execution_guard, indicators
     execution_guard.ENABLED = env.get("PASSIVE_ENTRIES", "on").lower() not in ("off", "0", "false", "no")
-    from . import team_relay
+    from . import correlation_guard, team_relay
+    correlation_guard.ENABLED = env.get("CORRELATION_GUARD", "on").lower() not in ("off", "0", "false", "no")
     team_relay.ENABLED = env.get("TEAM_RELAY", "on").lower() not in ("off", "0", "false", "no")
     execution_guard.DRIFT_CHECK = env.get("BROKER_DRIFT", "on").lower() not in ("off", "0", "false", "no")
     indicators.ENABLED = env.get("INDICATOR_CACHE", "on").lower() not in ("off", "0", "false", "no")
@@ -275,12 +278,17 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
                 return
             if promotion_gate and not strategy_lab.promoted(events_dir, symbol):
                 return  # its arm hasn't passed the 3-gate live-promotion check (trading/strategy_lab.py)
+            from . import exits as exit_rules_
+            stop = price - exit_rules_.risk_unit(desk.price_hist[symbol]) if qty > 0 else None
             order = live_orders.propose(Path(events_dir), symbol, "buy" if qty > 0 else "sell", price,
-                                        json.dumps(why, default=str)[:300], limits_live)
+                                        json.dumps(why, default=str)[:300], limits_live, stop_price=stop)
             if order:
                 log.emit("live_proposal", **{k: order[k] for k in ("id", "symbol", "side", "qty", "price")})
                 alerts.proposal(order)
         desk.on_order = mirror
+        # Boot reconciliation: stale approvals expire; orders sent but never reported block their symbol until the
+        # bridge reports the broker's real positions. The paper desk itself starts flat with no resting limits.
+        log.emit("reconcile", **live_orders.reconcile_on_boot(Path(events_dir)))
     memory_dir = env.get("MEMORY_DIR") or events_dir
     memory_path = (Path(memory_dir) / f"memory-{shard_id}.json"
                    if memory_dir and env.get("MEMORY", "on").lower() not in ("off", "0", "false", "no") else None)

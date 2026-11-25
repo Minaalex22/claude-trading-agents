@@ -65,6 +65,7 @@ class MasterDeskPipeline:
         from .night_shift import TokenOrAssetAudit, asset_class
 
         dt = now_utc or datetime.now(timezone.utc)
+        dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)  # naive replay times are UTC
         now = dt.timestamp()
         side = 1.0 if ctx.side.upper() == "BUY" else -1.0
         trace: list[dict] = []

@@ -73,7 +73,9 @@ def _bar_seconds(timeframe: str) -> float:
 def check_feed_and_rollover_health(health: TickHealth, now_utc: datetime | None = None,
                                    max_spread_to_atr: float = MAX_SPREAD_TO_ATR) -> tuple[bool, str]:
     dt = now_utc or datetime.now(timezone.utc)
-    age = (dt - health.last_bar_utc).total_seconds()
+    dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)  # naive replay times are UTC
+    last = health.last_bar_utc if health.last_bar_utc.tzinfo else health.last_bar_utc.replace(tzinfo=timezone.utc)
+    age = (dt - last).total_seconds()
     if age > 2 * _bar_seconds(health.timeframe) + 300:  # 2 bars plus 5 minutes of feed slack
         return False, f"stale_feed_block ({health.symbol} last bar {age / 60:.0f}m old)"
     why = rollover_blocked(health.symbol, dt)

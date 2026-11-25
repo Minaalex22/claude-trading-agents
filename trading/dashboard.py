@@ -1076,6 +1076,14 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 return self._send(403, b'{"error":"cross-site request refused"}', "application/json")
             if path == "/api/bridge/result":
                 return self._bridge_result(raw)
+            if path == "/api/bridge/positions":
+                if not self._bridge_authed():
+                    return self._json(401, {"error": "bridge token required"})
+                try:
+                    pos = json.loads(raw or b"null")["positions"]
+                    return self._json(200, {"positions": live_orders.sync_positions(hub.events_dir, dict(pos))})
+                except (ValueError, KeyError, TypeError, AttributeError) as e:
+                    return self._json(400, {"error": str(e)})
             if path == "/api/live/decide":
                 return self._live_decide(raw)
             if path == "/logout":
