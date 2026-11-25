@@ -205,6 +205,12 @@ class WhaleBridge:
                              else "UW rate limit hit" if code == 429 else f"{type(e).__name__}")
             return []
         rows = res.get("data", []) if isinstance(res, dict) else res if isinstance(res, list) else []
+        out = self.parse_and_ingest_alerts(rows)
+        self.last.update(state="live", error=None, at=self.clock(), ingested=len(out))
+        return out
+
+    def parse_and_ingest_alerts(self, rows: list) -> list[dict]:
+        """Turn UW alert rows into prints, skip ones already seen, feed the rest. No network here."""
         out = []
         for row in rows:
             if not isinstance(row, dict):
@@ -225,7 +231,6 @@ class WhaleBridge:
             cut = sorted(self.seen.values())[-2000]
             self.seen = {k: v for k, v in self.seen.items() if v >= cut}
         self.total += len(out)
-        self.last.update(state="live", error=None, at=self.clock(), ingested=len(out))
         return out
 
     def status(self) -> dict:

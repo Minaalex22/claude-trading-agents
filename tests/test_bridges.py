@@ -86,5 +86,19 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(b.calls, 1)
 
 
+
+
+class ParseAndIngestTests(unittest.TestCase):
+    def test_parse_and_ingest_without_network(self):
+        feed = F.FlowFeed()
+        b = W.WhaleBridge({"UW_API_TOKEN": "t"}, feed=feed, folder="")
+        rows = [alert(id="x1", option_chain="SPXW%sC06700000" % datetime.now(W.NY).strftime("%y%m%d")),
+                alert(id="x2", total_premium="1000000")]
+        out = b.parse_and_ingest_alerts(rows)
+        self.assertEqual([o["underlying"] for o in out], ["SPX"])
+        self.assertEqual(out[0]["bias"], "BULLISH")
+        self.assertEqual(b.parse_and_ingest_alerts(rows), [])  # already seen
+
+
 if __name__ == "__main__":
     unittest.main()
