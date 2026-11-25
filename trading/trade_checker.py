@@ -82,6 +82,7 @@ class TradeChecker:
                 try:
                     if self.path.exists() and self.path.stat().st_size > MAX_LOG_BYTES:
                         os.replace(self.path, self.path.with_name("desk_audit.1.jsonl"))
+                    self.path.parent.mkdir(parents=True, exist_ok=True)
                     with self.path.open("a", encoding="utf-8") as f:
                         f.write(json.dumps(row) + "\n")
                 except OSError:

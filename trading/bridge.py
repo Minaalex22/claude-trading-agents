@@ -78,6 +78,15 @@ class MoomooBroker:
             raise RuntimeError(f"moomoo refused the order: {data}")
         return {"order_id": str(data["order_id"][0]), "limit": limit}
 
+    def place_stop(self, symbol: str, qty: int, stop: float) -> dict:
+        """A sell stop resting at moomoo: it triggers at the broker, not in Python."""
+        ret, data = self.ctx.place_order(price=round(stop, 2), qty=qty, code=f"US.{symbol}",
+                                         trd_side=self.mm.TrdSide.SELL, order_type=self.mm.OrderType.STOP,
+                                         aux_price=round(stop, 2), trd_env=self.env_)
+        if ret != self.mm.RET_OK:
+            raise RuntimeError(f"moomoo refused the stop: {data}")
+        return {"order_id": str(data["order_id"][0])}
+
     def positions(self) -> dict:
         ret, data = self.ctx.position_list_query(trd_env=self.env_)
         if ret != self.mm.RET_OK:
@@ -98,6 +107,8 @@ class Bridge:
         self.log = log
         self.spent: dict[str, float] = {}  # UTC day -> dollars bought
         self.placed: dict[str, int] = {}  # UTC day -> orders placed
+        self.pending_stops: dict[str, tuple[int, float]] = {}  # symbol -> (qty, stop) to rest once the buy fills
+        self.synced = False
 
     def _http(self, method: str, path: str, body: dict | None = None) -> dict:
         req = urllib.request.Request(self.url + path, method=method,
@@ -107,9 +118,40 @@ class Bridge:
         with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310 (the owner's own app)
             return json.loads(resp.read() or b"{}")
 
+    def sync(self) -> dict | None:
+        """At start: tell the app what the broker really holds, so a restart never doubles or orphans a position."""
+        try:
+            positions = self.broker.positions()
+        except RuntimeError:
+            return None
+        self.http("POST", "/api/bridge/positions", {"positions": positions})
+        self.synced = True
+        return positions
+
+    def rest_stops(self, positions: dict | None) -> None:
+        """Broker-side protection: once a buy shows in the broker's positions, rest its stop there, so it holds even
+        if this computer or the app goes offline."""
+        for symbol, (qty, stop) in list(self.pending_stops.items()):
+            held = int((positions or {}).get(symbol, 0))
+            if held <= 0:
+                continue
+            try:
+                placed = self.broker.place_stop(symbol, min(qty, held), stop)
+                self.log(f"stop resting at the broker: sell {min(qty, held)} {symbol} at {stop} ({placed['order_id']})")
+                del self.pending_stops[symbol]
+            except (RuntimeError, AttributeError) as e:
+                self.log(f"WARNING: could not rest the stop for {symbol} at the broker: {e}")
+
     def once(self) -> str:
         if self.kill_path.exists() or self.kill_path.with_name("STOP_TRADING").exists():
             return "kill switch on"
+        if not self.synced:
+            self.sync()
+        if self.pending_stops:
+            try:
+                self.rest_stops(self.broker.positions())
+            except RuntimeError:
+                pass
         order = self.http("GET", "/api/bridge/next").get("order")
         if not order:
             return "idle"
@@ -120,6 +162,8 @@ class Bridge:
             self.placed[day] = self.placed.get(day, 0) + 1
             if order["side"] == "buy":
                 self.spent[day] = self.spent.get(day, 0.0) + order["qty"] * order["price"]
+                if order.get("stop_price"):
+                    self.pending_stops[order["symbol"]] = (int(order["qty"]), float(order["stop_price"]))
             ok, detail = True, f"placed {'real' if self.broker.real else 'paper'} order {placed['order_id']} " \
                                f"limit {placed['limit']}"
         except (Refused, RuntimeError, KeyError) as e:
@@ -128,6 +172,7 @@ class Bridge:
             positions = self.broker.positions()
         except RuntimeError:
             positions = None
+        self.rest_stops(positions)
         self.http("POST", "/api/bridge/result", {"id": order["id"], "ok": ok, "detail": detail,
                                                   "filled_qty": order["qty"] if ok else 0,
                                                   "fill_price": order["price"] if ok else None,

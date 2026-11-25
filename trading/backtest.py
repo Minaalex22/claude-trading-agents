@@ -29,6 +29,27 @@ SLIPPAGE_BPS = 2.0
 YEAR_SECONDS = 365 * 86_400
 
 
+def normalize_bar(row: dict) -> dict:
+    """One replay bar with lowercase keys (Open/High/Low/Close/Datetime -> open/high/low/close/timestamp) and a
+    timezone-aware UTC timestamp, whatever the CSV or parquet export used."""
+    from datetime import datetime, timezone
+    bar = {str(k).strip().lower(): v for k, v in row.items()}
+    for alias in ("datetime", "date", "time", "ts"):
+        if "timestamp" not in bar and alias in bar:
+            bar["timestamp"] = bar.pop(alias)
+    t = bar.get("timestamp")
+    if isinstance(t, (int, float)):
+        t = datetime.fromtimestamp(t / 1000 if t > 1e11 else t, timezone.utc)
+    elif isinstance(t, str) and t:
+        t = datetime.fromisoformat(t.strip().replace("Z", "+00:00"))
+    if isinstance(t, datetime):
+        bar["timestamp"] = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+    for k in ("open", "high", "low", "close", "volume"):
+        if k in bar and bar[k] not in (None, ""):
+            bar[k] = float(bar[k])
+    return bar
+
+
 class HistoricalMarket:
     """Drop-in for SimulatedMarket: tick() returns the next bar's closes. `drift` is empty (no hidden truth)."""
 

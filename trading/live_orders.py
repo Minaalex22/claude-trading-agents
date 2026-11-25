@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 PROPOSAL_TTL = 300.0
+STALE_SENT = 600.0  # a 'sent' order with no result after 10 minutes is unconfirmed until the broker says
 KEEP = 200  # finished orders kept for the record
 _lock = threading.Lock()
 
@@ -150,7 +151,7 @@ def _expire(data: dict, now: float) -> None:
 
 
 def propose(events_dir: Path, symbol: str, side: str, price: float, why: str, limits: Limits,
-            clock=time.time) -> dict | None:
+            clock=time.time, stop_price: float | None = None) -> dict | None:
     """Turn one desk order into a capped real-money proposal, or None if it doesn't qualify."""
     symbol = symbol.upper()
     if not limits.on or symbol not in limits.symbols or side not in ("buy", "sell") or not price > 0:
@@ -159,9 +160,12 @@ def propose(events_dir: Path, symbol: str, side: str, price: float, why: str, li
     with _lock:
         data = load(events_dir)
         _expire(data, now)
-        if any(o["symbol"] == symbol and o["status"] in ("proposed", "approved", "sent") for o in data["orders"]):
-            return None  # one open order per symbol
+        if any(o["symbol"] == symbol and o["status"] in ("proposed", "approved", "sent", "unconfirmed")
+               for o in data["orders"]):
+            return None  # one open order per symbol (an unconfirmed one blocks until the broker reports)
         held = int(data["positions"].get(symbol, 0))
+        if side == "buy" and held > 0:
+            return None  # already holding it at the broker: never a second entry (e.g. after a restart)
         qty = int(limits.max_order // price) if side == "buy" else held
         if qty <= 0 or (side == "buy" and spent_today(data, now) + qty * price > limits.max_day):
             return None
@@ -171,11 +175,51 @@ def propose(events_dir: Path, symbol: str, side: str, price: float, why: str, li
             return None
         order = {"id": secrets.token_hex(6), "symbol": symbol, "side": side, "qty": qty, "price": round(price, 4),
                  "why": str(why)[:300], "status": "proposed", "proposed_at": now}
+        if side == "buy" and stop_price and 0 < stop_price < price:
+            order["stop_price"] = round(stop_price, 4)  # the bridge rests this stop at the broker once filled
         data["orders"].append(order)
         _save(events_dir, data)
         audit(events_dir, "proposed", order, clock, why=order["why"],
               limits={"max_order": limits.max_order, "max_day": limits.max_day})
         return order
+
+
+def reconcile_on_boot(events_dir: Path, clock=time.time) -> dict:
+    """At startup: expire approvals that went stale while we were down, and mark orders that were sent but never
+    reported as unconfirmed (they block that symbol until the bridge reports the broker's positions)."""
+    now = clock()
+    out = {"expired": 0, "unconfirmed": 0, "positions": {}}
+    with _lock:
+        data = load(events_dir)
+        before = {o["id"]: o["status"] for o in data["orders"]}
+        _expire(data, now)
+        for o in data["orders"]:
+            if o["status"] == "approved" and now - o.get("approved_at", now) > PROPOSAL_TTL:
+                o["status"] = "expired"
+            if o["status"] == "sent" and now - o.get("sent_at", now) > STALE_SENT:
+                o["status"] = "unconfirmed"
+                out["unconfirmed"] += 1
+                audit(events_dir, "unconfirmed", o, clock)
+        out["expired"] = sum(1 for o in data["orders"] if o["status"] == "expired" and before.get(o["id"]) != "expired")
+        out["positions"] = dict(data["positions"])
+        _save(events_dir, data)
+    return out
+
+
+def sync_positions(events_dir: Path, positions: dict, clock=time.time) -> dict:
+    """The broker's own positions (the bridge sends them at start and on every result). Clears unconfirmed orders:
+    the broker's book is the truth."""
+    with _lock:
+        data = load(events_dir)
+        data["positions"] = {str(k).upper(): int(v) for k, v in positions.items() if int(v)}
+        for o in data["orders"]:
+            if o["status"] == "unconfirmed":
+                o["status"] = "filled" if data["positions"].get(o["symbol"]) else "failed"
+                o["detail"] = "reconciled with the broker's positions after a restart"
+                audit(events_dir, o["status"], o, clock, detail=o["detail"])
+        data["positions_synced_at"] = clock()
+        _save(events_dir, data)
+        return dict(data["positions"])
 
 
 def decide(events_dir: Path, order_id: str, approve: bool, limits: Limits, clock=time.time, by: str = "owner") -> dict:
