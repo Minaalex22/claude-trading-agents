@@ -28,9 +28,10 @@ jobs:
       # Both Mac installers come from one Mac job, built one after the other (separate runs, so the two .dmg
       # builds never mount "/Volumes/JARVIS Trading" at the same time). One Mac job instead of two because
       # GitHub's Mac machines are often busy and a second Mac job can wait 15 minutes and get cancelled.
+      # Intel Mac machine: the Apple-chip pool kept cancelling jobs for lack of capacity; it still builds both.
       matrix:
         include:
-          - { name: mac, os: macos-latest, args: "--mac --x64", args2: "--mac --arm64" }
+          - { name: mac, os: macos-15-intel, args: "--mac --x64", args2: "--mac --arm64" }
           - { name: windows, os: windows-latest, args: "--win --x64", args2: "" }
     defaults:
       run:
