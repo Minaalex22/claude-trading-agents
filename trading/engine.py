@@ -48,6 +48,7 @@ Configured with environment variables so the same image runs as any shard:
   RSI2_SHARE    share of the Reversion department trading Larry Connors' RSI(2), 0..1 (default 0: tested, lower win rate)
   DUAL_BRAIN    "on" (default): each trader's slow half audits its fast half's setups (trading/dual_brain.py)
   CONSENSUS     "on" (default): desk drops whisper votes and weighs setups by sqrt(group size) (trading/desk.py)
+  TREND_ANCHOR  "on" (default): daily bars trade only with the 200-day trend and hold it (trading/trend_anchor.py)
   PULLBACK      "on" (default): new desk risk waits up to 2 bars for a 0.25 x bar-move pullback, no chasing
   BUCKET_SIZING "on" (default): each symbol's last 40 desk trades scale its size 0.25x-1.4x (risk limits still cap)
   EXEC_NEXT_BAR "on" (default): orders decided on a bar fill on the NEXT bar's real price plus half the spread and
@@ -204,6 +205,12 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     agent_rules.NEWS_SPLIT = on("NEWS_SPLIT")
     agent_rules.LEARN_ON_CLOSE = on("LEARN_ON_CLOSE")
     desk_rules.HORIZON_LOCK = on("HORIZON_LOCK")
+    from . import trend_anchor
+    trend_anchor.ENABLED = on("TREND_ANCHOR")
+    trend_anchor.BASE = float(env.get("TREND_ANCHOR_BASE", 0.75))
+    trend_anchor.BAND = float(env.get("TREND_ANCHOR_BAND", 0.25))
+    trend_anchor.EXTRA = float(env.get("TREND_ANCHOR_EXTRA", 1.0))
+    trend_anchor.REVIEW = env.get("TREND_ANCHOR_REVIEW", "day").lower()
     desk_rules.SIGNAL_THRESHOLD = float(env.get("SIGNAL_THRESHOLD", 0.72))
     from . import hooks as hook_rules
     hook_rules.DEAD_ZONE = on("DEAD_ZONE")

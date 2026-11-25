@@ -5,7 +5,7 @@ from collections import defaultdict, deque
 
 from . import agents as agents_mod
 
-from . import academy, accounts, coach as coaching, event_guard, execution_guard, master_pipeline, exits, hooks, indicators, review, sessions, smt_filter, sniper, team_relay
+from . import academy, accounts, coach as coaching, event_guard, execution_guard, master_pipeline, exits, hooks, indicators, review, sessions, smt_filter, sniper, team_relay, trend_anchor
 from . import execution_integrity as integrity, option_flows
 from .meta_gate import MetaGate
 from . import mind as mindmod
@@ -27,6 +27,7 @@ SIGNAL_THRESHOLD = 0.72  # mina: A+ multi-cluster calls only (was 0.5); env SIGN
 HORIZON_LOCK = True
 FAST_MAX_WINDOW = 20
 MIN_TRADE = 5000.0
+MIN_TRADE_SHARE = 0.25  # real bars: the floor is at most this share of the position being opened or closed
 PROVEN_MIN = 3  # proven agents needed on a symbol before their view counts
 LEADERBOARD_EVERY = 20
 ORG_EVERY = 5  # how often the managers report their departments
@@ -138,6 +139,10 @@ class Desk:
         self.hour_stats: dict[str, dict] = {}
         self.price_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=ROUTER_SLOW + 1))
         self.long_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=smt_filter.PARENT_X * 60 + 1))
+        # Trend anchor (trading/trend_anchor.py): the 200-bar average on daily bars, per symbol.
+        self.anchor_hist: dict[str, deque] = defaultdict(lambda: deque(maxlen=trend_anchor.LOOKBACK + 1))
+        self.anchor: dict[str, int] = {}
+        self.anchor_period: dict[str, str | None] = {}
         self.meta = MetaGate()  # walk-forward meta-label gate on desk entries (trading/meta_gate.py)
         self.regime: dict[str, str] = {}
         self.pipeline = None  # live feeds: a NewsPipeline whose sure, confirmed reads nudge the desk (engine)
@@ -159,7 +164,10 @@ class Desk:
         if now is not None and self.now is not None and now > self.now:
             self.bar_seconds = now - self.now
         self.now = now
-        self.clock = sessions.clock(now) if self.use_clock else None
+        # Session-of-day rules (Asia x0.75, weekend x0.5, open-fake waits) mean nothing on daily bars, whose time
+        # stamp is just the day's close: they only shrank every daily order below the floor.
+        daily = self.bar_seconds is not None and self.bar_seconds >= trend_anchor.DAILY
+        self.clock = sessions.clock(now) if self.use_clock and not daily else None
         if self.clock is not None:
             self.session_avg.update(self.clock, prices)
         for headline in headlines or ():
@@ -168,6 +176,7 @@ class Desk:
         for symbol, price in prices.items():
             self.price_hist[symbol].append(price)
             self.long_hist[symbol].append(price)
+            self.anchor_hist[symbol].append(price)
         exits.BAR_SECONDS = self.bar_seconds
         self.meta.update(prices)
         if self.beta:
@@ -268,6 +277,12 @@ class Desk:
                 score = 0.0
             if sniper.active(self.bar_seconds) and self.broker.position(symbol) * score <= 0 and abs(score) < sniper.bar():
                 score = 0.0  # sniper: opening (or flipping) needs 0.82; holding keeps the 0.5 bar
+            period = trend_anchor.period(self.now)
+            if not self.anchor.get(symbol) or self.anchor_period.get(symbol) != period:
+                self.anchor[symbol] = trend_anchor.direction(self.anchor_hist[symbol], self.bar_seconds)
+                self.anchor_period[symbol] = period
+            anchor = self.anchor[symbol] if trend_anchor.bars_for(self.bar_seconds) else 0
+            score = trend_anchor.apply(score, anchor)  # with the 200-day trend only, and held while it lasts
             if self.risk.killed:
                 score = 0.0  # kill switch: close everything
             orders += self._work_pending(symbol, prices, score)
@@ -280,13 +295,27 @@ class Desk:
                    if self.now is not None else self.risk.limits.max_position_value)
             if cap < self.risk.limits.max_position_value and score:
                 self.sizing["shrunk"] += 1
-            target_value = score * cap * self._bucket_mult(symbol) * self.orbit.heat(symbol)
+            if anchor:
+                # The anchor's base is its own sleeve at full cap; only the agents' extra conviction on top of it is
+                # scaled by the symbol's bucket record (a few choppy trims must not shrink the trend hold to dust).
+                target_value = trend_anchor.target(score, anchor, cap, self._bucket_mult(symbol)) * self.orbit.heat(symbol)
+            else:
+                target_value = score * cap * self._bucket_mult(symbol) * self.orbit.heat(symbol)
             desired = target_value / prices[symbol] - self.broker.position(symbol)
+            if anchor and not self.risk.killed and trend_anchor.hold(self.broker.position(symbol) * prices[symbol],
+                                                                     target_value):
+                continue  # already holding the trend at about the right size: no fee-churning rebalance
             if self._hurdle() and abs(target_value) > abs(self.broker.position(symbol) * prices[symbol]) \
                     and not self.risk.killed and not self._clears_costs(symbol):
                 self.checks["blocked"] += 1
                 continue  # not enough movement to pay the round trip: no new exposure (trims and exits still go)
-            if abs(desired * prices[symbol]) < self.min_trade and not (self.risk.killed and self.broker.position(symbol)):
+            # Smallest worthwhile order: MIN_TRADE, but on real bars never more than a quarter of the position being
+            # opened or closed. Volatile daily markets (crypto, TSLA) or a symbol cut to x0.25 by bucket sizing have
+            # targets under $5k, so a flat $5k floor meant they could never trade (crypto made 0 trades in 7 years).
+            floor = (min(self.min_trade, MIN_TRADE_SHARE * max(abs(target_value),
+                                                               abs(self.broker.position(symbol) * prices[symbol])))
+                     if self.now is not None else self.min_trade)
+            if abs(desired * prices[symbol]) < floor and not (self.risk.killed and self.broker.position(symbol)):
                 continue  # ignore tiny rebalances
             check = hooks.OrderCheck(symbol, desired, self.broker.position(symbol), prices[symbol],
                                      view=views.get(symbol), paused=symbol in self.managers.paused,
@@ -298,10 +327,10 @@ class Desk:
                                      now=self.now)
             desired, notes = hooks.run_hooks(check)
             if notes:
-                self.checks["blocked" if abs(desired * prices[symbol]) < self.min_trade else "shrunk"] += 1
+                self.checks["blocked" if abs(desired * prices[symbol]) < floor else "shrunk"] += 1
                 self.log.emit("check", symbol=symbol, wanted=round(check.qty, 4), allowed=round(desired, 4),
                               notes=notes)
-            if abs(desired * prices[symbol]) < self.min_trade and not (self.risk.killed and desired):
+            if abs(desired * prices[symbol]) < floor and not (self.risk.killed and desired):
                 continue
             if not self.risk.killed and self._adds_risk(symbol, desired):
                 why = self._quote_drift(symbol, prices[symbol]) or self._entry_gate(symbol, desired, prices, score)
@@ -318,7 +347,8 @@ class Desk:
                     view = views.get(symbol)
                     rec = self.checker.review(
                         symbol=symbol, qty=desired, price=prices[symbol], desk_score=score,
-                        threshold=self.signal_threshold, event_ok=ev_ok, event_reason=ev_reason,
+                        threshold=min(self.signal_threshold, trend_anchor.BASE) if anchor else self.signal_threshold,
+                        event_ok=ev_ok, event_reason=ev_reason,
                         costs_ok=self._clears_costs(symbol) if self._hurdle() else None,
                         room_direction=getattr(view, "direction", None),
                         room_confident=bool(getattr(view, "confident", False)), tick=self.ticks, now=self.now,

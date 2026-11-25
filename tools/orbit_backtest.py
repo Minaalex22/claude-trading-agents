@@ -134,7 +134,8 @@ def run_arm(bars: dict, agents: int, cost_bps: float) -> tuple[list[dict], dict]
     env = {"MARKET": "history", "FEE_BPS": str(cost_bps), "TICKS": str(len(market)), "TICK_SECONDS": "0",
            "SYMBOLS": ",".join(bars), "MEMORY": "off", "COACH": "off", "READING_ROOM_CLAUDE": "off",
            "AGENT_COUNT": str(agents), "SEED": "42",
-           "ORBIT_HEAT": "off"}  # heat is applied once, in orbit_portfolio.simulate, not twice
+           "ORBIT_HEAT": "off",
+           **{k: v for k, v in os.environ.items() if k.startswith("TREND_ANCHOR")}}  # heat is applied once, in orbit_portfolio.simulate, not twice
     with _MonthlyRearm():
         desk = engine.run(env, stream=out, market=market)
     orders, pending, marks, pos = [], [], [], {}
