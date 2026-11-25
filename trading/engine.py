@@ -29,6 +29,8 @@ Configured with environment variables so the same image runs as any shard:
                 desk's price; trading/execution_guard.py; default on)
   PASSIVE_ENTRIES "off": Scalper (reversion-led) entries cross the spread at once instead of resting a limit at the
                 touch for up to 2 bars (cancelled if price runs 0.35R away; trading/execution_guard.py; default on)
+  STATE_STORE   "off": memory snapshots go to the JSON files only, not also to desk_state.sqlite (WAL mode; a damaged
+                JSON file is then restored from SQLite; trading/state_store.py; default on)
   INDICATOR_CACHE "off": every agent works out its own rolling numbers instead of sharing them per symbol (default on)
   REVIEWS       "off" stops the traders' 15-minute self-reviews and the daily copy-the-best step (default on)
   MARKET        "sim" (default) or "live": live trades real prices (Coinbase, Yahoo) with paper money
@@ -239,6 +241,8 @@ def run(env=os.environ, stream=None, market=None) -> Desk:
     team_relay.ENABLED = env.get("TEAM_RELAY", "on").lower() not in ("off", "0", "false", "no")
     execution_guard.DRIFT_CHECK = env.get("BROKER_DRIFT", "on").lower() not in ("off", "0", "false", "no")
     indicators.ENABLED = env.get("INDICATOR_CACHE", "on").lower() not in ("off", "0", "false", "no")
+    from . import state_store
+    state_store.ENABLED = env.get("STATE_STORE", "on").lower() not in ("off", "0", "false", "no")
     # Night Shift (trading/night_shift.py): the overnight capsule; on by default, NIGHT_SHIFT_ENABLED=false turns it off.
     night = NightShiftEngine(NightShiftConfig.from_env(env))
     risk = RiskManager(limits, broker, kill_path=Path(events_dir) / "KILL" if events_dir else None, night_shift=night)
