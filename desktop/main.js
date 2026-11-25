@@ -1,12 +1,14 @@
 // JARVIS Trading desktop app: one window that opens straight onto the trading pages. No browser needed.
 // Sign in once; the login is kept between launches (same as "remember me").
-const { app, BrowserWindow, Menu, shell, ipcMain, nativeTheme } = require("electron");
+const { app, BrowserWindow, Menu, shell, ipcMain, nativeTheme, clipboard } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const { DEFAULT_SERVER, PAGES, isInternal, normalizeServer } = require("./pages");
+const atas = require("./atas");
 
 const RETRY_FOR_MS = 120000; // Render's free plan can take about a minute to wake up.
 let win = null;
+let atasWin = null;
 let firstLoadStarted = 0;
 
 function settingsFile() {
@@ -44,6 +46,43 @@ function go(pagePath) {
   if (win) win.loadURL(server() + pagePath);
 }
 
+// Connect ATAS with one click: runs the same installer as the Terminal line, inside the app.
+function connectAtas() {
+  if (atasWin && !atasWin.isDestroyed()) { atasWin.focus(); return; }
+  atasWin = new BrowserWindow({
+    width: 620, height: 520, minWidth: 420, minHeight: 380, parent: win || undefined,
+    title: "Connect ATAS", backgroundColor: "#000000",
+    webPreferences: { preload: path.join(__dirname, "atas-preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  atasWin.setMenuBarVisibility(false);
+  atasWin.on("closed", () => { atasWin = null; });
+  const send = (ch, v) => { if (atasWin && !atasWin.isDestroyed()) atasWin.webContents.send(ch, v); };
+  atasWin.webContents.once("did-finish-load", async () => {
+    const ses = (win || atasWin).webContents.session;
+    try {
+      await atas.connect({
+        server: server(),
+        platform: process.platform,
+        fetchFn: async (url) => {
+          const r = await ses.fetch(url, { credentials: "include", cache: "no-store" });
+          if (r.status !== 401 || !win || !isInternal(win.webContents.getURL(), server())) return r;
+          // Fallback: ask from inside the signed-in page itself, which always carries the login.
+          const out = await win.webContents.executeJavaScript(
+            `fetch(${JSON.stringify(url)}, { cache: "no-store" }).then(async (x) => ({ status: x.status, url: x.url, text: await x.text() }))`);
+          return new Response(out.text, { status: out.status });
+        },
+        log: (line) => send("atas-log", line),
+      });
+      send("atas-done", { ok: true });
+      if (win) go("/account");
+    } catch (e) {
+      send("atas-done", { ok: false, error: e.message || String(e) });
+      if (e.signIn && win) go("/login");
+    }
+  });
+  atasWin.loadFile(path.join(__dirname, "atas.html"));
+}
+
 function buildMenu() {
   const isMac = process.platform === "darwin";
   const pagesMenu = PAGES.map((p) => ({
@@ -56,6 +95,8 @@ function buildMenu() {
     {
       label: "File",
       submenu: [
+        { label: "Connect ATAS", click: () => connectAtas() },
+        { type: "separator" },
         { label: "Sign out", click: () => go("/logout") },
         { type: "separator" },
         isMac ? { role: "close" } : { role: "quit" },
@@ -134,6 +175,15 @@ function createWindow() {
   showLoading();
   openApp();
 }
+
+// The One account page asks for this when it runs inside the desktop app (only our own pages may).
+ipcMain.handle("connect-atas", (e) => {
+  const from = (e.senderFrame && e.senderFrame.url) || "";
+  if (!isInternal(from, server())) return { ok: false };
+  connectAtas();
+  return { ok: true };
+});
+ipcMain.on("atas-copy", (_e, text) => clipboard.writeText(String(text || "")));
 
 ipcMain.on("retry", () => { firstLoadStarted = 0; showLoading(); openApp(); });
 

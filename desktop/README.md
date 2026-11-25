@@ -8,6 +8,8 @@ pages (News, Trades, Markets, Polymarket, Agents, JARVIS...) in its own window. 
 - Sign in once with your dashboard password; the app keeps you signed in.
 - The **Pages** menu (or Cmd/Ctrl + 1-9) jumps between pages. It reopens the last page you used.
 - Links to other websites open in your normal browser; your own pages stay in the app.
+- **Connect ATAS** (File menu, or the button on One account): one click installs the JarvisFeed add-on into
+  ATAS and links it to your trading system. No Terminal. Then add JarvisFeed to a chart in ATAS.
 - If the server is asleep, the app waits for it to wake up (up to two minutes) and then opens.
 
 It talks to the live app at https://ats-matrix-6la7.onrender.com. To point it somewhere else, set

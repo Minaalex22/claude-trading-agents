@@ -1,7 +1,7 @@
 {
   "name": "jarvis-trading-desktop",
   "productName": "JARVIS Trading",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Desktop app for the JARVIS trading system. Opens your pages in their own window, no browser.",
   "main": "main.js",
   "author": "JARVIS Trading",
@@ -24,6 +24,9 @@
       "main.js",
       "preload.js",
       "pages.js",
+      "atas.js",
+      "atas.html",
+      "atas-preload.js",
       "loading.html",
       "build/icon.png"
     ],

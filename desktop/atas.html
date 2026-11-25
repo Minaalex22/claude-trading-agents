@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Connect ATAS</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #f2f2f2; font: 14px -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; padding: 22px; }
+  h1 { margin: 0; font-size: 20px; letter-spacing: 2px; } h1 b { color: #FF5C00; }
+  .status { display: flex; align-items: center; gap: 12px; color: #ddd; line-height: 1.45; }
+  .ring { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 3px solid #222; border-top-color: #FF5C00; animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .ok .ring, .bad .ring { display: none; }
+  .ok .status::before { content: "\2713"; color: #2ecc71; font-size: 22px; font-weight: 800; }
+  .bad .status::before { content: "!"; color: #ff4d4d; font-size: 22px; font-weight: 800; }
+  pre { flex: 1; margin: 0; overflow: auto; background: #0b0b0b; border: 1px solid #222; border-radius: 6px; padding: 10px; font: 12px ui-monospace, Menlo, Consolas, monospace; color: #aaa; white-space: pre-wrap; }
+  .next { display: none; background: #140a03; border: 1px solid #FF5C00; border-radius: 6px; padding: 12px 14px; line-height: 1.5; }
+  .ok .next { display: block; }
+  .row { display: flex; gap: 10px; justify-content: flex-end; }
+  button { background: #1b1b1b; color: #eee; border: 1px solid #333; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+  button.main { background: #FF5C00; color: #000; border-color: #FF5C00; }
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <h1>CONNECT <b>ATAS</b></h1>
+  <div class="status"><div class="ring"></div><span id="msg">Starting...</span></div>
+  <div class="next"><b>Last step, inside ATAS:</b> open a chart (1 minute is good), press <b>Indicators</b>, add <b>JarvisFeed (ATS Matrix)</b>, OK. Nothing to type. If ATAS was already open, close and reopen it first. One account turns LIVE within a minute or two.</div>
+  <pre id="log"></pre>
+  <div class="row"><button id="copy">Copy log</button><button id="close" class="main">Close</button></div>
+</div>
+<script>
+  const log = document.getElementById("log"), msg = document.getElementById("msg"), wrap = document.getElementById("wrap");
+  window.atasWin.onLog((line) => { log.textContent += line + "\n"; log.scrollTop = log.scrollHeight; msg.textContent = line; });
+  window.atasWin.onDone((res) => {
+    if (res.ok) { wrap.classList.add("ok"); msg.textContent = "ATAS add-on installed and linked to your trading system."; }
+    else { wrap.classList.add("bad"); msg.textContent = res.error; }
+  });
+  document.getElementById("copy").onclick = () => { window.atasWin.copy(log.textContent); document.getElementById("copy").textContent = "Copied"; };
+  document.getElementById("close").onclick = () => window.atasWin.close();
+</script>
+</body>
+</html>
