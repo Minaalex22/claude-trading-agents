@@ -11,7 +11,7 @@
 </head><body>
 <header class="ats-bar"><a class="ats-brand" href="/news"><span class="ats-mark"></span><b>ATS MATRIX</b><em>PRACTICE</em></a><nav class="ats-nav" aria-label="Main menu"><a href="/news">News</a><a href="/pipeline">Pipeline</a><a href="/trades">Trades</a><details class="ats-more"><summary>Markets</summary><div><a href="/markets">All markets</a><a href="/crypto">Crypto</a><a href="/forex">Forex</a><a href="/commodities">Gold and commodities</a><a href="/indices">Indices</a><a href="/shares">Shares</a><a href="/btcc">BTCC</a><a href="/mitrade">Mitrade</a><a href="/polymarket">Polymarket</a><a href="/pairs">Pairs trading</a></div></details><a href="/conductor">Agents</a><a href="/orderflow">Order flow</a><a href="/jarvis">JARVIS</a><details class="ats-more"><summary>Tools</summary><div><a href="/decision">Decision</a><a href="/smart">Smart money</a><a href="/account">One account</a><a href="/wallet">Wallet</a><a href="/calculator">Calculator</a><a href="/timemachine">Time Machine</a><a href="/audit">Audit log</a><a href="/brief">Brief and close</a><a href="/newslab">News Lab</a><a href="/desks">24/7 desks</a><a href="/orbit">Orbit portfolio</a></div></details><details class="ats-more"><summary>More</summary><div><a href="/">Command desk</a><a href="/galaxy">Galaxy</a><a href="/duel">Hunter vs Judge</a><a href="/3d">3D lab</a><a href="/log">Event log</a></div></details></nav><form method="post" action="/logout"><button type="submit">Sign out</button></form></header>
 <script src="/nav.js"></script>
-<div class="pg pg-top"><div class="pg-head"><div><small>Every platform · every desk · ATAS</small><h1>One <b>account</b></h1><p>MetaTrader 5, eToro, Mitrade, BTCC, Betfair, Polymarket, the wallet, the agents' desk and ATAS as one balance, one book and one set of risk limits. Sydney, Asia, Europe, London and New York desks share it.</p></div><span class="pg-badge" id="badge">DEMO</span></div></div>
+<div class="pg pg-top"><div class="pg-head"><div><small>Every platform · every desk · ATAS</small><h1>One <b>account</b></h1><p>MetaTrader 5 (any broker), eToro, Interactive Brokers, Mitrade, BTCC, Betfair, Polymarket, the wallet, the agents' desk and ATAS as one balance, one book and one set of risk limits. Sydney, Asia, Europe, London and New York desks share it.</p></div><span class="pg-badge" id="badge">DEMO</span></div></div>
 <section class="oa-switch" id="switch">
   <div class="oa-toggle" role="group" aria-label="Demo or live"><button type="button" id="m-demo" class="on">DEMO</button><button type="button" id="m-live">LIVE</button></div>
   <div class="oa-switch-txt" id="switch-txt"></div>
@@ -31,13 +31,19 @@
   <div class="oa-p"><h3>ONE BOOK<span>every open position, netted by symbol across platforms</span></h3><div id="book"></div></div>
   <div class="oa-p"><h3>WHERE ORDERS GO<span>in the current mode</span></h3><div id="routes"></div></div>
 </section>
+<section class="oa-p oa-wide"><h3>KEYS<span>which Render env var each platform needs and whether it is set · values are never shown</span></h3><div id="keys"></div></section>
 <section class="oa-grid">
-  <div class="oa-p"><h3>ORDER TICKET<span>MT5 and eToro · goes to demo or live by the switch</span></h3>
+  <div class="oa-p"><h3>OPEN POSITIONS<span>MT5, eToro and IBKR · close any of them here</span></h3><div id="positions"></div></div>
+  <div class="oa-p"><h3>METATRADER 5<span>accounts in MetaApi (any broker) and where the money went</span></h3>
+    <div class="oa-toggle" role="group" aria-label="MT5 account"><button type="button" id="r-demo" class="on">Demo</button><button type="button" id="r-live">Real</button></div>
+    <div id="mt5"></div></div>
+</section>
+<section class="oa-grid">
+  <div class="oa-p"><h3>ORDER TICKET<span>MT5, eToro and IBKR · goes to demo or live by the switch</span></h3>
     <div class="oa-ticket">
-      <label>Platform<select id="t-pf"><option value="mt5">MetaTrader 5</option><option value="etoro">eToro</option></select></label>
-      <label id="l-sym">Symbol (MT5)<input id="t-sym" placeholder="EURUSD"></label>
-      <label id="l-vol">Lots (MT5)<input id="t-vol" type="number" step="0.01" min="0.01" value="0.01"></label>
-      <label id="l-inst" hidden>eToro instrument id<input id="t-inst" type="number" placeholder="e.g. 100000"></label>
+      <label>Platform<select id="t-pf"><option value="mt5">MetaTrader 5</option><option value="etoro">eToro</option><option value="ibkr">Interactive Brokers</option></select></label>
+      <label id="l-sym">Symbol<input id="t-sym" placeholder="EURUSD, AAPL, BTC"></label>
+      <label id="l-vol">Lots (MT5) / shares (IBKR)<input id="t-vol" type="number" step="0.01" min="0.01" value="0.01"></label>
       <label id="l-amt" hidden>Amount USD<input id="t-amt" type="number" min="1" value="50"></label>
       <label>Entry price (for the risk check)<input id="t-entry" type="number" step="any"></label>
       <label>Stop loss (needed in live)<input id="t-sl" type="number" step="any"></label>
