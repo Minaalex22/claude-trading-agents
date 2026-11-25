@@ -316,7 +316,9 @@ class PaperBook:
         return self.state["cash"] + sum(p["shares"] * self._mark(p) for p in self.state["open"])
 
     def bet(self, market_id: str, side: str, usd: float, live: bool = False) -> dict:
-        if live:
+        from .betfair import validate_prediction_market_order
+        ok, _ = validate_prediction_market_order("POLYMARKET", "LIVE" if live else "PAPER", "", False, usd)
+        if not ok:
             raise Refused("Real money is locked. Polymarket is blocked in Australia, so this is paper only.")
         side = str(side).upper()
         if side not in ("YES", "NO"):

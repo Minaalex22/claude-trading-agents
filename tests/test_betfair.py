@@ -72,6 +72,9 @@ class Bridge(unittest.TestCase):
             b.place("1.234", 11, "BACK", 5, 2.2, live=True, confirm="REAL MONEY")
         env = {**KEYS, "BETFAIR_REAL_MONEY": "on", "BETFAIR_RISK_PCT": "1"}
         b, fake = bridge(env)
+        with self.assertRaisesRegex(B.Refused, "live-unlock"):  # switch on, but no Orbit arm promoted yet
+            b.place("1.234", 11, "BACK", 5, 2.2, live=True, confirm="REAL MONEY")
+        b.unlocked = lambda: True
         with self.assertRaisesRegex(B.Refused, "confirm"):
             b.place("1.234", 11, "BACK", 5, 2.2, live=True, confirm="yes")
         with self.assertRaisesRegex(B.Refused, "A\\$10"):
@@ -82,7 +85,9 @@ class Bridge(unittest.TestCase):
         with self.assertRaisesRegex(B.Refused, "balance"):
             b.place("1.234", 11, "BACK", 5, 2.2, live=True, confirm="REAL MONEY")
         fake.balance = 2000.0
-        rec = b.place("1.234", 11, "BACK", 5, 2.215, live=True, confirm="real money")
+        with self.assertRaisesRegex(B.Refused, "exactly"):  # lower case no longer counts (mina, 25 Nov)
+            b.place("1.234", 11, "BACK", 5, 2.215, live=True, confirm="real money")
+        rec = b.place("1.234", 11, "BACK", 5, 2.215, live=True, confirm="REAL MONEY")
         self.assertEqual((rec["bet_id"], rec["odds"]), ("999", 2.22))  # snapped to a valid Betfair tick
         fake.open_orders = [{"status": "EXECUTABLE"}, {"status": "EXECUTABLE"}]
         with self.assertRaisesRegex(B.Refused, "open real bets"):
@@ -91,9 +96,25 @@ class Bridge(unittest.TestCase):
     def test_daily_cap(self):
         env = {**KEYS, "BETFAIR_REAL_MONEY": "on", "BETFAIR_DAILY_STAKE": "12", "BETFAIR_RISK_PCT": "10"}
         b, _ = bridge(env)
+        b.unlocked = lambda: True
         b.place("1.234", 11, "BACK", 10, 2.2, live=True, confirm="REAL MONEY")
         with self.assertRaisesRegex(B.Refused, "daily"):
             b.place("1.234", 11, "BACK", 5, 2.2, live=True, confirm="REAL MONEY")
+
+    def test_au_prediction_market_guard(self):
+        v = B.validate_prediction_market_order
+        on = {"BETFAIR_REAL_MONEY": "on"}
+        self.assertFalse(v("POLYMARKET", "LIVE", "REAL MONEY", True, 10, env=on)[0])  # never live in Australia
+        self.assertTrue(v("polymarket", "paper", "", False, 10)[0])
+        self.assertTrue(v("BETFAIR", "PAPER", "", False, 10, env={})[0])
+        self.assertIn("SWITCH", v("BETFAIR", "LIVE", "REAL MONEY", True, 10, env={})[1])
+        self.assertIn("UNLOCK", v("BETFAIR", "LIVE", "REAL MONEY", False, 10, env=on)[1])
+        self.assertIn("CONFIRMATION", v("BETFAIR", "LIVE", "yes", True, 10, env=on)[1])
+        self.assertIn("STAKE_CAP", v("BETFAIR", "LIVE", "REAL MONEY", True, 60, env=on)[1])
+        self.assertEqual(v("BETFAIR", "LIVE", "REAL MONEY", True, 50, env=on), (True, "PASS_BETFAIR_AU_LIVE"))
+        self.assertFalse(v("KALSHI", "PAPER", "", True, 1)[0])
+        from trading import platforms
+        self.assertFalse(platforms.validate_prediction_market_order("POLYMARKET", "LIVE", "REAL MONEY", True, 1)[0])
 
     def test_matches_polymarket_picks(self):
         b, _ = bridge(KEYS)

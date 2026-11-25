@@ -329,3 +329,9 @@ def main(argv=None) -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def validate_prediction_market_order(*a, **k):
+    """Australian prediction-market rules (Polymarket paper only, Betfair live gated): see trading/betfair.py."""
+    from .betfair import validate_prediction_market_order as check
+    return check(*a, **k)

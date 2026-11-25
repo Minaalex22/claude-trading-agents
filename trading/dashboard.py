@@ -491,6 +491,11 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
         with poly_lock:
             if "bf" not in poly:
                 poly["bf"] = betfair.Bridge(env, hub.events_dir)
+
+                def unlocked() -> bool:  # live-unlock gate: an Orbit arm promoted (all three gates passed)
+                    from . import strategy_lab
+                    return any(a["promoted"] for a in strategy_lab.check(list(hub.closed), hub.events_dir).values())
+                poly["bf"].unlocked = unlocked
             return poly["bf"]
 
     def poly_wallet() -> dict | None:
