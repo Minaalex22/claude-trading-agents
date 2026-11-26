@@ -1,0 +1,264 @@
+{
+ "SPX": {
+  "bars": 16144,
+  "from": "2025-01-01",
+  "to": "2026-05-15",
+  "desk": {
+   "n": 80,
+   "win_rate": 0.3,
+   "profit_factor": 0.696,
+   "payoff": 1.623,
+   "net": -10741.64,
+   "end_equity": 89258.36,
+   "max_dd": 0.1383,
+   "years": {
+    "2025": {
+     "n": 54,
+     "win_rate": 0.2593,
+     "profit_factor": 0.833,
+     "payoff": 2.38,
+     "net": -4088.2
+    },
+    "2026": {
+     "n": 26,
+     "win_rate": 0.3846,
+     "profit_factor": 0.386,
+     "payoff": 0.617,
+     "net": -6653.44
+    }
+   }
+  },
+  "broker": {
+   "n": 80,
+   "win_rate": 0.3375,
+   "profit_factor": 0.999,
+   "payoff": 1.961,
+   "net": -26.96,
+   "end_equity": 99973.04,
+   "max_dd": 0.0758,
+   "years": {
+    "2025": {
+     "n": 54,
+     "win_rate": 0.2963,
+     "profit_factor": 1.163,
+     "payoff": 2.761,
+     "net": 3199.97
+    },
+    "2026": {
+     "n": 26,
+     "win_rate": 0.4231,
+     "profit_factor": 0.654,
+     "payoff": 0.892,
+     "net": -3226.93
+    }
+   }
+  }
+ },
+ "GOLD": {
+  "bars": 16180,
+  "from": "2025-01-01",
+  "to": "2026-05-15",
+  "desk": {
+   "n": 202,
+   "win_rate": 0.2327,
+   "profit_factor": 0.725,
+   "payoff": 2.39,
+   "net": -16875.96,
+   "end_equity": 83123.93,
+   "max_dd": 0.298,
+   "years": {
+    "2025": {
+     "n": 155,
+     "win_rate": 0.2129,
+     "profit_factor": 0.614,
+     "payoff": 2.268,
+     "net": -18558.81
+    },
+    "2026": {
+     "n": 47,
+     "win_rate": 0.2979,
+     "profit_factor": 1.127,
+     "payoff": 2.656,
+     "net": 1682.85
+    }
+   }
+  },
+  "broker": {
+   "n": 202,
+   "win_rate": 0.2921,
+   "profit_factor": 0.983,
+   "payoff": 2.382,
+   "net": -943.45,
+   "end_equity": 99056.55,
+   "max_dd": 0.2006,
+   "years": {
+    "2025": {
+     "n": 155,
+     "win_rate": 0.2774,
+     "profit_factor": 0.866,
+     "payoff": 2.256,
+     "net": -5546.55
+    },
+    "2026": {
+     "n": 47,
+     "win_rate": 0.3404,
+     "profit_factor": 1.334,
+     "payoff": 2.585,
+     "net": 4603.1
+    }
+   }
+  }
+ },
+ "EURUSD": {
+  "bars": 17040,
+  "from": "2025-01-01",
+  "to": "2026-05-15",
+  "desk": {
+   "n": 195,
+   "win_rate": 0.159,
+   "profit_factor": 0.431,
+   "payoff": 2.283,
+   "net": -33821.32,
+   "end_equity": 66178.72,
+   "max_dd": 0.347,
+   "years": {
+    "2025": {
+     "n": 137,
+     "win_rate": 0.1606,
+     "profit_factor": 0.441,
+     "payoff": 2.306,
+     "net": -24410.02
+    },
+    "2026": {
+     "n": 58,
+     "win_rate": 0.1552,
+     "profit_factor": 0.405,
+     "payoff": 2.204,
+     "net": -9411.3
+    }
+   }
+  },
+  "broker": {
+   "n": 195,
+   "win_rate": 0.3026,
+   "profit_factor": 0.912,
+   "payoff": 2.102,
+   "net": -3673.98,
+   "end_equity": 96326.05,
+   "max_dd": 0.1165,
+   "years": {
+    "2025": {
+     "n": 137,
+     "win_rate": 0.2847,
+     "profit_factor": 0.934,
+     "payoff": 2.346,
+     "net": -1899.79
+    },
+    "2026": {
+     "n": 58,
+     "win_rate": 0.3448,
+     "profit_factor": 0.866,
+     "payoff": 1.645,
+     "net": -1774.19
+    }
+   }
+  }
+ },
+ "BTC": {
+  "bars": 85726,
+  "from": "2022-01-01",
+  "to": "2026-11-22",
+  "desk": {
+   "n": 2053,
+   "win_rate": 0.2791,
+   "profit_factor": 1.072,
+   "payoff": 2.769,
+   "net": 70453.45,
+   "end_equity": 170453.51,
+   "max_dd": 0.4063,
+   "years": {
+    "2022": {
+     "n": 378,
+     "win_rate": 0.254,
+     "profit_factor": 1.198,
+     "payoff": 3.519,
+     "net": 25595.2
+    },
+    "2023": {
+     "n": 419,
+     "win_rate": 0.2649,
+     "profit_factor": 1.228,
+     "payoff": 3.407,
+     "net": 46003.4
+    },
+    "2024": {
+     "n": 441,
+     "win_rate": 0.2925,
+     "profit_factor": 1.042,
+     "payoff": 2.519,
+     "net": 9693.91
+    },
+    "2025": {
+     "n": 418,
+     "win_rate": 0.2656,
+     "profit_factor": 0.786,
+     "payoff": 2.173,
+     "net": -46674.95
+    },
+    "2026": {
+     "n": 397,
+     "win_rate": 0.3174,
+     "profit_factor": 1.184,
+     "payoff": 2.547,
+     "net": 35835.89
+    }
+   }
+  },
+  "broker": {
+   "n": 2053,
+   "win_rate": 0.2523,
+   "profit_factor": 0.961,
+   "payoff": 2.849,
+   "net": -27834.99,
+   "end_equity": 72164.95,
+   "max_dd": 0.6012,
+   "years": {
+    "2022": {
+     "n": 378,
+     "win_rate": 0.2328,
+     "profit_factor": 1.088,
+     "payoff": 3.585,
+     "net": 11585.59
+    },
+    "2023": {
+     "n": 419,
+     "win_rate": 0.2458,
+     "profit_factor": 1.073,
+     "payoff": 3.291,
+     "net": 13056.66
+    },
+    "2024": {
+     "n": 441,
+     "win_rate": 0.2653,
+     "profit_factor": 0.929,
+     "payoff": 2.572,
+     "net": -12138.67
+    },
+    "2025": {
+     "n": 418,
+     "win_rate": 0.2416,
+     "profit_factor": 0.681,
+     "payoff": 2.139,
+     "net": -43453.7
+    },
+    "2026": {
+     "n": 397,
+     "win_rate": 0.2746,
+     "profit_factor": 1.031,
+     "payoff": 2.724,
+     "net": 3115.13
+    }
+   }
+  }
+ }
+}

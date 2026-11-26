@@ -17,6 +17,16 @@ This file is newer than the blueprints below. Where they differ, this file is ri
   memory all live on the disk, so restarts and deploys no longer wipe them. MetaApi demo check script
   `scripts/verify_metaapi_demo.py` (read-only).
 
+## Noise band strategy (25 Nov 2026, paper only)
+
+`trading/noise_band.py`: the intraday momentum "noise area" strategy (Zarattini, Aziz and Barbon 2024). Bands around
+the session open from the average move at each time of day over 14 sessions; buy above the upper band, sell below the
+lower, stop at the band or session average, flat by the close, volatility-targeted size. Intraday desks only. On by
+default for gold (NOISE_BAND_MARKETS, NOISE_BAND_MULT=2.0). Real 30-minute bars Jan 2025 - May 2026, whole paper desk:
+before 60 trades / 26.7% wins / PF 1.10 / +$44; with the noise band on gold 162 trades / 43.8% / PF 1.74 / +$1,834.
+On its own (no desk) it is about break-even at best; the paper's 1.0 band and crypto lose. Settings picked after
+seeing the data, so the live paper desk has to confirm it. Backtest: `tools/noise_band_backtest.py`.
+
 ## Latest results on real prices (after PR #53)
 
 Real daily prices 2020-2026, costs included (`tools/orbit_backtest.py`). Settings were picked on 2020-22 only.
