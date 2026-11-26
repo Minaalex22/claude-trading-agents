@@ -63,7 +63,7 @@ from . import news_lab
 from . import decision_desk
 from .smart_money import SmartMoney
 from . import session_desks
-from . import atas_feed, one_account, whale_bridge
+from . import atas_feed, one_account, whale_bridge, pelosi, live_market
 from . import night_shift
 from .hooks import should_suppress_alert
 from .org import DEPARTMENTS, finish_school, manager_reports
@@ -138,6 +138,7 @@ STATIC = {
     "/btcc.js": ("btcc.js", "text/javascript; charset=utf-8"),
     "/btcc.css": ("btcc.css", "text/css; charset=utf-8"),
     "/mitrade.js": ("mitrade.js", "text/javascript; charset=utf-8"),
+    "/pelosi.js": ("pelosi.js", "text/javascript; charset=utf-8"),
     "/account.js": ("account.js", "text/javascript; charset=utf-8"),
     "/account.css": ("account.css", "text/css; charset=utf-8"),
     # Vendored so the strict CSP (scripts only from this site) holds and the cloud app needs no CDN.
@@ -648,6 +649,26 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
     atas_codes = atas_feed.InstallCodes()
     mode_switch = one_account.ModeSwitch(hub.events_dir)
     whale = whale_bridge.start({**env, "EVENTS_DIR": str(hub.events_dir or "")})  # UW 0DTE whale prints, 1/min in US hours
+    pelosi_page = _read("pelosi.html")
+    px_cache: dict = {}
+
+    def stock_price(sym: str) -> float:  # Yahoo last price, kept 5 minutes
+        hit = px_cache.get(("p", sym))
+        if hit and time.time() - hit[0] < 300:
+            return hit[1]
+        v = live_market.fetch_price(sym)
+        px_cache[("p", sym)] = (time.time(), v)
+        return v
+
+    def stock_closes(sym: str):  # Yahoo daily closes, kept 6 hours (move since the trade date)
+        hit = px_cache.get(("c", sym))
+        if hit and time.time() - hit[0] < 21600:
+            return hit[1]
+        v = pelosi.daily_closes(sym)
+        px_cache[("c", sym)] = (time.time(), v)
+        return v
+
+    congress_feed, congress_book = pelosi.start({**env, "EVENTS_DIR": str(hub.events_dir or "")}, stock_price, stock_closes)
     broker_cache: dict = {}  # MT5 / eToro reads, kept 20 seconds so the page and order checks don't hammer them
 
     def _cached(key: str, fn):
@@ -826,7 +847,7 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                                         'inputmode="numeric" pattern="[0-9 ]{6,7}" autocomplete="one-time-code" required>')
                 self._send(200, page.encode(), "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif not self._authed():
-                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/timemachine", "/audit", "/brief", "/newslab", "/account", "/orbit") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
+                if path in ("/", "/3d", "/jarvis", "/log", "/orderflow", "/markets", "/galaxy", "/duel", "/news", "/trades", "/pipeline", "/polymarket", "/conductor", "/pairs", "/desks", "/wallet", "/btcc", "/mitrade", "/calculator", "/timemachine", "/audit", "/brief", "/newslab", "/account", "/orbit", "/pelosi") or path in KIND_PAGES or DESK_PAGE.fullmatch(path) or MARKET_PAGE.fullmatch(path):
                     self._redirect("/login")
                 else:
                     self._send(401, b'{"error":"sign in required"}', "application/json")
@@ -862,6 +883,16 @@ def make_handler(hub: EventHub, auth: WebAuth | None = None, jarvis: Jarvis | No
                 self._json(200, {"platforms": platforms.status(), "live_trading": "locked"})
             elif path in ("/api/mt5", "/api/mt5/report"):
                 self._mt5_get(path)
+            elif path == "/pelosi":
+                self._send(200, pelosi_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
+            elif path == "/api/pelosi":
+                def cached_px(sym):
+                    hit = px_cache.get(("p", sym))
+                    if not hit:
+                        raise KeyError(sym)
+                    return hit[1]
+                self._json(200, pelosi.page_data(congress_feed, congress_book, cached_px,
+                                                 pelosi.members_followed(env)))
             elif path == "/mitrade":
                 self._send(200, mitrade_page, "text/html; charset=utf-8", {"Cache-Control": "no-store"})
             elif path == "/api/mitrade":
