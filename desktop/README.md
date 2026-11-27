@@ -1,6 +1,6 @@
 # JARVIS Trading desktop app
 
-A real app for your Mac or Windows computer. Double-click it and it opens straight onto your trading
+A real app for your Mac. Double-click it and it opens straight onto your trading
 pages (News, Trades, Markets, Polymarket, Agents, JARVIS...) in its own window. No browser.
 
 **Download:** https://github.com/Minaalex22/claude-trading-agents/releases/tag/desktop-latest
