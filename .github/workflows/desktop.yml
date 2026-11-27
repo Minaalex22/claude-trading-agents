@@ -52,6 +52,13 @@ jobs:
         run: npx electron-builder ${{ matrix.args2 }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Check Mac app signatures
+        if: matrix.name == 'mac'
+        run: |
+          for app in dist/mac*/"JARVIS Trading.app"; do
+            echo "checking $app"
+            codesign --verify --deep --strict --verbose=2 "$app"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: installer-${{ matrix.name }}
@@ -87,6 +94,8 @@ jobs:
             **Mac, first time only:** open the .dmg, drag JARVIS Trading into Applications, then open it.
             If the Mac says it can't check the app, open System Settings > Privacy & Security, scroll down,
             press **Open Anyway** next to JARVIS Trading. After that it opens normally every time.
+            If it still says "damaged", paste this once in Terminal:
+            `xattr -dr com.apple.quarantine "/Applications/JARVIS Trading.app"`
 
             **Windows, first time only:** if a blue "Windows protected your PC" box appears, press
             **More info**, then **Run anyway**.
