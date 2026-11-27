@@ -40,6 +40,16 @@ class WebAuthTests(unittest.TestCase):
             WebAuth.from_env("0.0.0.0", {})  # public with no password: refuse to start
         self.assertTrue(WebAuth.from_env("0.0.0.0", {"DASHBOARD_PASSWORD": PASSWORD}).enabled)
 
+    def test_owner_password_works_alongside_render_password(self):
+        from trading.webauth import hash_password
+        auth = WebAuth(PASSWORD, "s", owner_hash=hash_password("owner-pass-123", iterations=1000))
+        self.assertTrue(auth.check("owner-pass-123"))
+        self.assertTrue(auth.check(PASSWORD))
+        self.assertFalse(auth.check("owner-pass-124"))
+        self.assertIsNotNone(WebAuth.from_env("0.0.0.0", {"DASHBOARD_PASSWORD": PASSWORD}).owner_hash)
+        self.assertIsNone(WebAuth.from_env("0.0.0.0", {"DASHBOARD_PASSWORD": PASSWORD,
+                                                       "OWNER_PASSWORD": "off"}).owner_hash)
+
     def test_tokens(self):
         clock = FakeClock()
         auth = WebAuth(PASSWORD, "secret", clock=clock)
