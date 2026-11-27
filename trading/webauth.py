@@ -1,6 +1,9 @@
 """Password login for the dashboard when it is reachable from the internet.
 
 - One password, from DASHBOARD_PASSWORD (Render generates it; it is never in the repo).
+- Plus the owner's own password, so the owner can sign in without opening the Render dashboard. Only a
+  salted PBKDF2 hash of it is in the repo (OWNER_PASSWORD_HASH), never the password itself. To change it,
+  replace the hash with `python -m trading.webauth hash-password`; set OWNER_PASSWORD=off to turn it off.
 - Sessions are signed cookies (HMAC-SHA256) that last SESSION_DAYS (default 30), so
   the home-screen app stays signed in. The signing key mixes SESSION_SECRET with the
   password, so changing either signs everyone out.
@@ -35,6 +38,25 @@ LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 MAX_TRACKED_CLIENTS = 1024  # above this, expired entries are swept
 TOTP_STEP = 30
 TOTP_DRIFT = 1  # accept the code before and after the current one (phone clocks drift)
+# The owner's sign-in password as "iterations$salt$hash" (PBKDF2-HMAC-SHA256). Works alongside DASHBOARD_PASSWORD.
+OWNER_PASSWORD_HASH = "400000$03bea6841759723701ca071987b7f4b5$0566c1b3ed99d7288091f2af56579435525d43cda8c481230cd59b8848d94fbd"
+
+
+def hash_password(password: str, iterations: int = 400_000) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations)
+    return f"{iterations}${salt.hex()}${digest.hex()}"
+
+
+def matches_hash(attempt: str, stored: str | None) -> bool:
+    if not stored:
+        return False
+    try:
+        iterations, salt, digest = stored.split("$")
+        got = hashlib.pbkdf2_hmac("sha256", attempt.encode(), bytes.fromhex(salt), int(iterations))
+        return hmac.compare_digest(got, bytes.fromhex(digest))
+    except ValueError:
+        return False
 
 
 def _totp_key(secret: str) -> bytes:
@@ -55,7 +77,8 @@ def new_totp_secret() -> str:
 
 class WebAuth:
     def __init__(self, password: str | None, secret: str | None, enabled: bool = True,
-                 session_days: float = 30, clock=time.time, totp_secret: str | None = None):
+                 session_days: float = 30, clock=time.time, totp_secret: str | None = None,
+                 owner_hash: str | None = None):
         if enabled and (not password or len(password) < MIN_PASSWORD_LENGTH):
             raise SystemExit(f"DASHBOARD_PASSWORD must be set (at least {MIN_PASSWORD_LENGTH} characters) "
                              "before the dashboard can be reachable from the internet.")
@@ -67,6 +90,7 @@ class WebAuth:
                 raise SystemExit("DASHBOARD_TOTP_SECRET must be a base32 secret of at least 16 characters "
                                  "(make one with: python -m trading.webauth new-totp).") from None
         self.totp_secret = totp_secret or None
+        self.owner_hash = owner_hash or None
         self._used_steps: deque = deque(maxlen=8)  # a code works once
         self.enabled = enabled
         self.ttl = int(session_days * 86400)
@@ -84,14 +108,16 @@ class WebAuth:
         # "force" keeps login on even on this computer's own address: real money needs the two-step code there too.
         enabled = mode == "force" or (mode != "off" and host not in LOOPBACK)
         return cls(env.get("DASHBOARD_PASSWORD"), env.get("SESSION_SECRET"), enabled,
-                   float(env.get("SESSION_DAYS", 30)), totp_secret=env.get("DASHBOARD_TOTP_SECRET"))
+                   float(env.get("SESSION_DAYS", 30)), totp_secret=env.get("DASHBOARD_TOTP_SECRET"),
+                   owner_hash=None if env.get("OWNER_PASSWORD", "on").lower() == "off" else OWNER_PASSWORD_HASH)
 
     @property
     def max_age(self) -> int:
         return self.ttl
 
     def check_password(self, attempt: str) -> bool:
-        return hmac.compare_digest(hashlib.sha256(attempt.encode()).digest(), self._password_digest)
+        main = hmac.compare_digest(hashlib.sha256(attempt.encode()).digest(), self._password_digest)
+        return matches_hash(attempt, self.owner_hash) or main
 
     @property
     def two_step(self) -> bool:
@@ -174,6 +200,9 @@ if __name__ == "__main__":
         print(f"DASHBOARD_TOTP_SECRET={new}")
         print(f"Add it to your authenticator app by typing the secret, or open: "
               f"otpauth://totp/{label}?secret={new}&issuer=ATS%20Matrix")
+    elif sys.argv[1:] == ["hash-password"]:
+        import getpass
+        print(hash_password(getpass.getpass("New owner password: ")))
     else:
-        print("usage: python -m trading.webauth new-totp", file=sys.stderr)
+        print("usage: python -m trading.webauth new-totp | hash-password", file=sys.stderr)
         sys.exit(2)
