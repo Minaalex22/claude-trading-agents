@@ -76,6 +76,7 @@ def installer(kind: str, url: str, feed_token: str) -> str:
     name = {"sh": "install.sh", "ps1": "install.ps1"}[kind]
     text = (INSTALL_DIR / name).read_text(encoding="utf-8")
     source = (INSTALL_DIR / "JarvisFeed.cs").read_text(encoding="utf-8").rstrip("\n")
+    bridge = (INSTALL_DIR / "McpBridgeStrategy.cs").read_text(encoding="utf-8").rstrip("\n")
     # values are checked: url by app_url, token is hex or the owner's own ATAS_TOKEN (no quotes allowed)
     if any(c in feed_token for c in "'\"`$\\\n\r"):
         raise FeedError("ATAS_TOKEN can't contain quotes, $, backslashes or line breaks")
@@ -83,7 +84,8 @@ def installer(kind: str, url: str, feed_token: str) -> str:
     if kind == "ps1":
         text = text.replace("\n", "\r\n")
         source = source.replace("\n", "\r\n")
-    return text.replace("__JARVISFEED_CS__", source)
+        bridge = bridge.replace("\n", "\r\n")
+    return text.replace("__JARVISFEED_CS__", source).replace("__MCPBRIDGE_CS__", bridge)
 
 
 class InstallCodes:

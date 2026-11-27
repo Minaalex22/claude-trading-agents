@@ -18,8 +18,9 @@ Every order goes through `AtasBridge.place_order`, and these checks run in code,
   - Every attempt is written to the audit log (~/.jarvisfeed/atas_orders.jsonl), whether it was sent or blocked.
 Cancelling and flattening always work, because they only reduce risk.
 
-The bridge itself has no password. Any program, or a web page open in a browser on the same computer, can send it
-orders while it runs. Set ATAS_BRIDGE_TOKEN when you use a bridge that checks a token; it is sent as X-Bridge-Token.
+The original bridge has no password. The Connect ATAS installer builds a locked copy
+(trading/atas_install/McpBridgeStrategy.cs). That copy needs the X-Bridge-Token header on every call and refuses web
+pages. The installer saves the token in ~/.jarvisfeed/config as bridge_token, and from_config() picks it up.
 """
 
 from __future__ import annotations
@@ -260,5 +261,7 @@ def from_config(env=None) -> AtasBridge:
             k, _, v = line.partition("=")
             saved[k.strip()] = v.strip()
     url, token = env.get("JARVIS_APP_URL") or saved.get("url"), env.get("ATAS_FEED_TOKEN") or saved.get("token")
+    if saved.get("bridge_token") and not env.get("ATAS_BRIDGE_TOKEN"):
+        env["ATAS_BRIDGE_TOKEN"] = saved["bridge_token"]  # the locked bridge's password, set by the installer
     mode = app_switch(url, token) if url and token else None
     return AtasBridge(env, mode=mode)

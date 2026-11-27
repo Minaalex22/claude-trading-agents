@@ -42,6 +42,9 @@ is `trading/atas_bridge.py` and the MCP server is `tools/atas/bridge_mcp.py`. Ev
 - Every order needs a stop loss, and a protective stop order is placed right after it. The kill switch blocks new orders.
 - Every attempt is logged to `~/.jarvisfeed/atas_orders.jsonl`. Cancel and flatten always work.
 
-Be careful: the bridge has no password. While it's switched on, any program or web page on that computer can send it
-orders. Only tick IsActivated while you use it, and keep a daily loss limit set in ATAS or at your broker.
-The bridge is Windows-first and new (first released September 2026).
+The Connect ATAS install line now also builds a **locked copy** of the bridge
+(`trading/atas_install/McpBridgeStrategy.cs`, installed as "MCP Bridge (locked, ATS Matrix)" in ATAS Strategies).
+It needs a random password on every call, which the installer saves as `bridge_token` in `~/.jarvisfeed/config`
+and our client reads by itself. It refuses anything sent from a web page and never opens CORS. With no password
+saved, it refuses everything. To use it, add it to a chart, pick your Sim portfolio and tick IsActivated. Keep a
+daily loss limit set in ATAS or at your broker as well.
